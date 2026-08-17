@@ -145,11 +145,11 @@ describe('deferRunningExecutableRemoval', () => {
     process.env.SystemRoot = String.raw`C:\Windows`
     const mod = await loadFor('win32')
     expect(
-      mod.deferRunningExecutableRemoval(
-        String.raw`C:\Program Files\Caracal\caracal.exe`,
-        String.raw`c:\program files\caracal\CARACAL.EXE`,
-        1234,
-      ),
+      mod.deferRunningExecutableRemoval(String.raw`C:\Program Files\Caracal\caracal.exe`, {
+        currentExecutable: String.raw`c:\program files\caracal\CARACAL.EXE`,
+        currentPid: 1234,
+        removeUserPathEntry: String.raw`C:\Program Files\Caracal`,
+      }),
     ).toBe(true)
 
     const [command, args, options] = spawnSyncMock.mock.calls[0] as [string, string[], Record<string, unknown>]
@@ -164,14 +164,21 @@ describe('deferRunningExecutableRemoval', () => {
     expect(script).toContain('Wait-Process -Id 1234')
     expect(script).toContain("Remove-Item -LiteralPath 'C:\\Program Files\\Caracal\\caracal.exe' -Force")
     expect(script).toContain('Start-Sleep -Milliseconds 100')
+    expect(script).toContain("SetEnvironmentVariable('Path', $next, 'User')")
+    expect(script.indexOf('if (-not $removed) { exit 1 }')).toBeLessThan(script.indexOf("SetEnvironmentVariable('Path', $next, 'User')"))
     expect(options).toMatchObject({ stdio: 'ignore', windowsHide: true })
   })
 
   it('does not defer a different executable or any POSIX executable', async () => {
     let mod = await loadFor('win32')
-    expect(mod.deferRunningExecutableRemoval('C:\\caracal.exe', 'C:\\node.exe', 1234)).toBe(false)
+    expect(mod.deferRunningExecutableRemoval('C:\\caracal.exe', { currentExecutable: 'C:\\node.exe', currentPid: 1234 })).toBe(false)
     mod = await loadFor('linux')
-    expect(mod.deferRunningExecutableRemoval('/usr/local/bin/caracal', '/usr/local/bin/caracal', 1234)).toBe(false)
+    expect(
+      mod.deferRunningExecutableRemoval('/usr/local/bin/caracal', {
+        currentExecutable: '/usr/local/bin/caracal',
+        currentPid: 1234,
+      }),
+    ).toBe(false)
     expect(spawnSyncMock).not.toHaveBeenCalled()
   })
 })
@@ -194,5 +201,11 @@ describe('removeWindowsUserPathEntry', () => {
     const mod = await loadFor('linux')
     expect(mod.removeWindowsUserPathEntry('/usr/local/bin')).toBe(false)
     expect(spawnSyncMock).not.toHaveBeenCalled()
+  })
+
+  it('reports when the Windows user PATH did not change', async () => {
+    spawnSyncMock.mockReturnValueOnce({ status: 2 })
+    const mod = await loadFor('win32')
+    expect(mod.removeWindowsUserPathEntry(String.raw`C:\Programs\caracal`)).toBe(false)
   })
 })

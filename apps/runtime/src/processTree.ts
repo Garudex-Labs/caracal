@@ -127,24 +127,44 @@ export function isRunningExecutable(path: string, currentExecutable: string = pr
   return isWindows && resolve(path).toLowerCase() === resolve(currentExecutable).toLowerCase()
 }
 
+function windowsUserPathRemovalScript(directory: string): string[] {
+  const literalDirectory = directory.replace(/'/g, "''")
+  return [
+    '$pathChanged = $false',
+    "$current = [Environment]::GetEnvironmentVariable('Path', 'User')",
+    'if ($null -ne $current) {',
+    `  $entries = @($current -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ine '${literalDirectory}' })`,
+    "  $next = $entries -join ';'",
+    "  if ($next -ne $current) { [Environment]::SetEnvironmentVariable('Path', $next, 'User'); $pathChanged = $true }",
+    '}',
+  ]
+}
+
+export interface DeferredExecutableRemovalOptions {
+  currentExecutable?: string
+  currentPid?: number
+  removeUserPathEntry?: string
+}
+
 // Windows keeps a running executable locked. Hand its removal to a detached
 // PowerShell process that waits for this process to exit before deleting it.
-export function deferRunningExecutableRemoval(
-  path: string,
-  currentExecutable: string = process.execPath,
-  currentPid: number = process.pid,
-): boolean {
+export function deferRunningExecutableRemoval(path: string, options: DeferredExecutableRemovalOptions = {}): boolean {
+  const currentExecutable = options.currentExecutable ?? process.execPath
+  const currentPid = options.currentPid ?? process.pid
   if (!isRunningExecutable(path, currentExecutable)) return false
   const literalPath = path.replace(/'/g, "''")
   const script = [
     "$ErrorActionPreference = 'SilentlyContinue'",
     `Wait-Process -Id ${currentPid}`,
+    '$removed = $false',
     'for ($attempt = 0; $attempt -lt 50; $attempt++) {',
     `  Remove-Item -LiteralPath '${literalPath}' -Force`,
-    `  if (-not (Test-Path -LiteralPath '${literalPath}')) { exit 0 }`,
+    `  if (-not (Test-Path -LiteralPath '${literalPath}')) { $removed = $true; break }`,
     '  Start-Sleep -Milliseconds 100',
     '}',
-    'exit 1',
+    'if (-not $removed) { exit 1 }',
+    ...(options.removeUserPathEntry ? windowsUserPathRemovalScript(options.removeUserPathEntry) : []),
+    'exit 0',
   ].join('\n')
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   const powershell = windowsPowershell()
@@ -160,15 +180,9 @@ export function deferRunningExecutableRemoval(
 
 export function removeWindowsUserPathEntry(directory: string): boolean {
   if (!isWindows) return false
-  const literalDirectory = directory.replace(/'/g, "''")
-  const script = [
-    "$current = [Environment]::GetEnvironmentVariable('Path', 'User')",
-    'if ($null -eq $current) { exit 0 }',
-    `$entries = @($current -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ine '${literalDirectory}' })`,
-    "$next = $entries -join ';'",
-    "if ($next -ne $current) { [Environment]::SetEnvironmentVariable('Path', $next, 'User') }",
-  ].join('\n')
+  const script = [...windowsUserPathRemovalScript(directory), 'if ($pathChanged) { exit 0 }', 'exit 2'].join('\n')
   const result = runWindowsPowershell(script)
+  if (!result.error && result.status === 2) return false
   if (result.error || result.status !== 0) throw new Error('failed to remove the Caracal install directory from the Windows user PATH')
   return true
 }

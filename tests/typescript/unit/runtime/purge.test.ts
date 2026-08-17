@@ -438,10 +438,24 @@ describe('purgeCommand', () => {
     expect(processTreeMocks.spawnSyncTree).toHaveBeenCalledWith('pnpm.cmd', ['bin', '-g'], { encoding: 'utf8' })
     expect(engineMocks.caracalBinaries).toHaveBeenCalledTimes(1)
     expect(engineMocks.caracalBinaries).toHaveBeenCalledWith('C:\\Caracal', ['C:\\pnpm-global'])
-    expect(processTreeMocks.deferRunningExecutableRemoval).toHaveBeenCalledWith(binPath)
+    expect(processTreeMocks.deferRunningExecutableRemoval).toHaveBeenCalledWith(binPath, {
+      removeUserPathEntry: 'C:\\Caracal',
+    })
     expect(engineMocks.removeFsPath).not.toHaveBeenCalledWith(binPath)
-    expect(processTreeMocks.removeWindowsUserPathEntry).toHaveBeenCalledWith('C:\\Caracal')
+    expect(processTreeMocks.removeWindowsUserPathEntry).not.toHaveBeenCalled()
     expect(output()).toContain('scheduled removal')
+  })
+
+  it('does not report PATH cleanup when the entry was absent', async () => {
+    const binPath = 'C:\\Caracal\\caracal.cmd'
+    engineMocks.caracalBinaries.mockReturnValue([binPath])
+    processTreeMocks.isWindowsRuntime.mockReturnValue(true)
+    processTreeMocks.removeWindowsUserPathEntry.mockReturnValue(false)
+
+    await purgeCommand(['binary', '--yes'])
+
+    expect(processTreeMocks.removeWindowsUserPathEntry).toHaveBeenCalledWith('C:\\Caracal')
+    expect(output()).not.toContain('removed from Windows user PATH')
   })
 
   it('previews deferred removal and PATH cleanup without performing either action', async () => {

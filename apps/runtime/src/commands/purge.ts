@@ -457,12 +457,18 @@ const TARGETS: Target[] = [
     run: async (ctx) => {
       const discovery = caracalBinaryDiscovery(ctx)
       let installedBinaryFound = false
+      let installedPathCleanupDeferred = false
       for (const bin of discovery.paths) {
         const label = `bin/${basename(bin)}`
-        if (sameDirectory(bin, discovery.installDir)) installedBinaryFound = true
+        const installedHere = sameDirectory(bin, discovery.installDir)
+        if (installedHere) installedBinaryFound = true
         if (ctx.dryRun && isRunningExecutable(bin)) {
           process.stdout.write(`  ${style.label('[dry-run]')} schedule removal after exit ${style.code(label)}: ${bin}\n`)
-        } else if (!ctx.dryRun && deferRunningExecutableRemoval(bin)) {
+        } else if (
+          !ctx.dryRun &&
+          deferRunningExecutableRemoval(bin, { removeUserPathEntry: installedHere ? discovery.installDir : undefined })
+        ) {
+          if (installedHere) installedPathCleanupDeferred = true
           process.stdout.write(`  ${style.success(SYMBOL.ok)} scheduled removal of ${style.code(label)} after exit: ${bin}\n`)
         } else {
           removePath(bin, ctx, label)
@@ -471,7 +477,7 @@ const TARGETS: Target[] = [
       if (installedBinaryFound && isWindowsRuntime()) {
         if (ctx.dryRun) {
           process.stdout.write(`  ${style.label('[dry-run]')} remove from Windows user PATH: ${discovery.installDir}\n`)
-        } else if (removeWindowsUserPathEntry(discovery.installDir)) {
+        } else if (!installedPathCleanupDeferred && removeWindowsUserPathEntry(discovery.installDir)) {
           process.stdout.write(`  ${style.success(SYMBOL.ok)} removed from Windows user PATH: ${discovery.installDir}\n`)
         }
       }
