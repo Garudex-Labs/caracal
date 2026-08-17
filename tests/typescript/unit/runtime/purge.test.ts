@@ -49,9 +49,18 @@ const engineMocks = vi.hoisted(() => ({
   removeImages: vi.fn(() => Promise.resolve(0)),
   runtimePaths: vi.fn(),
   caracalBinaries: vi.fn((): string[] => []),
+  defaultCaracalInstallDir: vi.fn(() => 'C:\\Caracal'),
 }))
 
 const spawnSyncMock = vi.hoisted(() => vi.fn())
+const processTreeMocks = vi.hoisted(() => ({
+  deferRunningExecutableRemoval: vi.fn(() => false),
+  isRunningExecutable: vi.fn(() => false),
+  isWindowsRuntime: vi.fn(() => false),
+  removeWindowsUserPathEntry: vi.fn(() => true),
+  resolvePnpm: vi.fn(() => undefined),
+  spawnSyncTree: vi.fn(),
+}))
 
 const promptAnswers = vi.hoisted(() => ({ queue: [] as string[] }))
 
@@ -68,6 +77,8 @@ vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
   spawnSync: spawnSyncMock,
 }))
+
+vi.mock('../../../../apps/runtime/src/processTree.ts', () => processTreeMocks)
 
 vi.mock('@caracalai/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@caracalai/engine')>()
@@ -109,6 +120,13 @@ describe('purgeCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    engineMocks.caracalBinaries.mockReturnValue([])
+    engineMocks.defaultCaracalInstallDir.mockReturnValue('C:\\Caracal')
+    processTreeMocks.deferRunningExecutableRemoval.mockReturnValue(false)
+    processTreeMocks.isRunningExecutable.mockReturnValue(false)
+    processTreeMocks.isWindowsRuntime.mockReturnValue(false)
+    processTreeMocks.removeWindowsUserPathEntry.mockReturnValue(true)
+    processTreeMocks.resolvePnpm.mockReturnValue(undefined)
     promptAnswers.queue.length = 0
     repoRoot = mkdtempSync(join(tmpdir(), 'caracal-purge-repo-'))
     runtimeHome = mkdtempSync(join(tmpdir(), 'caracal-purge-runtime-'))
@@ -403,5 +421,41 @@ describe('purgeCommand', () => {
     await purgeCommand(['binary', '--yes'])
     const removed = engineMocks.removeFsPath.mock.calls.map((call) => String(call[0]))
     expect(removed).toContain(binPath)
+  })
+
+  it('uses platform discovery and defers removal of the running Windows executable', async () => {
+    const binPath = 'C:\\Caracal\\caracal.exe'
+    engineMocks.caracalBinaries.mockReturnValue([binPath])
+    processTreeMocks.resolvePnpm.mockReturnValue({ cmd: 'pnpm.cmd', prefix: [] })
+    processTreeMocks.spawnSyncTree.mockReturnValue({ status: 0, stdout: 'C:\\pnpm-global\n' })
+    processTreeMocks.isRunningExecutable.mockReturnValue(true)
+    processTreeMocks.isWindowsRuntime.mockReturnValue(true)
+    processTreeMocks.deferRunningExecutableRemoval.mockReturnValue(true)
+
+    await purgeCommand(['binary', '--yes'])
+
+    expect(engineMocks.defaultCaracalInstallDir).toHaveBeenCalled()
+    expect(processTreeMocks.spawnSyncTree).toHaveBeenCalledWith('pnpm.cmd', ['bin', '-g'], { encoding: 'utf8' })
+    expect(engineMocks.caracalBinaries).toHaveBeenCalledTimes(1)
+    expect(engineMocks.caracalBinaries).toHaveBeenCalledWith('C:\\Caracal', ['C:\\pnpm-global'])
+    expect(processTreeMocks.deferRunningExecutableRemoval).toHaveBeenCalledWith(binPath)
+    expect(engineMocks.removeFsPath).not.toHaveBeenCalledWith(binPath)
+    expect(processTreeMocks.removeWindowsUserPathEntry).toHaveBeenCalledWith('C:\\Caracal')
+    expect(output()).toContain('scheduled removal')
+  })
+
+  it('previews deferred removal and PATH cleanup without performing either action', async () => {
+    const binPath = 'C:\\Caracal\\caracal.exe'
+    engineMocks.caracalBinaries.mockReturnValue([binPath])
+    processTreeMocks.isRunningExecutable.mockReturnValue(true)
+    processTreeMocks.isWindowsRuntime.mockReturnValue(true)
+
+    await purgeCommand(['binary', '--dry-run'])
+
+    expect(output()).toContain('[dry-run] schedule removal after exit')
+    expect(output()).toContain('[dry-run] remove from Windows user PATH')
+    expect(processTreeMocks.deferRunningExecutableRemoval).not.toHaveBeenCalled()
+    expect(processTreeMocks.removeWindowsUserPathEntry).not.toHaveBeenCalled()
+    expect(engineMocks.removeFsPath).not.toHaveBeenCalledWith(binPath)
   })
 })
