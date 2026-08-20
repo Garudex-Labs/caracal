@@ -80,6 +80,7 @@ import {
   OperatorAiUnavailableError,
   type OperatorAiManager,
 } from '../operator-ai-manager.js'
+import type { OperatorAiRegistrySync } from '../operator-ai-registry-sync.js'
 import { PROVIDER_SLUG_PATTERN } from '../operator-ai-store.js'
 import { assertMessageRunTransition, isTerminalMessageRunState, type MessageRunState } from '../operator-message-state.js'
 import type { OperatorRunLimiter } from '../operator-run-limiter.js'
@@ -917,6 +918,8 @@ export interface OperatorRoutesOptions {
   // The runtime manager for governed model providers, or null when self-governance cannot seal
   // keys. When null the provider-management routes report the feature unavailable.
   aiManager?: OperatorAiManager | null
+  // Per-replica status for the bounded cross-replica runtime-registry refresh loop.
+  aiRegistrySync?: OperatorAiRegistrySync | null
   // Internal-only: resolves the Operator's reserved caracal.sys control identity at request
   // time. Returns null until the system zone is provisioned (or when self-governance is
   // disabled), which leaves governed execution unconfigured. A getter rather than a static
@@ -1101,6 +1104,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     }
     return {
       ...status,
+      ...(opts.aiRegistrySync ? { registry_sync: opts.aiRegistrySync.status() } : {}),
       providers: status.providers.map((provider) => {
         const observation = observations.get(provider.id)
         return {

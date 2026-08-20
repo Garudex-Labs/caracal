@@ -189,6 +189,7 @@ function buildManager(identity: typeof IDENTITY | null) {
   const { db } = fakeDb()
   const { admin, state } = fakeAdmin()
   let published: ProviderConfig[] = []
+  let registryMutations = 0
   const manager = createOperatorAiManager({
     db,
     admin,
@@ -199,8 +200,11 @@ function buildManager(identity: typeof IDENTITY | null) {
     onRegistryChange: (configs) => {
       published = configs
     },
+    onRegistryMutation: async () => {
+      registryMutations += 1
+    },
   })
-  return { manager, state, getPublished: () => published }
+  return { manager, state, getPublished: () => published, getRegistryMutations: () => registryMutations }
 }
 
 describe('operator ai manager helpers', () => {
@@ -407,7 +411,7 @@ describe('operator ai manager lifecycle', () => {
   })
 
   it('re-seals the key on rotate', async () => {
-    const { manager, state } = buildManager(IDENTITY)
+    const { manager, state, getRegistryMutations } = buildManager(IDENTITY)
     await manager.create({
       slug: 'openai',
       label: 'OpenAI',
@@ -420,6 +424,8 @@ describe('operator ai manager lifecycle', () => {
     })
     await manager.rotateKey('openai', 'sk-2')
     expect(state.providers[0].config_json.api_key).toBe('sk-2')
+    // Create changes runtime metadata; rotating the shared sealed key does not.
+    expect(getRegistryMutations()).toBe(1)
   })
 
   it('refuses to move the endpoint without a key, so the sealed key is never re-pointed', async () => {
@@ -463,7 +469,7 @@ describe('operator ai manager lifecycle', () => {
   })
 
   it('prunes the sealed provider and clears the registry on delete', async () => {
-    const { manager, state, getPublished } = buildManager(IDENTITY)
+    const { manager, state, getPublished, getRegistryMutations } = buildManager(IDENTITY)
     await manager.create({
       slug: 'openai',
       label: 'OpenAI',
@@ -478,6 +484,25 @@ describe('operator ai manager lifecycle', () => {
     expect(removed).toBe(true)
     expect(state.providers).toHaveLength(0)
     expect(getPublished()).toHaveLength(0)
+    expect(getRegistryMutations()).toBe(2)
+  })
+
+  it('publishes metadata updates, including enable and disable changes', async () => {
+    const { manager, getRegistryMutations } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'openai',
+      label: 'OpenAI',
+      baseUrl: 'https://api/v1',
+      models: ['gpt-5.5'],
+      contextWindow: 0,
+      apiKey: 'sk-1',
+      enabled: true,
+      auth: AUTH,
+    })
+    await manager.update('openai', { label: 'Primary', models: ['gpt-5.4'], enabled: false })
+    await manager.update('openai', { enabled: true })
+
+    expect(getRegistryMutations()).toBe(3)
   })
 
   it('lists configured providers without keys', async () => {

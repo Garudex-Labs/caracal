@@ -183,6 +183,10 @@ export interface OperatorAiManagerDeps {
   // Publishes the rebuilt store-provider gateway entries so the next request's gateway includes
   // the change without an env edit or restart.
   onRegistryChange: (configs: ProviderConfig[]) => void
+  // Publishes a cross-replica invalidation only after a metadata mutation and its control-plane
+  // reconciliation both succeed. Key rotation changes the shared sealed credential, not this
+  // metadata registry, and deliberately does not invoke this callback.
+  onRegistryMutation: () => Promise<void>
 }
 
 // Creates the manager that owns the runtime lifecycle of governed model providers. Every write
@@ -222,6 +226,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         auth: input.auth,
       })
       await reconcile({ slug: input.slug, apiKey: input.apiKey })
+      await deps.onRegistryMutation()
       return toView(record)
     },
 
@@ -242,6 +247,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         auth: patch.auth ?? existing.auth,
       })
       await reconcile(patch.apiKey ? { slug, apiKey: patch.apiKey } : undefined)
+      await deps.onRegistryMutation()
       return toView(record)
     },
 
@@ -255,7 +261,10 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
     async remove(slug) {
       if (!this.available()) throw new OperatorAiUnavailableError()
       const removed = await deleteAiProvider(deps.db, slug)
-      if (removed) await reconcile()
+      if (removed) {
+        await reconcile()
+        await deps.onRegistryMutation()
+      }
       return removed
     },
   }
