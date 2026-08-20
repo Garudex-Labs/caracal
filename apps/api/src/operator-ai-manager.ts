@@ -246,8 +246,15 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         enabled: patch.enabled ?? existing.enabled,
         auth: patch.auth ?? existing.auth,
       })
+      const metadataChanged =
+        patch.label !== undefined ||
+        patch.baseUrl !== undefined ||
+        patch.models !== undefined ||
+        patch.contextWindow !== undefined ||
+        patch.enabled !== undefined ||
+        patch.auth !== undefined
       await reconcile(patch.apiKey ? { slug, apiKey: patch.apiKey } : undefined)
-      await deps.onRegistryMutation()
+      if (metadataChanged) await deps.onRegistryMutation()
       return toView(record)
     },
 

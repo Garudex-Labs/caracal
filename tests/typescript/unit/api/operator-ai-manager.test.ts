@@ -428,6 +428,25 @@ describe('operator ai manager lifecycle', () => {
     expect(getRegistryMutations()).toBe(1)
   })
 
+  it('re-seals an update key without publishing a metadata registry mutation', async () => {
+    const { manager, state, getRegistryMutations } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'openai',
+      label: 'OpenAI',
+      baseUrl: 'https://api/v1',
+      models: ['gpt-5.5'],
+      contextWindow: 0,
+      apiKey: 'sk-1',
+      enabled: true,
+      auth: AUTH,
+    })
+
+    await manager.update('openai', { apiKey: 'sk-2' })
+
+    expect(state.providers[0].config_json.api_key).toBe('sk-2')
+    expect(getRegistryMutations()).toBe(1)
+  })
+
   it('refuses to move the endpoint without a key, so the sealed key is never re-pointed', async () => {
     const { manager, state } = buildManager(IDENTITY)
     await manager.create({
