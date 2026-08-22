@@ -195,6 +195,17 @@ describe('removeWindowsUserPathEntry', () => {
     expect(script).toContain("GetEnvironmentVariable('Path', 'User')")
     expect(script).toContain(String.raw`C:\Users\O''Brien\Programs\caracal`)
     expect(script).toContain("SetEnvironmentVariable('Path', $next, 'User')")
+    expect(script).toContain("$current -split ';' | Where-Object { $_ -ine 'C:\\Users\\O''Brien\\Programs\\caracal' }")
+    expect(script).not.toContain('IsNullOrWhiteSpace')
+  })
+
+  it('preserves unrelated empty PATH entries while removing only the install directory', async () => {
+    const mod = await loadFor('win32')
+    mod.removeWindowsUserPathEntry(String.raw`C:\Caracal`)
+
+    const [, args] = spawnSyncMock.mock.calls[0] as [string, string[]]
+    const script = Buffer.from(args.at(-1)!, 'base64').toString('utf16le')
+    expect(script).toContain("$current -split ';' | Where-Object { $_ -ine 'C:\\Caracal' }")
   })
 
   it('does not mutate PATH on POSIX', async () => {

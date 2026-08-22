@@ -49,7 +49,7 @@ const engineMocks = vi.hoisted(() => ({
   removeImages: vi.fn(() => Promise.resolve(0)),
   runtimePaths: vi.fn(),
   caracalBinaries: vi.fn((): string[] => []),
-  defaultCaracalInstallDir: vi.fn(() => 'C:\\Caracal'),
+  caracalInstallDirs: vi.fn(() => ['C:\\Caracal']),
 }))
 
 const spawnSyncMock = vi.hoisted(() => vi.fn())
@@ -121,7 +121,7 @@ describe('purgeCommand', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     engineMocks.caracalBinaries.mockReturnValue([])
-    engineMocks.defaultCaracalInstallDir.mockReturnValue('C:\\Caracal')
+    engineMocks.caracalInstallDirs.mockReturnValue(['C:\\Caracal'])
     processTreeMocks.deferRunningExecutableRemoval.mockReturnValue(false)
     processTreeMocks.isRunningExecutable.mockReturnValue(false)
     processTreeMocks.isWindowsRuntime.mockReturnValue(false)
@@ -434,7 +434,7 @@ describe('purgeCommand', () => {
 
     await purgeCommand(['binary', '--yes'])
 
-    expect(engineMocks.defaultCaracalInstallDir).toHaveBeenCalled()
+    expect(engineMocks.caracalInstallDirs).toHaveBeenCalled()
     expect(processTreeMocks.spawnSyncTree).toHaveBeenCalledWith('pnpm.cmd', ['bin', '-g'], { encoding: 'utf8' })
     expect(engineMocks.caracalBinaries).toHaveBeenCalledTimes(1)
     expect(engineMocks.caracalBinaries).toHaveBeenCalledWith('C:\\Caracal', ['C:\\pnpm-global'])
@@ -444,6 +444,29 @@ describe('purgeCommand', () => {
     expect(engineMocks.removeFsPath).not.toHaveBeenCalledWith(binPath)
     expect(processTreeMocks.removeWindowsUserPathEntry).not.toHaveBeenCalled()
     expect(output()).toContain('scheduled removal')
+  })
+
+  it('discovers and cleans up a custom-prefix Windows installation', async () => {
+    const prefixBin = 'C:\\Tools\\bin'
+    const binPath = `${prefixBin}\\caracal.exe`
+    engineMocks.caracalInstallDirs.mockReturnValue([prefixBin, 'C:\\Caracal'])
+    engineMocks.caracalBinaries.mockReturnValue([binPath])
+    processTreeMocks.isWindowsRuntime.mockReturnValue(true)
+
+    await purgeCommand(['binary', '--yes'])
+
+    expect(engineMocks.caracalBinaries).toHaveBeenCalledWith(prefixBin, ['C:\\Caracal'])
+    expect(processTreeMocks.removeWindowsUserPathEntry).toHaveBeenCalledWith(prefixBin)
+  })
+
+  it('does not clean persistent PATH for a pnpm-global shim', async () => {
+    engineMocks.caracalInstallDirs.mockReturnValue(['C:\\Caracal'])
+    engineMocks.caracalBinaries.mockReturnValue(['C:\\pnpm-global\\caracal.cmd'])
+    processTreeMocks.isWindowsRuntime.mockReturnValue(true)
+
+    await purgeCommand(['binary', '--yes'])
+
+    expect(processTreeMocks.removeWindowsUserPathEntry).not.toHaveBeenCalled()
   })
 
   it('does not report PATH cleanup when the entry was absent', async () => {

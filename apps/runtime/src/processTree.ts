@@ -133,7 +133,7 @@ function windowsUserPathRemovalScript(directory: string): string[] {
     '$pathChanged = $false',
     "$current = [Environment]::GetEnvironmentVariable('Path', 'User')",
     'if ($null -ne $current) {',
-    `  $entries = @($current -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ine '${literalDirectory}' })`,
+    `  $entries = @($current -split ';' | Where-Object { $_ -ine '${literalDirectory}' })`,
     "  $next = $entries -join ';'",
     "  if ($next -ne $current) { [Environment]::SetEnvironmentVariable('Path', $next, 'User'); $pathChanged = $true }",
     '}',

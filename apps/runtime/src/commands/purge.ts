@@ -12,8 +12,8 @@ import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
 import { defaultCaracalConfigDir } from '@caracalai/engine/runtime-config'
 import {
   caracalBinaries as caracalBinariesCore,
+  caracalInstallDirs,
   composeRun,
-  defaultCaracalInstallDir,
   installRuntimeAssets,
   listCaracalImages,
   removeFsPath,
@@ -85,7 +85,7 @@ interface PurgeContext {
   repoRoot: string | undefined
   composeAvailable: boolean
   dryRun: boolean
-  binaryDiscovery?: { installDir: string; paths: string[] }
+  binaryDiscovery?: { installDirs: string[]; paths: string[] }
 }
 
 interface SecretCleanupTarget {
@@ -280,21 +280,22 @@ function removePath(path: string, ctx: PurgeContext, label: string): void {
   process.stdout.write(`  ${style.success(SYMBOL.ok)} removed ${style.code(label)}: ${path}\n`)
 }
 
-function discoverCaracalBinaries(): { installDir: string; paths: string[] } {
-  const installDir = process.env.CARACAL_INSTALL_DIR ?? defaultCaracalInstallDir()
-  const extra: string[] = []
+function discoverCaracalBinaries(): { installDirs: string[]; paths: string[] } {
+  const installDirs = caracalInstallDirs()
+  const pnpmDirs: string[] = []
   const pnpm = resolvePnpm()
   if (pnpm) {
     const pnpmGlobal = spawnSyncTree(pnpm.cmd, [...pnpm.prefix, 'bin', '-g'], { encoding: 'utf8' })
     if (pnpmGlobal.status === 0 && typeof pnpmGlobal.stdout === 'string') {
       const dir = pnpmGlobal.stdout.trim()
-      if (dir) extra.push(dir)
+      if (dir) pnpmDirs.push(dir)
     }
   }
-  return { installDir, paths: caracalBinariesCore(installDir, extra) }
+  const [installDir, ...extraInstallDirs] = installDirs
+  return { installDirs, paths: caracalBinariesCore(installDir!, [...extraInstallDirs, ...pnpmDirs]) }
 }
 
-function caracalBinaryDiscovery(ctx: PurgeContext): { installDir: string; paths: string[] } {
+function caracalBinaryDiscovery(ctx: PurgeContext): { installDirs: string[]; paths: string[] } {
   return (ctx.binaryDiscovery ??= discoverCaracalBinaries())
 }
 
@@ -456,29 +457,29 @@ const TARGETS: Target[] = [
     available: (ctx) => caracalBinaryDiscovery(ctx).paths.length > 0,
     run: async (ctx) => {
       const discovery = caracalBinaryDiscovery(ctx)
-      let installedBinaryFound = false
-      let installedPathCleanupDeferred = false
+      const installedDirsFound = new Set<string>()
+      const deferredPathCleanup = new Set<string>()
       for (const bin of discovery.paths) {
         const label = `bin/${basename(bin)}`
-        const installedHere = sameDirectory(bin, discovery.installDir)
-        if (installedHere) installedBinaryFound = true
+        const installedDir = discovery.installDirs.find((directory) => sameDirectory(bin, directory))
+        if (installedDir) installedDirsFound.add(installedDir)
         if (ctx.dryRun && isRunningExecutable(bin)) {
           process.stdout.write(`  ${style.label('[dry-run]')} schedule removal after exit ${style.code(label)}: ${bin}\n`)
-        } else if (
-          !ctx.dryRun &&
-          deferRunningExecutableRemoval(bin, { removeUserPathEntry: installedHere ? discovery.installDir : undefined })
-        ) {
-          if (installedHere) installedPathCleanupDeferred = true
+        } else if (!ctx.dryRun && deferRunningExecutableRemoval(bin, { removeUserPathEntry: installedDir })) {
+          if (installedDir) deferredPathCleanup.add(installedDir)
           process.stdout.write(`  ${style.success(SYMBOL.ok)} scheduled removal of ${style.code(label)} after exit: ${bin}\n`)
         } else {
           removePath(bin, ctx, label)
         }
       }
-      if (installedBinaryFound && isWindowsRuntime()) {
-        if (ctx.dryRun) {
-          process.stdout.write(`  ${style.label('[dry-run]')} remove from Windows user PATH: ${discovery.installDir}\n`)
-        } else if (!installedPathCleanupDeferred && removeWindowsUserPathEntry(discovery.installDir)) {
-          process.stdout.write(`  ${style.success(SYMBOL.ok)} removed from Windows user PATH: ${discovery.installDir}\n`)
+      if (isWindowsRuntime()) {
+        for (const installDir of installedDirsFound) {
+          if (deferredPathCleanup.has(installDir)) continue
+          if (ctx.dryRun) {
+            process.stdout.write(`  ${style.label('[dry-run]')} remove from Windows user PATH: ${installDir}\n`)
+          } else if (removeWindowsUserPathEntry(installDir)) {
+            process.stdout.write(`  ${style.success(SYMBOL.ok)} removed from Windows user PATH: ${installDir}\n`)
+          }
         }
       }
     },

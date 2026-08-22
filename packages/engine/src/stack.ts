@@ -385,6 +385,32 @@ export function defaultCaracalInstallDir(
   return env.HOME ? posix.join(env.HOME, '.local', 'bin') : '/usr/local/bin'
 }
 
+export function caracalInstallDirs(
+  targetPlatform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+  executable: string = process.execPath,
+): string[] {
+  const path = targetPlatform === 'win32' ? win32 : posix
+  const dirs: string[] = []
+  const seen = new Set<string>()
+  const add = (directory: string | undefined) => {
+    if (!directory) return
+    const normalized = path.normalize(directory)
+    const key = targetPlatform === 'win32' ? normalized.toLowerCase() : normalized
+    if (seen.has(key)) return
+    seen.add(key)
+    dirs.push(normalized)
+  }
+
+  add(env.CARACAL_INSTALL_DIR)
+  const prefix = env.CARACAL_PREFIX || (targetPlatform === 'win32' ? undefined : env.PREFIX)
+  if (prefix) add(path.join(prefix, 'bin'))
+  if (['caracal', 'caracal.exe'].includes(path.basename(executable).toLowerCase())) add(path.dirname(executable))
+  add(defaultCaracalInstallDir(targetPlatform, env, home))
+  return dirs
+}
+
 export function caracalBinaries(
   installDir: string,
   extraDirs: readonly string[] = [],

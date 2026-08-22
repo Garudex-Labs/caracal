@@ -9,6 +9,7 @@ import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   caracalBinaries,
+  caracalInstallDirs,
   defaultCaracalInstallDir,
   defaultServiceProbes,
   listCaracalImages,
@@ -116,6 +117,16 @@ describe('stack cleanup helpers', () => {
     )
     expect(defaultCaracalInstallDir('linux', { HOME: '/home/dev' }, '/home/dev')).toBe('/home/dev/.local/bin')
     expect(defaultCaracalInstallDir('linux', {}, '/')).toBe('/usr/local/bin')
+
+    expect(
+      caracalInstallDirs(
+        'win32',
+        { CARACAL_INSTALL_DIR: 'C:\\Explicit', CARACAL_PREFIX: 'C:\\Tools', LOCALAPPDATA: 'C:\\Local' },
+        'C:\\Users\\dev',
+        'C:\\Running\\caracal.exe',
+      ),
+    ).toEqual(['C:\\Explicit', 'C:\\Tools\\bin', 'C:\\Running', 'C:\\Local\\Programs\\caracal'])
+    expect(caracalInstallDirs('linux', { PREFIX: '/opt/caracal' }, '/', '/usr/bin/node')).toEqual(['/opt/caracal/bin', '/usr/local/bin'])
 
     const install = mkdtempSync(join(tmpdir(), 'caracal-bin-install-'))
     const extra = mkdtempSync(join(tmpdir(), 'caracal-bin-extra-'))
