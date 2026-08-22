@@ -23,15 +23,15 @@
     "@caracalai/core": "workspace:*",
     "@caracalai/server-core": "workspace:*",
     "@caracalai/engine": "workspace:*",
-    "better-auth": "^1.6.26",
+    "better-auth": "^1.7.1",
     "nodemailer": "^9.0.4",
-    "pg": "^8.22.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
     "@types/nodemailer": "^8.0.1",
-    "@types/pg": "^8.20.4",
+    "@types/pg": "^8.23.1",
     "eslint": "^10.8.1",
     "globals": "^17.11.0",
     "tsx": "^4.23.12",
