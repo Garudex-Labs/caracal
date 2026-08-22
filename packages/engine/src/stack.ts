@@ -5,6 +5,8 @@
 
 import { rmSync, statSync, existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { homedir } from 'node:os'
+import { join, posix, win32 } from 'node:path'
 import { runExec } from './run.js'
 import { authorizeControlManagementAccess } from './controlAccess.js'
 import {
@@ -371,13 +373,56 @@ export function removeFsPath(path: string): { removed: boolean } {
   return { removed: true }
 }
 
-export function caracalBinaries(installDir: string, extraDirs: readonly string[] = []): string[] {
+export function defaultCaracalInstallDir(
+  targetPlatform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): string {
+  if (targetPlatform === 'win32') {
+    const base = env.LOCALAPPDATA || env.ProgramData || win32.join(home, 'AppData', 'Local')
+    return win32.join(base, 'Programs', 'caracal')
+  }
+  return env.HOME ? posix.join(env.HOME, '.local', 'bin') : '/usr/local/bin'
+}
+
+export function caracalInstallDirs(
+  targetPlatform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+  executable: string = process.execPath,
+): string[] {
+  const path = targetPlatform === 'win32' ? win32 : posix
+  const dirs: string[] = []
+  const seen = new Set<string>()
+  const add = (directory: string | undefined) => {
+    if (!directory) return
+    const normalized = path.normalize(directory)
+    const key = targetPlatform === 'win32' ? normalized.toLowerCase() : normalized
+    if (seen.has(key)) return
+    seen.add(key)
+    dirs.push(normalized)
+  }
+
+  add(env.CARACAL_INSTALL_DIR)
+  const prefix = env.CARACAL_PREFIX || (targetPlatform === 'win32' ? undefined : env.PREFIX)
+  if (prefix) add(path.join(prefix, 'bin'))
+  if (['caracal', 'caracal.exe'].includes(path.basename(executable).toLowerCase())) add(path.dirname(executable))
+  add(defaultCaracalInstallDir(targetPlatform, env, home))
+  return dirs
+}
+
+export function caracalBinaries(
+  installDir: string,
+  extraDirs: readonly string[] = [],
+  targetPlatform: NodeJS.Platform = process.platform,
+): string[] {
   const dirs = new Set<string>([installDir, ...extraDirs])
   const found: string[] = []
+  const names = targetPlatform === 'win32' ? ['caracal.exe', 'caracal', 'caracal.cmd', 'caracal.ps1'] : ['caracal']
   for (const dir of dirs) {
-    for (const name of ['caracal', 'caracal-web']) {
-      const p = `${dir}/${name}`
-      if (existsSync(p)) found.push(p)
+    for (const name of names) {
+      const path = join(dir, name)
+      if (existsSync(path)) found.push(path)
     }
   }
   return found

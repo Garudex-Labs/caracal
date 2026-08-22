@@ -5,10 +5,12 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   caracalBinaries,
+  caracalInstallDirs,
+  defaultCaracalInstallDir,
   defaultServiceProbes,
   listCaracalImages,
   removeFsPath,
@@ -109,14 +111,41 @@ describe('stack cleanup helpers', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('finds Caracal binaries across install and extra directories and preserves purge ordering', async () => {
+  it('resolves platform install directories and binary names', () => {
+    expect(defaultCaracalInstallDir('win32', { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }, 'C:\\Users\\dev')).toBe(
+      win32.join('C:\\Users\\dev\\AppData\\Local', 'Programs', 'caracal'),
+    )
+    expect(defaultCaracalInstallDir('linux', { HOME: '/home/dev' }, '/home/dev')).toBe('/home/dev/.local/bin')
+    expect(defaultCaracalInstallDir('linux', {}, '/')).toBe('/usr/local/bin')
+
+    expect(
+      caracalInstallDirs(
+        'win32',
+        { CARACAL_INSTALL_DIR: 'C:\\Explicit', CARACAL_PREFIX: 'C:\\Tools', LOCALAPPDATA: 'C:\\Local' },
+        'C:\\Users\\dev',
+        'C:\\Running\\caracal.exe',
+      ),
+    ).toEqual(['C:\\Explicit', 'C:\\Tools\\bin', 'C:\\Running', 'C:\\Local\\Programs\\caracal'])
+    expect(caracalInstallDirs('linux', { PREFIX: '/opt/caracal' }, '/', '/usr/bin/node')).toEqual(['/opt/caracal/bin', '/usr/local/bin'])
+
     const install = mkdtempSync(join(tmpdir(), 'caracal-bin-install-'))
     const extra = mkdtempSync(join(tmpdir(), 'caracal-bin-extra-'))
     writeFileSync(join(install, 'caracal'), '')
-    writeFileSync(join(extra, 'caracal-web'), '')
-    const events: string[] = []
+    writeFileSync(join(extra, 'caracal.exe'), '')
+    writeFileSync(join(extra, 'caracal.cmd'), '')
 
-    expect(caracalBinaries(install, [extra])).toEqual([join(install, 'caracal'), join(extra, 'caracal-web')])
+    expect(caracalBinaries(install, [extra], 'linux')).toEqual([join(install, 'caracal')])
+    expect(caracalBinaries(install, [extra], 'win32')).toEqual([
+      join(install, 'caracal'),
+      join(extra, 'caracal.exe'),
+      join(extra, 'caracal.cmd'),
+    ])
+    rmSync(install, { recursive: true, force: true })
+    rmSync(extra, { recursive: true, force: true })
+  })
+
+  it('preserves purge ordering', async () => {
+    const events: string[] = []
 
     await stackPurge({
       steps: [
@@ -139,7 +168,5 @@ describe('stack cleanup helpers', () => {
     })
 
     expect(events).toEqual(['start:one', 'run:one', 'end:one', 'start:two', 'run:two', 'end:two'])
-    rmSync(install, { recursive: true, force: true })
-    rmSync(extra, { recursive: true, force: true })
   })
 })
