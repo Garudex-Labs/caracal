@@ -494,6 +494,22 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(result.governedResources).toEqual([])
   })
 
+  it('retains a pending provider credential while revoking its grant', async () => {
+    const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
+    await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
+    state.calls.length = 0
+
+    const result = await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [], ['openai'])
+
+    // A credential-dependent pending/error row cannot be replayed without persisting its key.
+    // Preserve the sealed provider for an explicit retry, but remove runtime authority to it.
+    expect(state.providers).toHaveLength(1)
+    expect(state.calls).not.toContain('providers.delete')
+    expect(result.governedResources).toEqual([])
+    expect(state.policies[0].versions).toHaveLength(2)
+    expect(state.calls).toContain('policySets.activate')
+  })
+
   it('re-adds a previously pruned upstream cleanly: a fresh provider re-bound to the reused resource', async () => {
     const { admin, state } = fakeAdmin({ zones: [{ id: 'zone-sys', name: SYSTEM_ZONE_NAME, slug: SYSTEM_ZONE_SLUG }] })
     await provisionSystemZone(admin, 'caracal-control', fakeFindZoneBySlug(state), roles, [upstream])
