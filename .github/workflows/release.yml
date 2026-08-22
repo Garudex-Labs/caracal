@@ -174,11 +174,14 @@ jobs:
           RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           set -euo pipefail
-          title="Caracal ${RELEASE_TAG} dry-run ${RELEASE_SHA}"
+          # The filter reads the values through `env` rather than being built by
+          # string interpolation, so a tag can never close a jq string literal and
+          # widen the match that gates publication.
+          export DRY_RUN_TITLE="Caracal ${RELEASE_TAG} dry-run ${RELEASE_SHA}"
           count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&status=success&head_sha=${RELEASE_SHA}&per_page=100" \
-            --jq "[.workflow_runs[] | select(.display_title == \"${title}\" and .head_branch == \"${RELEASE_TAG}\" and .head_sha == \"${RELEASE_SHA}\")] | length")"
+            --jq '[.workflow_runs[] | select(.display_title == env.DRY_RUN_TITLE and .head_branch == env.RELEASE_TAG and .head_sha == env.RELEASE_SHA)] | length')"
           if [ "$count" -eq 0 ]; then
-            echo "::error::No successful ${title} workflow exists for ${RELEASE_SHA}."
+            echo "::error::No successful ${DRY_RUN_TITLE} workflow exists for ${RELEASE_SHA}."
             exit 1
           fi
 
