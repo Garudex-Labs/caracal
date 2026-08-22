@@ -1,0 +1,132 @@
+---
+title: Operate Caracal Operator
+description: Bring model endpoints online, control failover and spend, recover failed turns, and preserve Operator state.
+pageType: workflow
+---
+
+Use this runbook after the Caracal control plane is ready and before allowing production users to create Operator conversations. The [Caracal Operator concept](/concepts/operator/) explains the authority and approval model.
+
+## Prerequisites
+
+- The API, STS, Gateway, Coordinator, PostgreSQL, and Redis are ready.
+- The Operator status reports `enabled: true` and `governed_execution.configured: true` from `GET /v1/operator/status`.
+- An operator can open **Settings → AI Operator → Models** and the **Caracal Operator** workspace.
+- The deployment has custody of `SECRET_STORE_KEK` and any external secret-backend data.
+
+The packaged Compose deployment enables the Control path used for governed execution. A Helm deployment must set `control.enabled: true`; a custom deployment must configure `CARACAL_CONTROL_ENABLED` and its Control gate. If governed execution is unconfigured, model-endpoint writes fail with `governed_execution_unconfigured`; Caracal does not retain the key unsealed.
+
+## Bring a Model Endpoint Online
+
+1. Open **Settings → AI Operator → Models** and add an OpenAI chat-completions-compatible endpoint.
+2. Enter a stable lowercase slug, the exact base URL, at least one model ID, and the provider's key. Select the provider-specific header or query placement when it does not use `Authorization: Bearer`.
+3. Leave the endpoint enabled and save it. Caracal stores the non-secret metadata in PostgreSQL and seals the key into a credential Provider in the reserved `caracal.sys` system zone.
+4. Run **Test connection** once. This sends a real completion and consumes provider quota.
+5. Inspect `GET /v1/operator/ai/status`. Confirm the endpoint is listed and that `last_ok_at` advanced after the test.
+6. Open an Ask-mode conversation and make one read-only request. Confirm that the completed turn shows the expected provider, model, and token usage.
+
+Add and test a second endpoint before relying on failover in production. Environment-configured providers are tried first in `API_OPERATOR_AI_PROVIDERS` order. Console-managed endpoints follow in their stored order; editing one preserves its position.
+
+`/ready` proves that the Caracal platform dependencies are ready. It never calls or reads a model endpoint, so it cannot prove model reachability.
+
+## Failover, Retry, and Timeout Behavior
+
+Each agent stage is one logical model call. The gateway applies these rules to that call:
+
+| Condition                                                           | Behavior                                                                                                                                                                                                      |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rate limit, server error, or other SDK-classified transient failure | Retry the same endpoint once, then try the next endpoint if it still fails. Provider `Retry-After` guidance is handled by the SDK within the endpoint timeout.                                                |
+| Other failure before streaming output                               | Try the next endpoint.                                                                                                                                                                                        |
+| Failure after any answer or reasoning delta was streamed            | End the turn with `ai_stream_interrupted`; a second endpoint is not appended to the partial response.                                                                                                         |
+| Recent endpoint failure                                             | Move that endpoint behind endpoints without a recent failure in the current API process. It remains eligible as a fallback and returns to configured order after a success or the one-minute recovery window. |
+| Endpoint timeout                                                    | Bound the initial attempt and its retry together; the default is 30 seconds per endpoint.                                                                                                                     |
+| Message-run deadline                                                | Settle a run that has not finished within 120 seconds as `timeout` with reason `deadline_exceeded`.                                                                                                           |
+
+The recent-failure ordering is process-local. API replicas can temporarily choose different orders, and a restart clears an instance's ordering memory. A client disconnect does not cancel work: the run continues so the durable conversation can receive its result. Use **Cancel** to persist cancellation; the serving API instance also aborts its current model request, while every instance checks the persisted state between orchestration stages.
+
+## Control Model Spend
+
+Two deployment limits bound every turn:
+
+| Variable                             | Default | Effect                                                                                              |
+| ------------------------------------ | ------: | --------------------------------------------------------------------------------------------------- |
+| `API_OPERATOR_AI_MAX_OUTPUT_TOKENS`  |  `4096` | Maximum output tokens for each model completion.                                                    |
+| `API_OPERATOR_AI_MAX_CALLS_PER_TURN` |    `12` | Maximum logical model calls across triage, planning, repair, review, and answer stages in one turn. |
+
+A same-endpoint retry or cross-endpoint failover stays inside the logical call that triggered it. When the call budget is spent, the turn fails with `429 ai_budget_exceeded` before another provider request is sent. A value of `0` disables the corresponding bound; use that only with an external cost control.
+
+Completed message runs persist input and output token totals with their provider and model breakdown. Use those records for historical usage and cost reconciliation; the context-window indicator in the console is a per-conversation display, not an aggregate spend limit.
+
+## Operate Autopilot
+
+Autopilot is unavailable unless `API_OPERATOR_AUTOPILOT_ENABLED=true`; the default is off. It must then be engaged separately on each Agent-mode conversation. Enabling it changes who satisfies Approval, not what the Operator may do: preview, capability limits, Zone isolation, and the governed execute path continue to apply.
+
+Set `API_OPERATOR_AUTOPILOT_WRITE_BUDGET` to a positive number to cap cumulative auto-approved mutating steps in one conversation. When the next plan would cross the cap, Caracal records `write_budget_exceeded`, pauses auto-approval, and waits for explicit human Approval. A value of `0` means no conversation write budget.
+
+For emergency containment:
+
+1. Set `API_OPERATOR_AUTOPILOT_ENABLED=false` and restart the API to stop automatic Approval on subsequent turns.
+2. Review conversations that had autopilot engaged and any plans already approved or applied.
+3. Set `API_OPERATOR_ENABLED=false` and restart the API only when the entire Operator surface must be disabled. The status route remains available and reports `enabled: false`; functional Operator routes are not registered.
+
+## Rotate, Disable, or Remove an Endpoint
+
+### Rotate a Key
+
+1. Keep a tested secondary endpoint enabled so new calls can fail over during the change.
+2. Rotate the upstream key according to the provider's overlap policy.
+3. Use **Rotate key** for the existing model endpoint. The new key is sent once, re-sealed, and applied to the live registry without an API restart.
+4. Run **Test connection**, then verify a real Ask-mode turn and the endpoint's `last_ok_at`.
+5. Retire the old upstream key only after the new path succeeds. If verification fails, rotate back to a known-good key or disable the endpoint while the secondary serves traffic.
+
+Changing a base URL also requires a new key, preventing a sealed credential from being redirected to a different host. Changing only label, model IDs, context-window metadata, authentication placement, or enabled state does not require the key again.
+
+### Disable or Remove
+
+Disable an endpoint to take it out of the next request's registry while retaining its metadata and sealed Provider. Use this for incident containment or planned maintenance. Re-enable and test it before returning it to service.
+
+Delete an endpoint only when it is retired. Deletion removes its registry record and reconciles the matching governed upstream from `caracal.sys`. Confirm another endpoint works first; deleting the final endpoint leaves natural-language turns unavailable.
+
+## Observe and Correlate a Turn
+
+Use the message-run record as the primary troubleshooting unit. Capture its conversation, `correlation_id`, terminal state, reason, error code, served provider/model, token usage, and timestamps. For a change plan, also capture its plan sequence, preview, Approval turn, and execution turn. Search **Audit** by the API request ID to follow the governed control calls that applied each approved step.
+
+Provider observations come from actual model requests. `GET /v1/operator/ai/status` exposes `last_ok_at`, `last_error_at`, and `last_error_class`; `/metrics` exposes the corresponding last-success and last-failure timestamp gauges. Null values mean no observation is recorded, and an old success does not prove present reachability. See [Debug Infrastructure Issues](/operations/debugging/) for the probing boundary.
+
+## Troubleshoot by Symptom
+
+| Symptom                                               | Inspect                                                                                  | Recovery                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operator entry is absent or status says disabled      | `GET /v1/operator/status`, `API_OPERATOR_ENABLED`                                        | Enable the Operator and restart the API.                                                                                                                                                                                                                        |
+| Model settings report governed execution unconfigured | `governed_execution`, Control configuration, API `api-system-zone` provisioning logs     | Restore the Control path and its Admin authority, then wait for a successful system-zone provision before entering a key.                                                                                                                                       |
+| `ai_unavailable`                                      | Provider list, enabled flags, model IDs, and governed Resource reconciliation            | Add or enable an endpoint. If metadata exists after restart, resolve provisioning or Secret Store access instead of creating a duplicate slug.                                                                                                                  |
+| `ai_unreachable`                                      | Per-endpoint attempts and `last_error_class`                                             | For `auth_failed`, rotate the key; for `rate_limited`, reduce demand or restore quota; for `timeout` or `unreachable`, verify DNS, TLS, egress, and the base URL; for `invalid_response`, verify OpenAI compatibility and the model ID. Test once after repair. |
+| Turn is slow or appears stuck                         | Message-run state and deadline, provider count, endpoint health, API logs                | Allow for the per-endpoint timeout and multi-stage work. Cancel deliberately if the result is no longer needed. A run reaching 120 seconds settles as `timeout`; repair the dependency before starting a new turn.                                              |
+| Partial answer stops                                  | `ai_stream_interrupted`, failed provider, persisted turn and plan state                  | Treat the partial text as incomplete. Verify the provider and inspect the ledger before retrying; Caracal does not fail over after visible output.                                                                                                              |
+| `ai_budget_exceeded`                                  | `max_calls`, completed stages, persisted usage                                           | Simplify or retry the request. Raise the per-turn call limit only after reviewing the expected agent stages and cost.                                                                                                                                           |
+| Autopilot pauses                                      | Conversation note with `write_budget_exceeded`, prior auto-approved writes, plan preview | Review and approve the waiting plan manually, or start a separately reviewed conversation with a new budget. Do not raise the deployment budget during an incident.                                                                                             |
+| Conversation is archived                              | Conversation status                                                                      | Restore it to active only when work should resume; archive retains its ledger.                                                                                                                                                                                  |
+
+## Back Up, Restore, and Upgrade
+
+Operator metadata, conversations, turns, plans, message runs, and token usage are PostgreSQL state. Provider health observations are Redis state. The model keys are Secret Store envelopes: the built-in backend stores its envelopes in PostgreSQL, while an external backend keeps them outside the database.
+
+Before backup or upgrade:
+
+1. Follow [Back Up and Retain Data](/operations/backup-retention/) for PostgreSQL, Redis, and replay state.
+2. Back up the runtime secrets, including the matching `SECRET_STORE_KEK`, through separate secret custody.
+3. Back up external secret-backend data and the identity/configuration needed to access it.
+4. Record the enabled endpoint slugs and run one known-good Ask-mode request.
+
+After restore or upgrade, wait for API readiness and system-zone provisioning. Confirm `governed_execution.configured`, list the expected endpoints, inspect their governed Resources in the read-only system-zone view, and run one connectivity test followed by one Ask-mode request. A restored envelope needs the KEK that sealed it; startup does not manufacture or recover a missing key. Use the documented [KEK rotation procedure](/operations/secret-backends/#kek-rotation) to re-seal envelopes during a planned rotation.
+
+Caracal migrations are forward-only. Use the release-matched [upgrade procedure](/operations/upgrade/), prefer roll forward after a schema migration, and do not start an older API against Operator tables until schema compatibility has been reviewed.
+
+## Conversation Retention
+
+Operator conversations and their transcripts have no automatic age-based retention window. Archiving a conversation preserves its turns and message-run usage in PostgreSQL. Deleting a conversation removes its conversation ledger and dependent plans, turns, run events, and usage; audit evidence and the separate applied-change memory are operational records with their own custody requirements.
+
+Set a retention and export policy before users enter regulated or personal data. Do not put credentials in a prompt; provider keys belong in the model settings flow, and plan credentials belong in the secure prompt. Include Operator PostgreSQL state and audit evidence in legal-hold, backup-encryption, access-control, and deletion procedures appropriate to the deployment.
+
+## Next Step
+
+Exercise provider loss, cancellation, autopilot pause, and restore in a staging environment, then add the verified responses to [Run Failure Drills](/operations/failure-drills/).
