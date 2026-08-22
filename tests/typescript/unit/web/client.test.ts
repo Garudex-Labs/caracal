@@ -375,7 +375,7 @@ describe('operator conversation lifecycle', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('creates a plan and returns the persisted turn and validation', async () => {
+  it('creates a plan and returns the persisted turn, validation, and authoritative preview', async () => {
     const body = {
       turn: {
         id: 'turn-2',
@@ -388,6 +388,21 @@ describe('operator conversation lifecycle', () => {
         created_at: '2026-01-01T00:00:02Z',
       },
       validation: { ok: true, mutating: true, mutating_step_count: 1, steps: [], diagnostics: [] },
+      preview: {
+        ok: true,
+        mutating: true,
+        diagnostics: [],
+        steps: [
+          {
+            id: 's1',
+            capability: 'connectProvider',
+            title: 'Connect provider',
+            mutating: true,
+            effect: 'create',
+            detail: "Creates provider 'GitHub'.",
+          },
+        ],
+      },
     }
     const fetchMock = vi.fn(async () => jsonResponse(201, body))
     globalThis.fetch = fetchMock as unknown as typeof fetch

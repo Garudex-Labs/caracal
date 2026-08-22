@@ -228,6 +228,14 @@ interface PlanTurnContent {
   review?: { status: 'reviewed' } | { status: 'review_failed'; reason?: string }
 }
 
+const PLAN_PREVIEW_EFFECTS = new Set<StepPreview['effect']>(['create', 'update', 'delete', 'exists', 'blocked', 'read_only'])
+
+function missingPlanPreviewSteps(content: PlanTurnContent): { step_id: string; capability: string }[] {
+  return content.steps
+    .filter((step) => !PLAN_PREVIEW_EFFECTS.has(step.effect as StepPreview['effect']))
+    .map((step) => ({ step_id: step.id, capability: step.capability }))
+}
+
 const ContextQuery = z.object({
   message_window: z.coerce.number().int().min(1).max(50).default(10),
 })
@@ -1572,8 +1580,6 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       return reply.code(400).send({ error: 'plan_validation_failed', validation })
     }
 
-    const contentJson = buildPlanContentJson(parsed.data.summary, validation)
-
     return withTransaction(fastify.db, async (client) => {
       const { rows: conv } = await client.query<{ status: string; mode: string; next_seq: number }>(
         `SELECT status, mode, next_seq FROM operator_conversations
@@ -1590,6 +1596,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       if (conv[0].mode === 'ask') {
         throw new TxAbort(reply.code(403).send({ error: 'mode_forbidden' }))
       }
+      // Direct plans pass through the same authoritative live-state preview as plans composed by
+      // the orchestrator. Persist every effect even when the preview is blocked: "previewed" means
+      // the consequence is recorded for approval, not that the plan is currently executable.
+      const preview = await previewPlan(client, params.zoneId, parsed.data)
+      const contentJson = buildPlanContentJson(parsed.data.summary, validation, undefined, undefined, preview.steps)
       const turn = await writeTurnLocked(client, {
         conversationId: params.id,
         zoneId: params.zoneId,
@@ -1599,7 +1610,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         contentJson,
         actorId: req.actor.id,
       })
-      return reply.code(201).send({ turn, validation })
+      return reply.code(201).send({ turn, validation, preview })
     })
   })
 
@@ -1651,6 +1662,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       const secretRef = { conversationId: params.id, zoneId: params.zoneId, planSeq: body.plan_seq }
       if (kind === 'approval') {
+        // Approval is meaningful only when every persisted step carries the effect derived by the
+        // server preview. Existing effect-less plans remain rejectable, but cannot be approved
+        // under the repository's no-legacy posture; composing a fresh plan creates a bound preview.
+        const missingPreview = missingPlanPreviewSteps(planTurn[0].content)
+        if (missingPreview.length > 0) {
+          throw new TxAbort(reply.code(409).send({ error: 'plan_preview_required', steps: missingPreview }))
+        }
         // Approval is the gate that lets a change apply, so a step that collects credentials
         // through the console's secure prompt must have them in the vault before the plan can be
         // approved - by a human here or by autopilot through the paste flow. Refusing here keeps
@@ -1789,7 +1807,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // plan whose create now targets something that exists rather than duplicating it.
       const governedIdentity = opts.resolveControlIdentity?.() ?? null
       const canApply = !!governedIdentity && !!opts.controlEndpoints && (await zoneGoverned(params.zoneId, governedIdentity))
-      const applicable = preview.ok && canApply && preview.steps.every((step) => step.effect !== 'exists')
+      const applicable =
+        missingPlanPreviewSteps(stored.content).length === 0 &&
+        preview.ok &&
+        canApply &&
+        preview.steps.every((step) => step.effect !== 'exists')
       const mutatingSteps = stored.content.steps.filter((step) => step.mutating === true).length
       const budget = autopilotPolicy.conversationWriteBudget
       const outcome = await approveWithAutopilot(fastify.db, {
@@ -1937,6 +1959,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (!decision[0]) return { ok: false, status: 409, body: { error: 'plan_not_approved' } }
         if (decision[0].kind === 'rejection') return { ok: false, status: 409, body: { error: 'plan_rejected' } }
 
+        // A legacy or malformed plan without a server-persisted effect was never preview-bound.
+        // Refuse before any live reads or governed calls; execution may compare only consequences
+        // that the approval actually covered.
+        const missingPreview = missingPlanPreviewSteps(planRows[0].content)
+        if (missingPreview.length > 0) {
+          return { ok: false, status: 409, body: { error: 'plan_preview_required', steps: missingPreview } }
+        }
+
         // Read every prior execution turn for this plan to decide retriability at the step
         // level. A failed step means a non-idempotent mutation may have half-applied, so the
         // whole plan is never retriable. Otherwise every recorded step succeeded, and a plan
@@ -2046,10 +2076,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // deleted in the meantime - would apply against a world the approver never saw, so the
         // plan is refused and a fresh request composes a new plan against current state.
         const reviewedEffects = new Map(planRows[0].content.steps.map((step) => [step.id, step.effect]))
-        const drifted = remainingPreview.filter((step) => {
-          const reviewed = reviewedEffects.get(step.id)
-          return typeof reviewed === 'string' && reviewed !== step.effect
-        })
+        const drifted = remainingPreview.filter((step) => reviewedEffects.get(step.id) !== step.effect)
         if (drifted.length > 0) {
           return {
             ok: false,

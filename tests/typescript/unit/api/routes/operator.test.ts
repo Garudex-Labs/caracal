@@ -756,6 +756,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan', () => {
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] }) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce({ rows: [] }) // authoritative preview: provider name is available
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
       .mockResolvedValueOnce({ rows: [planRow] }) // INSERT turn
       .mockResolvedValueOnce(undefined) // COMMIT
@@ -769,10 +770,51 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan', () => {
     const body = JSON.parse(res.body)
     expect(body.turn).toMatchObject({ kind: 'plan', seq: 2 })
     expect(body.validation).toMatchObject({ ok: true, mutating: true })
-    // The persisted content carries the resolved title and authoritative mutating flag.
-    const insert = clientQuery.mock.calls[3]
+    expect(body.preview.steps[0]).toMatchObject({ id: 's1', effect: 'create' })
+    // The persisted content carries the resolved title, authoritative mutating flag, and the
+    // server-derived live-state effect the approval will cover.
+    const insert = clientQuery.mock.calls[4]
     const persisted = JSON.parse(insert[1][6])
-    expect(persisted.steps[0]).toMatchObject({ id: 's1', capability: 'connectProvider', mutating: true })
+    expect(persisted.steps[0]).toMatchObject({ id: 's1', capability: 'connectProvider', mutating: true, effect: 'create' })
+  })
+
+  it('persists a blocked effect rather than treating preview.ok as the approval boundary', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', next_seq: 2 }] }) // conversation
+      .mockResolvedValueOnce({ rows: [] }) // application is not live, so the preview is blocked
+      .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'turn-2',
+            conversation_id: 'conv-1',
+            seq: 2,
+            role: 'operator',
+            kind: 'plan',
+            content: {},
+            actor_id: 'actor-1',
+            created_at: '2026-01-01T00:00:02Z',
+          },
+        ],
+      }) // INSERT turn
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan',
+      payload: {
+        summary: 'Rotate missing app',
+        steps: [{ id: 's1', capability: 'rotateApplicationSecret', args: { application_id: 'app-missing' } }],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body).preview).toMatchObject({ ok: false, steps: [{ id: 's1', effect: 'blocked' }] })
+    const insert = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO operator_turns'))
+    expect(JSON.parse(String(insert?.[1]?.[6])).steps[0]).toMatchObject({ id: 's1', effect: 'blocked' })
   })
 
   it('returns 404 when the conversation is absent', async () => {
@@ -829,7 +871,14 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
       .mockResolvedValueOnce({
-        rows: [{ content: { summary: 'Register app', steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }] } }],
+        rows: [
+          {
+            content: {
+              summary: 'Register app',
+              steps: [{ id: 's1', capability: 'registerApplication', effect: 'create', args: { name: 'Fiona' } }],
+            },
+          },
+        ],
       }) // plan turn exists
       .mockResolvedValueOnce({ rows: [] }) // not already decided
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
@@ -864,7 +913,14 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 3 }] }) // SELECT ... FOR UPDATE
       .mockResolvedValueOnce({
-        rows: [{ content: { summary: 'Register app', steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }] } }],
+        rows: [
+          {
+            content: {
+              summary: 'Register app',
+              steps: [{ id: 's1', capability: 'registerApplication', effect: 'create', args: { name: 'Fiona' } }],
+            },
+          },
+        ],
       }) // plan turn exists
       .mockResolvedValueOnce({ rows: [] }) // not already decided
       .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE next_seq
@@ -915,6 +971,39 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
     expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_already_decided' })
   })
 
+  it('refuses to approve a legacy plan without persisted preview effects', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', next_seq: 3 }] }) // conversation
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            content: {
+              summary: 'Register app',
+              steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }],
+            },
+          },
+        ],
+      }) // effect-less plan
+      .mockResolvedValueOnce({ rows: [] }) // not already decided
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/decision',
+      payload: { plan_seq: 2, decision: 'approved' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'plan_preview_required',
+      steps: [{ step_id: 's1', capability: 'registerApplication' }],
+    })
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_turns'))).toBe(false)
+  })
+
   it('rejects an invalid decision body', async () => {
     const { app } = buildApp()
     await app.ready()
@@ -959,7 +1048,14 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/decision', () =
           {
             content: {
               summary: 'Connect Hooli OIDC',
-              steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } }],
+              steps: [
+                {
+                  id: 's1',
+                  capability: 'connectProvider',
+                  effect: 'create',
+                  args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' },
+                },
+              ],
             },
           },
         ],
@@ -1027,11 +1123,18 @@ describe('plan credential vault endpoints', () => {
     summary: 'Connect Hooli OIDC',
     review: { status: 'reviewed' as const },
     steps: [
-      { id: 's1', capability: 'connectProvider', mutating: true, args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
+      {
+        id: 's1',
+        capability: 'connectProvider',
+        mutating: true,
+        effect: 'create',
+        args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' },
+      },
       {
         id: 's2',
         capability: 'defineResource',
         mutating: true,
+        effect: 'create',
         args: {
           name: 'PiperNet',
           scopes: ['mesh.read'],
@@ -1204,6 +1307,37 @@ describe('plan credential vault endpoints', () => {
     ).toBe(false)
   })
 
+  it('does not auto-approve a reviewed legacy plan without persisted preview effects', async () => {
+    const content = {
+      ...credentialPlanContent,
+      steps: credentialPlanContent.steps.map(({ effect: _effect, ...step }) => step),
+    }
+    const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }), ...governedControl })
+    db.query.mockImplementation(async (sql: string) => (String(sql).includes('WHERE id = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN credential write
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true }] })
+      .mockResolvedValueOnce({ rows: [{ content }] })
+      .mockResolvedValueOnce({ rows: [] }) // undecided
+      .mockResolvedValueOnce(undefined) // sweep expired rows
+      .mockResolvedValueOnce(undefined) // INSERT sealed row
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1' }] }) // credential requirement satisfied
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ ok: true, all_satisfied: true, auto_approved: false, approval_turn: null })
+    expect(
+      clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_turns') && String(call[1]?.[5]) === 'approval'),
+    ).toBe(false)
+  })
+
   it('does not race a human decision while completing deferred autopilot approval', async () => {
     const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }), ...governedControl })
     db.query.mockImplementation(async (sql: string) => (String(sql).includes('WHERE id = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
@@ -1296,6 +1430,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
         id: 's1',
         capability: 'grantAccess',
         mutating: true,
+        effect: 'create',
         args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices.read'] },
       },
     ],
@@ -1425,6 +1560,42 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_not_approved' })
   })
 
+  it('refuses to execute an approved legacy plan without persisted preview effects', async () => {
+    const fetchMock = controlFetch([])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const legacyPlan = {
+      summary: 'Grant access',
+      steps: [
+        {
+          id: 's1',
+          capability: 'grantAccess',
+          mutating: true,
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices.read'] },
+        },
+      ],
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent' }] }) // conversation
+      .mockResolvedValueOnce({ rows: [{ content: legacyPlan }] }) // effect-less plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // legacy approval
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'plan_preview_required',
+      steps: [{ step_id: 's1', capability: 'grantAccess' }],
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('refuses to execute in an ask-mode conversation', async () => {
     // The apply step is refused in ask mode before the plan or its approval is even resolved, so
     // an ask conversation has no reachable path to apply a change even if one were approved.
@@ -1497,11 +1668,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     const resumePlan = {
       summary: 'Set up billing',
       steps: [
-        { id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } },
+        { id: 's1', capability: 'registerApplication', mutating: true, effect: 'create', args: { name: 'Billing' } },
         {
           id: 's2',
           capability: 'grantAccess',
           mutating: true,
+          effect: 'create',
           args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices.read'] },
         },
       ],
@@ -1663,6 +1835,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
           id: 's1',
           capability: 'grantAccess',
           mutating: true,
+          effect: 'create',
           args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices:read'] },
         },
       ],
@@ -2028,7 +2201,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
     const registerPlan = {
       summary: 'Register',
-      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } }],
+      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, effect: 'create', args: { name: 'Billing' } }],
     }
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
@@ -2201,7 +2374,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     }
     const registerPlan = {
       summary: 'Register the Billing application',
-      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, args: { name: 'Billing' } }],
+      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, effect: 'create', args: { name: 'Billing' } }],
     }
     const verdict = { status: 'matched', summary: 'The Billing application is present in current state.', findings: [] }
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

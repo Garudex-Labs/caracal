@@ -171,6 +171,8 @@ export function executeErrorMessage(err: unknown): string {
       return "Nothing to apply - what this plan would create already exists in this zone.";
     case "plan_state_changed":
       return "The zone changed since this plan was approved, so applying it now would do something the approval never covered. Ask again to compose a fresh plan.";
+    case "plan_preview_required":
+      return "This plan has no server-verified effects preview, so it can't be applied. Ask again to compose a fresh plan.";
     case "conversation_archived":
       return "This conversation is archived, so it can't apply changes.";
     // Caracal stopped mid-apply because this server lost the lock that authorized the run. A step
@@ -195,6 +197,8 @@ export function decideErrorMessage(err: unknown): string {
       return "This plan was already decided. The latest state is shown above.";
     case "plan_not_found":
       return "This plan is no longer available.";
+    case "plan_preview_required":
+      return "This plan has no server-verified effects preview and can't be approved. Compose a fresh plan or reject it.";
     case "mode_forbidden":
       return "This conversation is in ask mode, so plans can't be approved here.";
     case "conversation_archived":
