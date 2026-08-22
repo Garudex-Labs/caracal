@@ -11,7 +11,8 @@ on:
   schedule:
     - cron: '37 5 * * 5'
 
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
   analysis:

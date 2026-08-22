@@ -108,9 +108,13 @@ jobs:
       - name: Detect changed areas
         id: paths
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           {
-            if [[ '${{ github.event_name }}' != 'pull_request' ]]; then
+            if [[ "$EVENT_NAME" != 'pull_request' ]]; then
               echo 'typescript=true'
               echo 'go=true'
               echo 'python=true'
@@ -123,7 +127,7 @@ jobs:
               exit 0
             fi
 
-            git diff --name-only '${{ github.event.pull_request.base.sha }}' '${{ github.sha }}' > changed.txt
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed.txt
             typescript=false
             go=false
             python=false

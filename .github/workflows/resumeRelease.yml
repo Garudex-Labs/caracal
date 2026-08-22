@@ -82,7 +82,8 @@ jobs:
       - name: Download validated release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh run download "${{ inputs.sourceRunId }}" --name release-assets --dir dist
+          SOURCE_RUN_ID: ${{ inputs.sourceRunId }}
+        run: gh run download "$SOURCE_RUN_ID" --name release-assets --dir dist
 
       - name: Verify release assets and OCI digests
         env:
@@ -144,7 +145,8 @@ jobs:
       - name: Download validated release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh run download "${{ inputs.sourceRunId }}" --name release-assets --dir dist
+          SOURCE_RUN_ID: ${{ inputs.sourceRunId }}
+        run: gh run download "$SOURCE_RUN_ID" --name release-assets --dir dist
 
       - name: Check existing GitHub Release
         id: state
@@ -237,4 +239,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - run: echo "Verified all published artifacts for ${{ inputs.releaseTag }} without creating the GitHub Release." >> "$GITHUB_STEP_SUMMARY"
+      - env:
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: echo "Verified all published artifacts for ${RELEASE_TAG} without creating the GitHub Release." >> "$GITHUB_STEP_SUMMARY"
