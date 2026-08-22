@@ -1,6 +1,6 @@
-pip==26.1.2
+pip==26.2.1
 coverage==7.14.0
-cryptography==48.0.0
+cryptography==50.0.0
 httpx>=0.28.0
 idna>=3.15
 PyJWT>=2.10.0
