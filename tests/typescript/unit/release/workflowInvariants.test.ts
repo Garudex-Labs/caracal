@@ -6,7 +6,13 @@
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { checkCallerInputs, checkCallerPermissions, validateWorkflow, validateWorkflows } from '../../../../scripts/validateWorkflows.mjs'
+import {
+  checkCallerInputs,
+  checkCallerPermissions,
+  checkPullRequestTarget,
+  validateWorkflow,
+  validateWorkflows,
+} from '../../../../scripts/validateWorkflows.mjs'
 import {
   pypiRunName,
   pypiRunNameTemplate,
@@ -107,6 +113,48 @@ describe('workflow invariants', () => {
     }
     const findings = validateWorkflow('publishNpm.yml', workflow, {})
     expect(findings.some((finding) => finding.includes('pinned'))).toBe(true)
+  })
+
+  it('rejects a checkout in a pull_request_target workflow', () => {
+    const workflow = {
+      on: ['pull_request_target', 'issues'],
+      jobs: { greeting: { steps: [{ uses: 'actions/checkout@' + 'a'.repeat(40) }] } },
+    }
+    const findings = checkPullRequestTarget('greetings.yml', workflow)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toContain('must not check out')
+  })
+
+  it('rejects github.event expansion in a pull_request_target run block', () => {
+    const workflow = {
+      on: { pull_request_target: null },
+      jobs: { greeting: { steps: [{ run: 'echo "${{ github.event.pull_request.title }}"' }] } },
+    }
+    const findings = checkPullRequestTarget('greetings.yml', workflow)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toContain('must not expand github.event data')
+  })
+
+  it('rejects github.event expansion in a pull_request_target step input', () => {
+    const workflow = {
+      on: { pull_request_target: null },
+      jobs: {
+        greeting: {
+          steps: [{ uses: 'actions/github-script@' + 'a'.repeat(40), with: { script: 'core.info(`${{ github.event.issue.body }}`)' } }],
+        },
+      },
+    }
+    const findings = checkPullRequestTarget('greetings.yml', workflow)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toContain('step input')
+  })
+
+  it('leaves workflows without pull_request_target alone', () => {
+    const workflow = {
+      on: ['pull_request'],
+      jobs: { build: { steps: [{ uses: 'actions/checkout@' + 'a'.repeat(40), run: undefined }] } },
+    }
+    expect(checkPullRequestTarget('test.yml', workflow)).toEqual([])
   })
 })
 

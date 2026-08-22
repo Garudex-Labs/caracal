@@ -89,6 +89,46 @@ function hasCheckout(job) {
   return (job.steps ?? []).some((step) => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'))
 }
 
+function triggerNames(on) {
+  if (typeof on === 'string') return [on]
+  if (Array.isArray(on)) return on.filter((entry) => typeof entry === 'string')
+  if (on && typeof on === 'object') return Object.keys(on)
+  return []
+}
+
+function expandsEventData(value) {
+  if (typeof value === 'string') return /\$\{\{[^}]*\bgithub\.event\b/.test(value)
+  if (Array.isArray(value)) return value.some(expandsEventData)
+  if (value && typeof value === 'object') return Object.values(value).some(expandsEventData)
+  return false
+}
+
+// pull_request_target runs with the base repository's write-capable token and
+// secrets while the event describes a branch the pull request author controls.
+// Checking that branch out, or expanding event fields into a shell or an action
+// input, turns the trigger into arbitrary code execution against the base
+// repository. Greetings is audited against exactly these properties, so they
+// are enforced here rather than left as a comment.
+export function checkPullRequestTarget(name, workflow) {
+  const findings = []
+  if (!triggerNames(workflow.on).includes('pull_request_target')) return findings
+  for (const [jobName, job] of Object.entries(workflow.jobs ?? {})) {
+    const context = `${name} job ${jobName}`
+    if (hasCheckout(job)) {
+      findings.push(`${context}: pull_request_target workflows must not check out repository content`)
+    }
+    for (const step of job.steps ?? []) {
+      if (expandsEventData(step.run)) {
+        findings.push(`${context}: pull_request_target workflows must not expand github.event data into a run block`)
+      }
+      if (expandsEventData(step.with)) {
+        findings.push(`${context}: pull_request_target workflows must not expand github.event data into a step input`)
+      }
+    }
+  }
+  return findings
+}
+
 export function validateWorkflow(name, workflow, workflows) {
   const findings = []
   const isReleaseWorkflow = releaseWorkflows.includes(name)
@@ -107,6 +147,7 @@ export function validateWorkflow(name, workflow, workflows) {
       findings.push(`${name}: release workflows must define concurrency with cancel-in-progress: false`)
     }
   }
+  findings.push(...checkPullRequestTarget(name, workflow))
   for (const [jobName, job] of Object.entries(workflow.jobs ?? {})) {
     const context = `${name} job ${jobName}`
     const isCaller = typeof job.uses === 'string'

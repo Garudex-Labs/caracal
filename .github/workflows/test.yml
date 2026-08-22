@@ -965,9 +965,16 @@ jobs:
     steps:
       - name: Check required jobs
         shell: bash
+        env:
+          JOB_RESULTS: >-
+            ${{ needs.smoke.result }} ${{ needs.changes.result }} ${{ needs.style.result }}
+            ${{ needs.typescript.result }} ${{ needs.go.result }} ${{ needs.python.result }}
+            ${{ needs.docs.result }} ${{ needs.postgres.result }} ${{ needs.helm.result }}
+            ${{ needs.infra.result }} ${{ needs.e2e.result }} ${{ needs.releaseConfig.result }}
+            ${{ needs.coverage.result }}
         run: |
           set -euo pipefail
-          for result in '${{ needs.smoke.result }}' '${{ needs.changes.result }}' '${{ needs.style.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.postgres.result }}' '${{ needs.helm.result }}' '${{ needs.infra.result }}' '${{ needs.e2e.result }}' '${{ needs.releaseConfig.result }}' '${{ needs.coverage.result }}'; do
+          for result in $JOB_RESULTS; do
             if [[ "$result" == 'failure' || "$result" == 'cancelled' ]]; then
               echo "A required test workflow job ended with $result."
               exit 1

@@ -23,7 +23,14 @@ jobs:
       security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
     with:
+      # The recursive sweep only recognises manifests by their conventional
+      # names, so the pip-compile locks under scripts/ are invisible to it and
+      # to Dependabot. They pin the toolchain that builds, tests, and publishes
+      # every release, so they are named explicitly here.
       scan-args: |-
         --config=osv-scanner.toml
+        --lockfile=requirements.txt:scripts/pythonTestRequirements.lock
+        --lockfile=requirements.txt:scripts/pythonStyleRequirements.lock
+        --lockfile=requirements.txt:scripts/publishPypiRequirements.lock
         --recursive
         ./

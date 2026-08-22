@@ -9,10 +9,13 @@
 # anything from the pull request: it only runs this workflow's own script from
 # the default branch, and every value it reads from the event is passed as an
 # API argument rather than expanded into a shell.
+#
+# scripts/validateWorkflows.mjs enforces those properties in CI, so the audit
+# suppression below cannot outlive the conditions that make the trigger safe.
 
 name: Greetings
 
-on: [pull_request_target, issues]
+on: [pull_request_target, issues] # zizmor: ignore[dangerous-triggers]
 
 permissions:
   contents: read
