@@ -201,6 +201,12 @@ describe('executeErrorMessage', () => {
     expect(executeErrorMessage({ code: 'plan_state_changed' })).toContain('zone changed since this plan was approved')
     expect(executeErrorMessage({ code: 'plan_blocked' })).toContain("can't be applied")
   })
+  it('separates a resumable lease stop from one whose in-flight step is unknown', () => {
+    expect(executeErrorMessage({ code: 'execution_lease_lost', detail: { outcome_uncertain: false } })).toContain(
+      'you can apply the rest again',
+    )
+    expect(executeErrorMessage({ code: 'execution_lease_lost', detail: { outcome_uncertain: true } })).toContain("can't be applied again")
+  })
   it('falls back for unknown codes', () => {
     expect(executeErrorMessage({ code: 'mystery' })).toBe("Couldn't apply the changes. Please try again.")
     expect(executeErrorMessage(null)).toBe("Couldn't apply the changes. Please try again.")

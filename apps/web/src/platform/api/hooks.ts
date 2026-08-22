@@ -417,6 +417,10 @@ const STALE_PLAN_CODES = new Set([
   // ledger error turn, so re-reading the timeline settles the card on the real, audited failure
   // detail and surfaces that error through the same notice channel as every other failure.
   "execution_failed",
+  // Execution stopped because this replica lost the distributed lock. The server recorded every
+  // step it did apply plus the lease-loss error turn, so the timeline holds the authoritative
+  // outcome and the card must settle on it rather than on a plan it thinks is still pending.
+  "execution_lease_lost",
 ]);
 
 function resyncOnStalePlan(

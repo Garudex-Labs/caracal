@@ -61,4 +61,28 @@ describe('buildOperatorControlClient', () => {
     expect(fetchMock.mock.calls[0]![0]).toBe('https://sts.example.com/oauth/2/token')
     expect(fetchMock.mock.calls[1]![0]).toBe('http://127.0.0.1:3000/v1/control/invoke')
   })
+
+  it('propagates caller cancellation into an in-flight governed request', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      await new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+      })
+      return new Response()
+    })
+    const client = buildOperatorControlClient({
+      identity,
+      role: 'executor',
+      endpoints: endpoints(),
+      signal: controller.signal,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    })
+
+    const invoking = client!.invoke('app', 'create', { name: 'blocked' }, ['control:app:write'])
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort('execution lease lost')
+
+    await expect(invoking).rejects.toMatchObject({ stage: 'token', status: 0 })
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+  })
 })

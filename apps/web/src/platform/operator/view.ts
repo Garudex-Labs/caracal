@@ -173,6 +173,13 @@ export function executeErrorMessage(err: unknown): string {
       return "The zone changed since this plan was approved, so applying it now would do something the approval never covered. Ask again to compose a fresh plan.";
     case "conversation_archived":
       return "This conversation is archived, so it can't apply changes.";
+    // Caracal stopped mid-apply because this server lost the lock that authorized the run. A step
+    // caught in flight has an unknown result, so the plan is closed and the operator has to check
+    // what landed; a stop before dispatch changed nothing further and stays applicable.
+    case "execution_lease_lost":
+      return (err as { detail?: { outcome_uncertain?: boolean } } | null)?.detail?.outcome_uncertain
+        ? "Caracal lost the lock on this run while a change was in flight, so it can't tell whether that step applied. Check the timeline above for what landed - this plan can't be applied again."
+        : "Caracal lost the lock on this run and stopped before applying anything further. Nothing beyond the steps above changed, so you can apply the rest again.";
     default:
       return "Couldn't apply the changes. Please try again.";
   }

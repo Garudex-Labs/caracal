@@ -39,6 +39,26 @@ export interface GovernedStepFailure {
 export interface GovernedExecutionResult {
   applied: GovernedStepResult[]
   failure: GovernedStepFailure | null
+  // Lease loss is separate from a provider/control failure: it says this process no
+  // longer has authority to schedule the plan. outcomeUncertain is true only when loss
+  // happened while a mutation was already dispatched and its result was not observed.
+  leaseLoss?: GovernedLeaseLoss
+}
+
+export interface GovernedLeaseLoss {
+  stepId: string
+  capability: string
+  reason: 'ownership_lost' | 'renewal_failed'
+  outcomeUncertain: boolean
+}
+
+export interface GovernedExecutionLease {
+  signal: AbortSignal
+  // Atomically confirms that this request still owns the distributed lease. The route
+  // also renews the TTL in the same operation so a newly dispatched mutation remains
+  // protected for a full lease period.
+  confirmOwned: () => Promise<boolean>
+  lossReason: () => GovernedLeaseLoss['reason']
 }
 
 export interface GovernedPlanStep {
@@ -154,6 +174,7 @@ export async function executeViaControlPlane(
   client: ControlClient,
   steps: GovernedPlanStep[],
   priorOutputs: Record<string, Record<string, unknown>> = {},
+  lease?: GovernedExecutionLease,
 ): Promise<GovernedExecutionResult> {
   const applied: GovernedStepResult[] = []
   const outputs = new Map<string, Record<string, unknown>>(Object.entries(priorOutputs))
@@ -166,7 +187,19 @@ export async function executeViaControlPlane(
     }
   }
 
+  const leaseLoss = (step: GovernedPlanStep, outcomeUncertain = false): GovernedExecutionResult => ({
+    applied,
+    failure: null,
+    leaseLoss: {
+      stepId: step.id,
+      capability: step.capability,
+      reason: lease?.lossReason() ?? 'ownership_lost',
+      outcomeUncertain,
+    },
+  })
+
   for (const wave of waves) {
+    if (lease?.signal.aborted) return leaseLoss(wave[0])
     const reads = wave.filter((step) => CAPABILITIES[step.capability]?.mutating !== true)
     const writes = wave.filter((step) => CAPABILITIES[step.capability]?.mutating === true)
 
@@ -176,12 +209,37 @@ export async function executeViaControlPlane(
       if (settled.ok) applied.push(settled.result)
       else failure ??= settled.failure
     }
+    // A lease lost while reads were in flight stops the graph even when those harmless
+    // reads completed. No write from this or a later wave may be scheduled afterward.
+    if (lease?.signal.aborted) return leaseLoss(writes[0] ?? wave[0])
     if (failure) return { applied, failure }
 
     for (const step of writes) {
+      if (lease?.signal.aborted) return leaseLoss(step)
+      if (lease) {
+        let owned = false
+        try {
+          owned = await lease.confirmOwned()
+        } catch {
+          // A check error is uncertain ownership. The route aborts the shared signal and
+          // records the precise reason; the executor always fails closed either way.
+          owned = false
+        }
+        if (!owned || lease.signal.aborted) return leaseLoss(step)
+      }
       const settled = await applyStep(client, step, outputs)
-      if (!settled.ok) return { applied, failure: settled.failure }
+      if (!settled.ok) {
+        // The shared signal aborts an in-flight fetch. Its remote outcome cannot be
+        // proven, so surface lease loss (not a generic transport error) and make retry
+        // unsafe until an operator reconciles the result. A definitive rejection still
+        // proves nothing applied, even when it races with the lease-loss signal.
+        if (lease?.signal.aborted) return leaseLoss(step, settled.failure.terminal)
+        return { applied, failure: settled.failure }
+      }
       applied.push(settled.result)
+      // A client that does not honor AbortSignal may still return success after lease
+      // loss. Record the known success, but stop before another step is dispatched.
+      if (lease?.signal.aborted) return leaseLoss(step)
     }
   }
   return { applied, failure: null }

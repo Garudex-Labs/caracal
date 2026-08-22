@@ -32,6 +32,9 @@ export interface OperatorControlClientInput {
   authorizedBy?: string
   coAuthorOperator?: boolean
   requestId?: string
+  // Cancels token minting or control dispatch when the execution lease that authorizes
+  // this client is no longer owned. The ControlClient combines it with its own timeout.
+  signal?: AbortSignal
 }
 
 // Builds the governed control client for one Operator role, or null when governed execution
@@ -54,6 +57,7 @@ export function buildOperatorControlClient(input: OperatorControlClientInput): C
     authorizedBy: input.authorizedBy,
     coAuthorOperator: input.coAuthorOperator,
     requestId: input.requestId,
+    signal: input.signal,
     fetchImpl: input.fetchImpl,
   })
 }

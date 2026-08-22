@@ -25,6 +25,7 @@ import { previewPlan, type StepPreview } from '../operator-preview.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
 import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
 import { executeViaControlPlane, type GovernedPlanStep } from '../operator-governed-execute.js'
+import { createExecutionLeaseGuard, type ExecutionLeaseGuard } from '../operator-execution-lease.js'
 import { isControlExecutable } from '../operator-control-map.js'
 import { SYSTEM_ZONE_SLUG } from '../system-zone.js'
 import {
@@ -995,6 +996,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     authorizedBy?: string,
     coAuthorOperator?: boolean,
     requestId?: string,
+    signal?: AbortSignal,
   ): { client: ControlClient; identity: OperatorControlIdentity } | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
@@ -1008,6 +1010,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       authorizedBy,
       coAuthorOperator,
       requestId,
+      signal,
     })
     return client ? { client, identity } : null
   }
@@ -1864,7 +1867,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // than applying changes as any other authority. There is no admin-actor fallback. The
     // executing actor's stable identity rides as the audit attribution so every governed mutation
     // in the tamper-evident control audit carries the profile id of the human who applied the plan.
-    const governed = resolveControlClient(params.zoneId, req.account?.id ?? `admin:${req.actor.id}`, true, req.id)
+    const executionLeaseController = new AbortController()
+    const governed = resolveControlClient(
+      params.zoneId,
+      req.account?.id ?? `admin:${req.actor.id}`,
+      true,
+      req.id,
+      executionLeaseController.signal,
+    )
     if (!governed) {
       return reply.code(409).send({ error: 'governed_execution_unconfigured' })
     }
@@ -1883,28 +1893,17 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const locked = await fastify.redis.set(lockKey, lockOwner, 'EX', EXECUTE_LOCK_TTL_SEC, 'NX')
     if (locked !== 'OK') return reply.code(409).send({ error: 'plan_already_executed' })
 
-    // The lock renews while this request still owns it, so an apply that legitimately runs
-    // longer than one TTL never loses its lock mid-flight, while an abandoned lock (a crashed
-    // holder stops renewing) still expires within one TTL.
-    const renewLock = setInterval(
-      () => {
-        fastify.redis
-          .eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
-            1,
-            lockKey,
-            lockOwner,
-            EXECUTE_LOCK_TTL_SEC,
-          )
-          .then((renewed) => {
-            if (renewed !== 1) req.log.warn({ lockKey }, 'execute lock renewal skipped: lock no longer owned')
-          })
-          .catch((err) => req.log.warn({ err, lockKey }, 'execute lock renewal failed'))
-      },
-      (EXECUTE_LOCK_TTL_SEC * 1000) / 3,
-    )
-
+    let executionLease: ExecutionLeaseGuard | null = null
     try {
+      // The lock renews while this request still owns it. Lost or uncertain ownership aborts
+      // the active control transport and becomes a hard scheduler stop, rather than a warning.
+      executionLease = createExecutionLeaseGuard(fastify.redis, lockKey, lockOwner, EXECUTE_LOCK_TTL_SEC, {
+        onLoss: (reason, err) => {
+          if (reason === 'renewal_failed') req.log.warn({ err, lockKey }, 'execute lock renewal failed; stopping execution')
+          else req.log.warn({ lockKey }, 'execute lock ownership lost; stopping execution')
+          executionLeaseController.abort(reason)
+        },
+      })
       // Pre-flight: read-only validation in one short transaction. Resolves the approved,
       // not-yet-executed, still-valid, still-unblocked plan to the steps to execute. It
       // writes nothing, so the governed control calls below run outside any transaction.
@@ -2098,7 +2097,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // a least-privilege token, resolves any references to earlier outputs, and invokes its
       // governed control command; the control plane authorizes, executes, and audits it natively.
       // A denial or failure stops the plan, so it never silently half-applies.
-      const result = await executeViaControlPlane(controlClient, pre.steps, pre.priorOutputs)
+      const result = await executeViaControlPlane(controlClient, pre.steps, pre.priorOutputs, {
+        signal: executionLease.signal,
+        confirmOwned: executionLease.confirmOwned,
+        lossReason: executionLease.lossReason,
+      })
 
       // Record the applied steps and any failure in the ledger. The control plane already
       // wrote the tamper-evident admin audit for each mutation, so no manual audit record
@@ -2183,18 +2186,62 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             actorId: req.actor.id,
           })
         }
+        if (result.leaseLoss) {
+          // If ownership disappeared during a dispatched mutation, its remote outcome is
+          // ambiguous. Persist a failed execution marker so no replica can retry that step
+          // and possibly apply it twice. A pre-dispatch stop remains safely resumable.
+          if (result.leaseLoss.outcomeUncertain) {
+            await writeTurnLocked(client, {
+              conversationId: params.id,
+              zoneId: params.zoneId,
+              seq,
+              role: 'operator',
+              kind: 'execution',
+              contentJson: JSON.stringify({
+                plan_seq: planSeq,
+                step_id: result.leaseLoss.stepId,
+                status: 'failed',
+                detail: 'Execution lease was lost while this step was in flight; its outcome is uncertain.',
+                executed_by: authority.principal,
+              }),
+              actorId: req.actor.id,
+            })
+            seq += 1
+          }
+          await writeTurnLocked(client, {
+            conversationId: params.id,
+            zoneId: params.zoneId,
+            seq,
+            role: 'system',
+            kind: 'error',
+            contentJson: JSON.stringify({
+              message:
+                result.leaseLoss.reason === 'renewal_failed'
+                  ? 'Execution stopped because distributed lock ownership could not be confirmed.'
+                  : 'Execution stopped because distributed lock ownership was lost.',
+              code: 'execution_lease_lost',
+              reason: result.leaseLoss.reason,
+              plan_seq: planSeq,
+              step_id: result.leaseLoss.stepId,
+              outcome_uncertain: result.leaseLoss.outcomeUncertain,
+            }),
+            actorId: req.actor.id,
+          })
+        }
         // A clean apply is durable, governed knowledge of the zone: record it as a persistent,
         // zone-scoped memory so a later conversation recalls what was configured here. Memory is
         // written only for a fully applied plan, inside this transaction, so it reflects an
         // approved outcome Caracal actually applied - never a proposal or a partial failure.
-        if (!result.failure && result.applied.length > 0) {
+        if (!result.failure && !result.leaseLoss && result.applied.length > 0) {
           await rememberAppliedChange(client, params.zoneId, params.id, pre.summary)
         }
         // A settled plan no longer needs its vaulted credentials: a full apply sealed them at
         // their final place through the provider create, and a spent plan (a recorded step
         // failure) can never be retried. Only a definitive, nothing-applied failure keeps them,
-        // so the retry the ledger permits still has its values.
-        if (!result.failure || result.applied.length > 0 || result.failure.terminal) {
+        // so the retry the ledger permits still has its values. The spent test mirrors exactly
+        // when a failed execution turn was written above, since that turn is what blocks a re-run.
+        const spent = result.failure ? result.applied.length > 0 || result.failure.terminal : result.leaseLoss?.outcomeUncertain === true
+        if ((!result.failure && !result.leaseLoss) || spent) {
           await deletePlanSecrets(client, { conversationId: params.id, zoneId: params.zoneId, planSeq })
         }
         return { turns, outputs }
@@ -2202,6 +2249,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       if (result.failure) {
         return reply.code(422).send({ error: 'execution_failed', step_id: result.failure.stepId, applied: recorded.turns })
+      }
+      if (result.leaseLoss) {
+        return reply.code(result.leaseLoss.reason === 'renewal_failed' ? 503 : 409).send({
+          error: 'execution_lease_lost',
+          reason: result.leaseLoss.reason,
+          step_id: result.leaseLoss.stepId,
+          outcome_uncertain: result.leaseLoss.outcomeUncertain,
+          applied: recorded.turns,
+          outputs: recorded.outputs,
+        })
       }
 
       // Return the applied result immediately - including any one-time output such as an issued
@@ -2273,7 +2330,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       return reply
     } finally {
-      clearInterval(renewLock)
+      executionLease?.stop()
       // Release the lock only if this request still owns it: a compare-and-delete so an
       // expired-then-reacquired lock held by another request is never deleted here. A failed
       // release is logged - the lock still expires on its TTL, but the delay is visible.
