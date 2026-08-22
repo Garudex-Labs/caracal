@@ -69,6 +69,7 @@ import { operatorRoutes } from './routes/operator.js'
 import { buildAutopilotPolicy } from './operator-autopilot.js'
 import { buildGovernanceLimits } from './operator-ai-governance.js'
 import { createOperatorAiHealthStore, renderOperatorAiHealthMetrics, type ProviderHealthObservation } from './operator-ai-health.js'
+import { createOperatorAiRegistrySync } from './operator-ai-registry-sync.js'
 import { createOperatorRunLimiter } from './operator-run-limiter.js'
 
 import './fastify-augmentation.js'
@@ -370,6 +371,21 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   let storeConfigs: ProviderConfig[] = []
   const loadAiProviders = (): ProviderConfig[] => [...envConfigs, ...storeConfigs]
   const operatorAiHealth = createOperatorAiHealthStore(redis, app.log)
+  const refreshStoreConfigs = async (): Promise<void> => {
+    if (!governedFetch) throw new Error('operator governed execution is not configured')
+    const records = await listAiProviders(db)
+    // Resource identifiers are deterministic and the epoch is published only after the writer
+    // successfully reconciles them, so a reader does not need to repeat control-plane writes.
+    const resourceBySlug = new Map(records.map((record) => [record.slug, llmResourceIdentifier(record.slug)]))
+    storeConfigs = buildStoreProviderConfigs(records, resourceBySlug, cfg.gatewayUrl, governedFetch)
+  }
+  const aiRegistrySync = governedFetch
+    ? createOperatorAiRegistrySync({
+        redis,
+        refresh: refreshStoreConfigs,
+        logger: app.log,
+      })
+    : null
 
   // The env upstreams that must always remain in the desired set the reconciler prunes against,
   // so a store reconcile never archives an env-sealed provider.
@@ -396,6 +412,9 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
           onRegistryChange: (configs) => {
             storeConfigs = configs
           },
+          onRegistryMutation: async () => {
+            await aiRegistrySync?.publish()
+          },
         })
       : null
 
@@ -406,6 +425,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     systemZones: cfg.operatorSystemZones,
     loadAiProviders,
     aiManager,
+    aiRegistrySync,
     autopilotPolicy: buildAutopilotPolicy({
       enabled: cfg.operatorAutopilotEnabled,
       conversationWriteBudget: cfg.operatorAutopilotWriteBudget,
@@ -517,9 +537,11 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     let rotation: ReturnType<typeof setInterval> | undefined
     app.addHook('onClose', async () => {
       if (rotation) clearInterval(rotation)
+      aiRegistrySync?.stop()
     })
     app.addHook('onListen', async () => {
       await provisionIdentities()
+      await aiRegistrySync?.start()
       // Rotate well inside the credential deadline, so a healthy instance never runs up to
       // expiry and a transient rotation failure has headroom to retry on the next tick.
       rotation = setInterval(() => {
