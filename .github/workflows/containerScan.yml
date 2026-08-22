@@ -44,7 +44,10 @@ jobs:
           else
             tag="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq '.tagName' 2>/dev/null || true)"
           fi
-          if [ -n "${tag}" ] && ! printf '%s' "${tag}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'; then
+          # Matched as a whole string, not per line: grep would accept a multi-line
+          # value whose first line is a valid tag, and the tag is written to
+          # GITHUB_OUTPUT, where a newline starts another output assignment.
+          if [ -n "${tag}" ] && [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
             echo "::error::Tag ${tag} is not a Caracal release tag."
             exit 1
           fi

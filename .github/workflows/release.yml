@@ -113,7 +113,10 @@ jobs:
             exit 1
           fi
           release_tag="$DISPATCH_RELEASE"
-          if ! echo "$release_tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$'; then
+          # Matched as a whole string, not per line: grep would accept a multi-line
+          # value whose first line is a valid tag, and the tag is written to
+          # GITHUB_OUTPUT, where a newline starts another output assignment.
+          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
             echo "::error::Release tag '${release_tag}' must match vX.Y.Z, vX.Y.Z-rc.<number>, or vX.Y.Z-rc.sha<gitsha>."
             exit 1
           fi

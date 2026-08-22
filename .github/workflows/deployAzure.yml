@@ -60,15 +60,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # Anchored so the tag is the whole value. A case glob ends in `*`, which
+      # also matches a newline, and the version is spliced into deployment.yaml
+      # below, so anything trailing the tag would become extra deployment YAML.
       - name: Validate release tag
         env:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          case "$VERSION" in
-            v[0-9]*.[0-9]*.[0-9]*|v[0-9]*.[0-9]*.[0-9]*-rc.[0-9]*) ;;
-            *) echo "::error::not a publishable release tag: $VERSION"; exit 1 ;;
-          esac
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::not a publishable release tag: $VERSION"
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
