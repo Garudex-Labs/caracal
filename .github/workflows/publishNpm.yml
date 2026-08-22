@@ -58,6 +58,10 @@ on:
         description: 'Exact release commit supplied by release.yml.'
         required: true
         type: string
+    secrets:
+      NPM_TOKEN:
+        description: 'Registry token used to publish; unset on dry runs.'
+        required: false
 
 permissions:
   contents: read
@@ -170,7 +174,9 @@ jobs:
 
       - name: Verify source checkout
         if: inputs.releaseSha != ''
-        run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
+        env:
+          RELEASE_SHA: ${{ inputs.releaseSha }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
@@ -255,7 +261,9 @@ jobs:
           persist-credentials: false
 
       - name: Verify source checkout
-        run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
+        env:
+          RELEASE_SHA: ${{ inputs.releaseSha }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:

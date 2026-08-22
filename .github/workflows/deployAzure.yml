@@ -144,19 +144,31 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh release download "$VERSION" --repo "${{ github.repository }}" \
+          gh release download "$VERSION" --repo "$REPOSITORY" \
             --pattern "caracal-deploy-${VERSION}.tar.gz" --pattern 'SHA256SUMS' --dir .
           grep " caracal-deploy-${VERSION}.tar.gz\$" SHA256SUMS | sha256sum --check --strict -
-          tar -xzf "caracal-deploy-${VERSION}.tar.gz"
-          npm --prefix caracal-deploy install --omit=dev --no-audit --no-fund
 
+      # SHA256SUMS ships with the archive it describes, so it only proves the two
+      # were published together. Provenance is the control that proves who built
+      # them, and it runs before the archive is unpacked or its install scripts
+      # execute against the signed-in subscription.
       - name: Verify release provenance
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-        run: gh attestation verify "caracal-deploy-${VERSION}.tar.gz" --repo "${{ github.repository }}"
+          REPOSITORY: ${{ github.repository }}
+        run: gh attestation verify "caracal-deploy-${VERSION}.tar.gz" --repo "$REPOSITORY"
+
+      - name: Unpack deployment tooling
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tar -xzf "caracal-deploy-${VERSION}.tar.gz"
+          npm --prefix caracal-deploy install --omit=dev --no-audit --no-fund
 
       - name: Import published images
         if: inputs.action == 'deploy'
@@ -194,19 +206,26 @@ jobs:
           CARACAL_ASSUME_YES: '1'
         run: bash caracal-deploy/containerPlatform/scripts/destroyAzure.sh rendered
 
+      # This step runs even when the tag validation above rejected the version, so
+      # every dispatch input reaches it unchecked and must stay out of the script
+      # body.
       - name: Report status
         if: always()
         env:
           CARACAL_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          ACTION: ${{ inputs.action }}
+          VERSION: ${{ inputs.version }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           {
-            echo "### Azure ${{ inputs.action }}"
+            echo "### Azure ${ACTION}"
             echo ""
             echo "| Field | Value |"
             echo "| --- | --- |"
-            echo "| Version | \`${{ inputs.version }}\` |"
-            echo "| Target | ${{ inputs.target }} |"
-            echo "| Result | ${{ job.status }} |"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| Target | ${ENVIRONMENT} |"
+            echo "| Result | ${JOB_STATUS} |"
             echo ""
             az containerapp list --resource-group "$CARACAL_RESOURCE_GROUP" \
               --query "[].{app:name, revision:properties.latestReadyRevisionName, fqdn:properties.configuration.ingress.fqdn}" \

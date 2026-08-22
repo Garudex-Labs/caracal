@@ -2,6 +2,13 @@
 # Caracal, a product of Garudex Labs
 #
 # Greets contributors the first time they open an issue or a pull request in the Caracal repository.
+#
+# pull_request_target is required so the greeting can be posted on fork pull
+# requests, which a pull_request run cannot do with its read-only token. The job
+# is safe under that trigger because it never checks out, builds, or executes
+# anything from the pull request: it only runs this workflow's own script from
+# the default branch, and every value it reads from the event is passed as an
+# API argument rather than expanded into a shell.
 
 name: Greetings
 
@@ -9,6 +16,10 @@ on: [pull_request_target, issues]
 
 permissions:
   contents: read
+
+concurrency:
+  group: greetings-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   greeting:

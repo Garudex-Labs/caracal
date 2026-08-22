@@ -25,6 +25,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   GO_VERSION: '1.26'
 
@@ -47,13 +51,17 @@ jobs:
       - name: Select changed languages
         id: select
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          if [[ '${{ github.event_name }}' != 'pull_request' ]]; then
+          if [[ "$EVENT_NAME" != 'pull_request' ]]; then
             echo 'languages=["go","python","javascript-typescript"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          git diff --name-only '${{ github.event.pull_request.base.sha }}' '${{ github.sha }}' > changed.txt
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed.txt
           go=false
           python=false
           ts=false
