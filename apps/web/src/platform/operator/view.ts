@@ -171,6 +171,8 @@ export function executeErrorMessage(err: unknown): string {
       return "Nothing to apply - what this plan would create already exists in this zone.";
     case "plan_state_changed":
       return "The zone changed since this plan was approved, so applying it now would do something the approval never covered. Ask again to compose a fresh plan.";
+    case "plan_credentials_required":
+      return "The vaulted credentials expired or are missing. Provide them again to apply this approved plan.";
     case "conversation_archived":
       return "This conversation is archived, so it can't apply changes.";
     default:

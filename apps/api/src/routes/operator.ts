@@ -1716,11 +1716,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   })
 
   // Accepts one step's credentials pasted through the console's secure prompt. The values are
-  // validated against exactly the fields the step requires, sealed into the vault, and never
-  // echoed; a re-paste before the plan is decided replaces the earlier values. When the vault
-  // then satisfies the whole plan in an engaged autopilot conversation, Caracal re-evaluates the
-  // approval it deferred at plan time. A failed guardian review still leaves the plan waiting for
-  // a human decision.
+  // validated against exactly the fields the immutable step requires, sealed into the vault, and
+  // never echoed. A re-paste may replace an earlier value before approval or recover an approved,
+  // still-unspent plan after its short-lived values expire. Rejected and spent plans stay closed.
+  // When the vault satisfies an undecided plan in an engaged autopilot conversation, Caracal
+  // re-evaluates the approval it deferred at plan time. A failed guardian review still leaves the
+  // plan waiting for a human decision.
   fastify.put('/zones/:zoneId/operator-conversations/:id/plans/:planSeq/secrets', async (req, reply) => {
     const params = parseParams(PlanSecretsParams, req, reply)
     if (!params) return
@@ -1757,27 +1758,44 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         throw new TxAbort(reply.code(400).send({ error: 'invalid_credentials', required }))
       }
 
-      // A decided plan is already approved or rejected; its credential window is closed.
-      const { rows: decided } = await client.query(
-        `SELECT 1 FROM operator_turns
+      const { rows: decisions } = await client.query<{ kind: string }>(
+        `SELECT kind FROM operator_turns
          WHERE conversation_id = $1 AND zone_id = $2
            AND kind IN ('approval', 'rejection')
            AND (content->>'plan_seq')::bigint = $3`,
         [params.id, params.zoneId, params.planSeq],
       )
-      if (decided[0]) throw new TxAbort(reply.code(409).send({ error: 'plan_already_decided' }))
+      const decision = decisions[0]?.kind
+      if (decision === 'rejection') throw new TxAbort(reply.code(409).send({ error: 'plan_rejected' }))
+
+      if (decision === 'approval') {
+        // Approval freezes the plan's public semantics, so accepting the same required secret
+        // fields cannot change its steps or effects. A spent plan is different: a failed step may
+        // have applied ambiguously, and an already-succeeded credential step no longer needs a
+        // replacement. Keep both closed so re-paste cannot create a second execution path.
+        const { rows: priorSteps } = await client.query<{ step_id: string; status: string }>(
+          `SELECT content->>'step_id' AS step_id, content->>'status' AS status
+           FROM operator_turns
+           WHERE conversation_id = $1 AND zone_id = $2 AND kind = 'execution'
+             AND (content->>'plan_seq')::bigint = $3`,
+          [params.id, params.zoneId, params.planSeq],
+        )
+        if (priorSteps.some((prior) => prior.status === 'failed' || (prior.status === 'succeeded' && prior.step_id === step.id))) {
+          throw new TxAbort(reply.code(409).send({ error: 'plan_already_executed' }))
+        }
+      }
 
       await storePlanStepSecrets(client, secretRef, body.step_id, body.values)
       const satisfied = await listSatisfiedPlanSteps(client, secretRef)
       const allSatisfied = content.steps.every(
         (candidate) => credentialFieldsFor(candidate.capability, candidate.args ?? {}).length === 0 || satisfied.has(candidate.id),
       )
-      return { content, allSatisfied, mode: conv[0].mode, autopilot: conv[0].autopilot === true }
+      return { content, allSatisfied, mode: conv[0].mode, autopilot: conv[0].autopilot === true, decided: decision !== undefined }
     })
 
     let autoApproved = false
     let approvalTurn: Record<string, unknown> | null = null
-    if (stored.allSatisfied && stored.mode === 'agent' && stored.autopilot && autopilotAvailable(autopilotPolicy)) {
+    if (!stored.decided && stored.allSatisfied && stored.mode === 'agent' && stored.autopilot && autopilotAvailable(autopilotPolicy)) {
       const steps = stored.content.steps.map((step) => ({ id: step.id, capability: step.capability, args: step.args ?? {} }))
       const preview = await previewPlan(fastify.db, params.zoneId, { summary: stored.content.summary, steps })
       // The same deterministic applicability gate the message path and the execute route use: the

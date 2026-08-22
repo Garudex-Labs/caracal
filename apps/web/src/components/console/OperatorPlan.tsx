@@ -286,6 +286,7 @@ export function PlanArtifact({
 }) {
   const decide = useDecideOperatorPlan(zoneId, conversationId);
   const execute = useExecuteOperatorPlan(zoneId, conversationId);
+  const executePlan = execute.mutate;
   const busy = decide.isPending || execute.isPending;
   const decision = planDecision(plan);
   const mutatingCount = plan.steps.filter((step) => step.mutating).length;
@@ -316,24 +317,12 @@ export function PlanArtifact({
   // "runs after Connect provider" rather than the opaque step id the planner assigned.
   const stepLabels = new Map(plan.steps.map((step) => [step.id, step.summary]));
 
-  // Approve is the only gate: once a plan is approved - by the operator here or by autopilot - it
-  // is applied automatically, so there is no separate apply step. The request is armed once per
-  // plan seq; the server's execute lock makes a duplicate a no-op, and the ref keeps a re-render or
-  // the dev strict double-mount from firing it twice.
-  const requestedSeq = useRef<number | null>(null);
-  useEffect(() => {
-    if (plan.canExecute && requestedSeq.current !== plan.seq) {
-      requestedSeq.current = plan.seq;
-      execute.mutate(plan.seq);
-    }
-  }, [plan.canExecute, plan.seq, execute.mutate]);
-
   // A step that connects a credential-bearing provider collects its values through the secure
-  // prompt into the sealed vault. The plan cannot be approved - by the operator or by autopilot -
-  // until every such step is satisfied, so the prompt opens itself once when the plan arrives and
-  // stays reachable through the buttons below if it is dismissed or the values need changing.
+  // prompt into the sealed vault. Pending plans cannot be approved until every step is satisfied;
+  // approved plans keep the same secure prompt available so expired values can be replaced without
+  // changing the immutable plan or its approval.
   const credentialSteps = plan.steps.filter((step) => step.secretFields.length > 0);
-  const needsCredentials = credentialSteps.length > 0 && plan.canDecide;
+  const needsCredentials = credentialSteps.length > 0 && (plan.canDecide || plan.canExecute);
   const secretsStatus = useOperatorPlanSecrets(
     zoneId,
     conversationId,
@@ -348,8 +337,36 @@ export function PlanArtifact({
     needsCredentials && secretsStatus.data != null && unsatisfied.length === 0;
   const [promptStepId, setPromptStepId] = useState<string | null>(null);
   const promptedSeq = useRef<number | null>(null);
+  const requestedSeq = useRef<number | null>(null);
   const statusLoaded = secretsStatus.data != null;
   const firstUnsatisfiedId = unsatisfied[0]?.id ?? null;
+  const executionNeedsCredentials =
+    (execute.error as { code?: string } | null)?.code === "plan_credentials_required";
+
+  // Approve is the only authority gate. Once approved, apply automatically, but wait for the
+  // write-only vault status before dispatching a credential-bearing plan. That avoids knowingly
+  // sending an apply whose values have expired. A status-read failure still lets the server make
+  // the authoritative decision during execute.
+  useEffect(() => {
+    const credentialGateReady =
+      credentialSteps.length === 0 || credentialsReady || secretsStatus.isError;
+    if (plan.canExecute && credentialGateReady && requestedSeq.current !== plan.seq) {
+      requestedSeq.current = plan.seq;
+      executePlan(plan.seq);
+    }
+  }, [
+    credentialSteps.length,
+    credentialsReady,
+    executePlan,
+    plan.canExecute,
+    plan.seq,
+    secretsStatus.isError,
+  ]);
+
+  useEffect(() => {
+    if (executionNeedsCredentials) promptedSeq.current = null;
+  }, [executionNeedsCredentials]);
+
   useEffect(() => {
     if (!needsCredentials || !statusLoaded) return;
     if (promptedSeq.current === plan.seq) return;
@@ -365,6 +382,13 @@ export function PlanArtifact({
         onSuccess: (result) => {
           if (result.all_satisfied) {
             setPromptStepId(null);
+            if (plan.canExecute) {
+              // The status invalidation triggered by the credential write may resolve before
+              // this mutation does. Mark the sequence first so that refresh cannot make the
+              // automatic effect dispatch a second apply for the same recovery.
+              requestedSeq.current = plan.seq;
+              executePlan(plan.seq);
+            }
             return;
           }
           const next = credentialSteps.find(
@@ -501,6 +525,26 @@ export function PlanArtifact({
             </p>
           ) : null}
         </Confirmation>
+      ) : null}
+
+      {plan.canExecute && needsCredentials && statusLoaded && !credentialsReady ? (
+        <div className="border-t border-border bg-surface px-3.5 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <KeyGlyph className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="min-w-0 flex-1 text-xs text-foreground">
+              The vaulted credentials expired or are missing. Provide the same required fields again
+              to apply this approved plan.
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy || provide.isPending}
+              onClick={() => setPromptStepId((unsatisfied[0] ?? credentialSteps[0]).id)}
+            >
+              Provide credentials
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {promptStep ? (

@@ -200,6 +200,7 @@ describe('executeErrorMessage', () => {
     expect(executeErrorMessage({ code: 'plan_already_satisfied' })).toContain('already exists')
     expect(executeErrorMessage({ code: 'plan_state_changed' })).toContain('zone changed since this plan was approved')
     expect(executeErrorMessage({ code: 'plan_blocked' })).toContain("can't be applied")
+    expect(executeErrorMessage({ code: 'plan_credentials_required' })).toContain('Provide them again')
   })
   it('falls back for unknown codes', () => {
     expect(executeErrorMessage({ code: 'mystery' })).toBe("Couldn't apply the changes. Please try again.")

@@ -449,7 +449,16 @@ export function useExecuteOperatorPlan(zoneId: string | null, conversationId: st
     mutationFn: (planSeq: number) =>
       consoleApi.operator.executePlan(zoneId as string, conversationId as string, planSeq),
     onSuccess: () => invalidateConversation(qc, zoneId, conversationId),
-    onError: (error) => resyncOnStalePlan(qc, zoneId, conversationId, error),
+    onError: (error, planSeq) => {
+      resyncOnStalePlan(qc, zoneId, conversationId, error);
+      // An approved plan may outlive its short-lived vaulted values. Re-read the write-only
+      // status so the plan card can reopen the secure prompt without exposing any secret.
+      if (error instanceof ConsoleApiError && error.code === "plan_credentials_required") {
+        qc.invalidateQueries({
+          queryKey: keys.operatorPlanSecrets(zoneId, conversationId, planSeq),
+        });
+      }
+    },
   });
 }
 
