@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import type { AdminClient } from '@caracalai/admin'
+import type { SecretBackend } from '@caracalai/server-core'
 import type { Queryable } from '../../../../apps/api/src/db.js'
 import {
   createOperatorAiManager,
@@ -79,11 +80,19 @@ describe('replica registry refresh', () => {
           rows: [
             {
               resource_identifier: 'caracal-sys://operator-llm-sealed',
+              provider_id: 'provider-sealed',
               provider_identifier: 'provider://caracal-sys-operator-llm-sealed',
               grant_content: grantContent,
             },
             {
+              resource_identifier: 'caracal-sys://operator-llm-unsealed',
+              provider_id: 'provider-unsealed',
+              provider_identifier: 'provider://caracal-sys-operator-llm-unsealed',
+              grant_content: grantContent.replace('"caracal-sys://operator-llm-sealed"', '"caracal-sys://operator-llm-unsealed"'),
+            },
+            {
               resource_identifier: 'caracal-sys://operator-llm-ungranted',
+              provider_id: 'provider-ungranted',
               provider_identifier: 'provider://caracal-sys-operator-llm-ungranted',
               grant_content: grantContent,
             },
@@ -91,10 +100,18 @@ describe('replica registry refresh', () => {
         }
       }),
     }
+    const secrets: SecretBackend = {
+      kind: 'builtin',
+      get: vi.fn(async (ref: string) =>
+        ref.endsWith('/provider-sealed/secretConfig') ? Buffer.from(JSON.stringify({ api_key: 'sealed-key' })) : null,
+      ),
+      put: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    }
     const transport = vi.fn() as unknown as typeof fetch
     const governedFetch = vi.fn(() => transport)
 
-    const configs = await loadStoreProviderConfigs(db, 'system-zone', 'operator-app', 'http://gateway.test', governedFetch)
+    const configs = await loadStoreProviderConfigs(db, 'system-zone', 'operator-app', secrets, 'http://gateway.test', governedFetch)
 
     expect(configs).toHaveLength(1)
     expect(configs[0]).toMatchObject({ id: 'sealed', model: 'model-a', baseUrl: 'http://gateway.test' })

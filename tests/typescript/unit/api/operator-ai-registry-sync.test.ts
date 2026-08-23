@@ -61,6 +61,25 @@ describe('operator AI registry replica synchronization', () => {
     sync.stop()
   })
 
+  it('does not acknowledge a remote epoch published after the pre-provision capture', async () => {
+    const shared = sharedVersionStore()
+    await shared.store.incr()
+    const refresh = vi.fn(async () => {})
+    const sync = createOperatorAiRegistrySync({ redis: shared.store, refresh })
+
+    await sync.captureVersion()
+    await shared.store.incr()
+    await sync.start()
+
+    expect(refresh).not.toHaveBeenCalled()
+    expect(sync.status()).toMatchObject({ state: 'healthy', local_version: '1', observed_version: '1' })
+
+    await sync.poll()
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(sync.status()).toMatchObject({ state: 'healthy', local_version: '2', observed_version: '2' })
+    sync.stop()
+  })
+
   it('converges two independent registries after create, update, disable, enable, and delete', async () => {
     vi.useFakeTimers()
     const shared = sharedVersionStore()

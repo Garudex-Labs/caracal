@@ -4,6 +4,7 @@
 // Persistence for the Operator's model-provider registry, holding only non-secret metadata while each upstream key lives in the sealed Caracal provider.
 
 import type { Queryable } from './db.js'
+import { providerSecretConfigRef, type SecretBackend } from '@caracalai/server-core'
 import {
   LLM_SCOPE,
   OPERATOR_POLICY_NAME,
@@ -104,8 +105,28 @@ export async function listAiProviders(db: Queryable): Promise<OperatorAiProvider
 
 interface GovernedResourceRow {
   resource_identifier: string
+  provider_id: string
   provider_identifier: string
   grant_content: string
+}
+
+async function hasSealedApiKey(secrets: SecretBackend, zoneId: string, providerId: string): Promise<boolean> {
+  const value = await secrets.get(providerSecretConfigRef(zoneId, providerId))
+  if (!value) return false
+  try {
+    const parsed = JSON.parse(value.toString('utf8')) as unknown
+    return (
+      Boolean(parsed) &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as Record<string, unknown>).api_key === 'string' &&
+      (parsed as Record<string, string>).api_key.length > 0
+    )
+  } catch {
+    return false
+  } finally {
+    value.fill(0)
+  }
 }
 
 function grantedResources(content: string, operatorAppId: string): Set<string> {
@@ -142,9 +163,11 @@ export async function listReadyAiProviderResources(
   zoneId: string,
   operatorAppId: string,
   records: OperatorAiProviderRecord[],
+  secrets: SecretBackend,
 ): Promise<Map<string, string>> {
   const { rows } = await db.query<GovernedResourceRow>(
     `SELECT DISTINCT r.identifier AS resource_identifier,
+                     p.id AS provider_id,
                      p.identifier AS provider_identifier,
                      pv.content AS grant_content
        FROM resources r
@@ -189,14 +212,21 @@ export async function listReadyAiProviderResources(
   }
 
   const ready = new Map<string, string>()
+  const sealedByProvider = new Map<string, Promise<boolean>>()
   for (const record of records) {
     const resourceIdentifier = llmResourceIdentifier(record.slug)
     const providerIdentifier = llmProviderIdentifier(record.slug)
-    const complete = rows.some(
+    const governed = rows.find(
       (row) =>
         row.resource_identifier === resourceIdentifier && row.provider_identifier === providerIdentifier && granted.has(resourceIdentifier),
     )
-    if (complete) ready.set(record.slug, resourceIdentifier)
+    if (!governed) continue
+    let sealed = sealedByProvider.get(governed.provider_id)
+    if (!sealed) {
+      sealed = hasSealedApiKey(secrets, zoneId, governed.provider_id)
+      sealedByProvider.set(governed.provider_id, sealed)
+    }
+    if (await sealed) ready.set(record.slug, resourceIdentifier)
   }
   return ready
 }

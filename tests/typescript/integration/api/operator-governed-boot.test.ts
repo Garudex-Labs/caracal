@@ -91,6 +91,7 @@ suite('governed Operator boot wiring', () => {
       harness.pool as unknown as Queryable,
       statusBody.system_zone_id!,
       rows[0].operator_application_id,
+      harness.app.secrets,
       'http://gateway.test',
       governedFetch,
     )

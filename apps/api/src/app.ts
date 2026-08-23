@@ -382,7 +382,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         refresh: async () => {
           const identity = currentIdentity()
           if (!identity) throw new Error('operator governed execution is not configured')
-          storeConfigs = await loadStoreProviderConfigs(db, identity.zoneId, identity.llm.applicationId, cfg.gatewayUrl, governedFetch)
+          storeConfigs = await loadStoreProviderConfigs(
+            db,
+            identity.zoneId,
+            identity.llm.applicationId,
+            app.secrets,
+            cfg.gatewayUrl,
+            governedFetch,
+          )
         },
         logger: app.log,
       })
@@ -541,6 +548,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       aiRegistrySync?.stop()
     })
     app.addHook('onListen', async () => {
+      await aiRegistrySync?.captureVersion()
       await provisionIdentities()
       await aiRegistrySync?.start()
       // Rotate well inside the credential deadline, so a healthy instance never runs up to

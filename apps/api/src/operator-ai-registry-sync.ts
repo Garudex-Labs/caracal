@@ -25,6 +25,9 @@ export interface OperatorAiRegistrySyncStatus {
 }
 
 export interface OperatorAiRegistrySync {
+  // Captures the epoch before boot provisioning reads/reconciles the registry. start() adopts
+  // only this pre-provision epoch, so a concurrent remote mutation remains visible to poll().
+  captureVersion(): Promise<void>
   start(): Promise<void>
   stop(): void
   // Marks a successfully reconciled metadata mutation for the other replicas. A failed publish
@@ -67,6 +70,8 @@ export function createOperatorAiRegistrySync(options: OperatorAiRegistrySyncOpti
   let lastRefreshAt: string | null = null
   let lastErrorAt: string | null = null
   let lastErrorClass: OperatorAiRegistrySyncErrorClass | null = null
+  let capturedVersion: string | null = null
+  let versionCaptured = false
 
   const recordSuccess = (): void => {
     syncState = 'healthy'
@@ -125,6 +130,19 @@ export function createOperatorAiRegistrySync(options: OperatorAiRegistrySyncOpti
       recordSuccess()
     })
 
+  const captureVersion = (): Promise<void> =>
+    enqueue(async () => {
+      versionCaptured = true
+      try {
+        capturedVersion = await options.redis.get(REGISTRY_VERSION_KEY)
+        observedVersion = capturedVersion
+        recordSuccess()
+      } catch (err) {
+        capturedVersion = null
+        recordError('version_read_failed', err)
+      }
+    })
+
   const schedulePoll = (): void => {
     timer = setTimeout(() => {
       timer = undefined
@@ -138,21 +156,15 @@ export function createOperatorAiRegistrySync(options: OperatorAiRegistrySyncOpti
   }
 
   return {
+    captureVersion,
+
     async start() {
       if (started) return
       started = true
-      // Boot provisioning just built the authoritative local registry. Adopt the current epoch
-      // without immediately replacing that state from a second read-side reconstruction.
-      await enqueue(async () => {
-        try {
-          const remoteVersion = await options.redis.get(REGISTRY_VERSION_KEY)
-          localVersion = remoteVersion
-          observedVersion = remoteVersion
-          recordSuccess()
-        } catch (err) {
-          recordError('version_read_failed', err)
-        }
-      })
+      // Direct callers retain the safe single-step behavior. Production captures before boot
+      // provisioning, preventing a newer post-provision epoch from being acknowledged here.
+      if (!versionCaptured) await captureVersion()
+      localVersion = capturedVersion
       if (started) schedulePoll()
     },
 

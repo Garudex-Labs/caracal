@@ -4,6 +4,7 @@
 // Runtime manager for the Operator's governed model providers: seals keys through Caracal, reconciles the system-zone grants, and rebuilds the gateway registry so a change applies without an env edit.
 
 import type { AdminClient } from '@caracalai/admin'
+import type { SecretBackend } from '@caracalai/server-core'
 import type { Queryable } from './db.js'
 import type { OperatorControlIdentity } from './config.js'
 import type { ProviderConfig } from './operator-gateway.js'
@@ -146,11 +147,12 @@ export async function loadStoreProviderConfigs(
   db: Queryable,
   zoneId: string,
   operatorAppId: string,
+  secrets: SecretBackend,
   gatewayUrl: string,
   governedFetch: (resourceIdentifier: string) => typeof fetch,
 ): Promise<ProviderConfig[]> {
   const records = await listAiProviders(db)
-  const resourceBySlug = await listReadyAiProviderResources(db, zoneId, operatorAppId, records)
+  const resourceBySlug = await listReadyAiProviderResources(db, zoneId, operatorAppId, records, secrets)
   return buildStoreProviderConfigs(records, resourceBySlug, gatewayUrl, governedFetch)
 }
 
