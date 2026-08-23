@@ -34,7 +34,12 @@ import { buildOperatorAuthority } from './operator-authority.js'
 import { researcherRoleScopes, executorRoleScopes } from './operator-agent-roles.js'
 import { isReservedZone } from './reserved-namespace.js'
 import type { ProviderConfig } from './operator-gateway.js'
-import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiManager } from './operator-ai-manager.js'
+import {
+  createOperatorAiManager,
+  buildStoreProviderConfigs,
+  loadStoreProviderConfigs,
+  type OperatorAiManager,
+} from './operator-ai-manager.js'
 import { listAiProviders } from './operator-ai-store.js'
 import type { OperatorControlIdentity } from './config.js'
 import { getTraceContext, parseTraceparent, bindTrace, buildPinoRedactPaths, CaracalError, createLogger } from '@caracalai/core'
@@ -371,18 +376,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   let storeConfigs: ProviderConfig[] = []
   const loadAiProviders = (): ProviderConfig[] => [...envConfigs, ...storeConfigs]
   const operatorAiHealth = createOperatorAiHealthStore(redis, app.log)
-  const refreshStoreConfigs = async (): Promise<void> => {
-    if (!governedFetch) throw new Error('operator governed execution is not configured')
-    const records = await listAiProviders(db)
-    // Resource identifiers are deterministic and the epoch is published only after the writer
-    // successfully reconciles them, so a reader does not need to repeat control-plane writes.
-    const resourceBySlug = new Map(records.map((record) => [record.slug, llmResourceIdentifier(record.slug)]))
-    storeConfigs = buildStoreProviderConfigs(records, resourceBySlug, cfg.gatewayUrl, governedFetch)
-  }
   const aiRegistrySync = governedFetch
     ? createOperatorAiRegistrySync({
         redis,
-        refresh: refreshStoreConfigs,
+        refresh: async () => {
+          const identity = currentIdentity()
+          if (!identity) throw new Error('operator governed execution is not configured')
+          storeConfigs = await loadStoreProviderConfigs(db, identity.zoneId, identity.llm.applicationId, cfg.gatewayUrl, governedFetch)
+        },
         logger: app.log,
       })
     : null

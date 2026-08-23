@@ -47,6 +47,20 @@ afterEach(() => {
 })
 
 describe('operator AI registry replica synchronization', () => {
+  it('adopts the current epoch on start without replacing the boot-provisioned registry', async () => {
+    const shared = sharedVersionStore()
+    await shared.store.incr()
+    await shared.store.incr()
+    const refresh = vi.fn(async () => {})
+    const sync = createOperatorAiRegistrySync({ redis: shared.store, refresh })
+
+    await sync.start()
+
+    expect(refresh).not.toHaveBeenCalled()
+    expect(sync.status()).toMatchObject({ state: 'healthy', local_version: '2', observed_version: '2' })
+    sync.stop()
+  })
+
   it('converges two independent registries after create, update, disable, enable, and delete', async () => {
     vi.useFakeTimers()
     const shared = sharedVersionStore()
@@ -145,6 +159,52 @@ describe('operator AI registry replica synchronization', () => {
     await reader.poll()
     expect(reader.status()).toMatchObject({ state: 'healthy', local_version: '1', observed_version: '1' })
     expect(refreshed).toBe(1)
+  })
+
+  it('does not let a publish acknowledge state overwritten by an in-flight refresh', async () => {
+    const shared = sharedVersionStore()
+    await shared.store.incr()
+    let persisted: ProviderSnapshot[] = [{ slug: 'openai', label: 'Old', models: ['gpt-5.4'], enabled: true }]
+    let local = clone(persisted)
+    let releaseRefresh!: () => void
+    let markRefreshStarted!: () => void
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve
+    })
+    const refreshReleased = new Promise<void>((resolve) => {
+      releaseRefresh = resolve
+    })
+    let blockRefresh = true
+    const sync = createOperatorAiRegistrySync({
+      redis: shared.store,
+      refresh: async () => {
+        const snapshot = clone(persisted)
+        if (blockRefresh) {
+          markRefreshStarted()
+          await refreshReleased
+          blockRefresh = false
+        }
+        local = snapshot
+      },
+    })
+    await sync.start()
+    await shared.store.incr()
+
+    const polling = sync.poll()
+    await refreshStarted
+    persisted = [{ slug: 'openai', label: 'New', models: ['gpt-5.5'], enabled: true }]
+    local = clone(persisted)
+    const publishing = sync.publish()
+    releaseRefresh()
+    await polling
+    await publishing
+
+    expect(local[0]?.label).toBe('Old')
+    expect(sync.status()).toMatchObject({ local_version: '2', observed_version: '3', publish_pending: false })
+
+    await sync.poll()
+    expect(local).toEqual(persisted)
+    expect(sync.status()).toMatchObject({ state: 'healthy', local_version: '3', observed_version: '3' })
   })
 
   it('surfaces version-store read failures without changing the acknowledged version', async () => {

@@ -12,6 +12,7 @@ import {
   deleteAiProvider,
   getAiProvider,
   listAiProviders,
+  listReadyAiProviderResources,
   upsertAiProvider,
   type AuthPlacement,
   type OperatorAiProviderRecord,
@@ -136,6 +137,21 @@ export function buildStoreProviderConfigs(
     }
   }
   return configs
+}
+
+// Rebuilds a replica's runtime registry from shared metadata and the shared governed state.
+// The readiness lookup deliberately excludes metadata-only rows whose key/resource/grant
+// reconciliation did not complete.
+export async function loadStoreProviderConfigs(
+  db: Queryable,
+  zoneId: string,
+  operatorAppId: string,
+  gatewayUrl: string,
+  governedFetch: (resourceIdentifier: string) => typeof fetch,
+): Promise<ProviderConfig[]> {
+  const records = await listAiProviders(db)
+  const resourceBySlug = await listReadyAiProviderResources(db, zoneId, operatorAppId, records)
+  return buildStoreProviderConfigs(records, resourceBySlug, gatewayUrl, governedFetch)
 }
 
 // Merges the env-configured upstreams with the store-managed ones into the single desired set

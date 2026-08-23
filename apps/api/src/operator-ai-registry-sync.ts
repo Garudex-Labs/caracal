@@ -3,8 +3,6 @@
 //
 // Cross-replica invalidation for the Operator model-provider runtime registry.
 
-import type { RedisClient } from './redis.js'
-
 const REGISTRY_VERSION_KEY = 'api:operator_ai_registry:version:v1'
 
 // A successful lifecycle change is visible to every healthy API replica within this interval.
@@ -48,7 +46,7 @@ interface RegistrySyncLogger {
 }
 
 export interface OperatorAiRegistrySyncOptions {
-  redis: Pick<RedisClient, 'get' | 'incr'> | RegistryVersionStore
+  redis: RegistryVersionStore
   refresh: () => Promise<void>
   logger?: RegistrySyncLogger
   intervalMs?: number
@@ -91,7 +89,6 @@ export function createOperatorAiRegistrySync(options: OperatorAiRegistrySyncOpti
   const publishPendingVersion = async (): Promise<boolean> => {
     try {
       const version = String(await options.redis.incr(REGISTRY_VERSION_KEY))
-      localVersion = version
       observedVersion = version
       publishPending = false
       recordSuccess()
@@ -129,10 +126,13 @@ export function createOperatorAiRegistrySync(options: OperatorAiRegistrySyncOpti
     })
 
   const schedulePoll = (): void => {
-    timer = setTimeout(async () => {
+    timer = setTimeout(() => {
       timer = undefined
-      await poll()
-      if (started) schedulePoll()
+      void poll()
+        .catch((err: unknown) => recordError('refresh_failed', err))
+        .finally(() => {
+          if (started) schedulePoll()
+        })
     }, intervalMs)
     timer.unref()
   }
@@ -141,7 +141,18 @@ export function createOperatorAiRegistrySync(options: OperatorAiRegistrySyncOpti
     async start() {
       if (started) return
       started = true
-      await poll()
+      // Boot provisioning just built the authoritative local registry. Adopt the current epoch
+      // without immediately replacing that state from a second read-side reconstruction.
+      await enqueue(async () => {
+        try {
+          const remoteVersion = await options.redis.get(REGISTRY_VERSION_KEY)
+          localVersion = remoteVersion
+          observedVersion = remoteVersion
+          recordSuccess()
+        } catch (err) {
+          recordError('version_read_failed', err)
+        }
+      })
       if (started) schedulePoll()
     },
 

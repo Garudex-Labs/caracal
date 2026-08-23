@@ -4,6 +4,14 @@
 // Persistence for the Operator's model-provider registry, holding only non-secret metadata while each upstream key lives in the sealed Caracal provider.
 
 import type { Queryable } from './db.js'
+import {
+  LLM_SCOPE,
+  OPERATOR_POLICY_NAME,
+  OPERATOR_POLICY_SET_NAME,
+  OPERATOR_ROLE,
+  llmProviderIdentifier,
+  llmResourceIdentifier,
+} from './system-zone.js'
 
 export const PROVIDER_SLUG_PATTERN = /^[a-z0-9_]{1,32}$/
 
@@ -92,6 +100,105 @@ export async function listAiProviders(db: Queryable): Promise<OperatorAiProvider
       ORDER BY sort_order, slug`,
   )
   return rows.map(toRecord)
+}
+
+interface GovernedResourceRow {
+  resource_identifier: string
+  provider_identifier: string
+  grant_content: string
+}
+
+function grantedResources(content: string, operatorAppId: string): Set<string> {
+  const assignment = content
+    .split('\n')
+    .find((line) => line.startsWith('grants := '))
+    ?.slice('grants := '.length)
+  if (!assignment) return new Set()
+
+  try {
+    const parsed = JSON.parse(assignment) as Record<string, unknown>
+    return new Set(
+      Object.entries(parsed)
+        .filter(([, rawGrant]) => {
+          if (!rawGrant || typeof rawGrant !== 'object' || Array.isArray(rawGrant)) return false
+          const grant = rawGrant as { application?: unknown; roles?: unknown }
+          if (grant.application !== operatorAppId || !grant.roles || typeof grant.roles !== 'object' || Array.isArray(grant.roles))
+            return false
+          const scopes = (grant.roles as Record<string, unknown>)[OPERATOR_ROLE]
+          return Array.isArray(scopes) && scopes.includes(LLM_SCOPE)
+        })
+        .map(([identifier]) => identifier),
+    )
+  } catch {
+    return new Set()
+  }
+}
+
+// Resolves only complete governed endpoints. A deterministic identifier alone is insufficient:
+// a failed lifecycle reconcile can leave registry metadata without a sealed key, resource, or
+// active grant. Requiring all three keeps a remote replica from selecting that partial state.
+export async function listReadyAiProviderResources(
+  db: Queryable,
+  zoneId: string,
+  operatorAppId: string,
+  records: OperatorAiProviderRecord[],
+): Promise<Map<string, string>> {
+  const { rows } = await db.query<GovernedResourceRow>(
+    `SELECT DISTINCT r.identifier AS resource_identifier,
+                     p.identifier AS provider_identifier,
+                     pv.content AS grant_content
+       FROM resources r
+       JOIN providers p
+         ON p.id = r.credential_provider_id
+        AND p.zone_id = r.zone_id
+        AND p.archived_at IS NULL
+       JOIN policy_sets ps
+         ON ps.zone_id = r.zone_id
+        AND ps.name = $2
+        AND ps.archived_at IS NULL
+       JOIN policy_set_bindings psb
+         ON psb.zone_id = ps.zone_id
+        AND psb.policy_set_id = ps.id
+        AND psb.active_version_id IS NOT NULL
+       JOIN policy_set_versions psv
+         ON psv.id = psb.active_version_id
+        AND psv.policy_set_id = ps.id
+        AND psv.archived_at IS NULL
+       JOIN LATERAL jsonb_array_elements(psv.manifest_json) manifest ON true
+       JOIN policy_versions pv
+         ON pv.id = manifest->>'policy_version_id'
+        AND pv.archived_at IS NULL
+       JOIN policies policy
+         ON policy.id = pv.policy_id
+        AND policy.zone_id = r.zone_id
+        AND policy.name = $3
+        AND policy.archived_at IS NULL
+      WHERE r.zone_id = $1
+        AND r.archived_at IS NULL
+        AND r.operation_enforcement = 'transport_uniform'
+        AND $4 = ANY(r.scopes)
+        AND p.provider_kind = 'api_key'
+        AND p.secret_config_keys @> ARRAY['api_key']::text[]
+        AND p.config_json @> '{"allow_runtime_injection": true}'::jsonb`,
+    [zoneId, OPERATOR_POLICY_SET_NAME, OPERATOR_POLICY_NAME, LLM_SCOPE],
+  )
+
+  const granted = new Set<string>()
+  for (const row of rows) {
+    for (const identifier of grantedResources(row.grant_content, operatorAppId)) granted.add(identifier)
+  }
+
+  const ready = new Map<string, string>()
+  for (const record of records) {
+    const resourceIdentifier = llmResourceIdentifier(record.slug)
+    const providerIdentifier = llmProviderIdentifier(record.slug)
+    const complete = rows.some(
+      (row) =>
+        row.resource_identifier === resourceIdentifier && row.provider_identifier === providerIdentifier && granted.has(resourceIdentifier),
+    )
+    if (complete) ready.set(record.slug, resourceIdentifier)
+  }
+  return ready
 }
 
 export async function getAiProvider(db: Queryable, slug: string): Promise<OperatorAiProviderRecord | null> {

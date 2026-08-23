@@ -9,6 +9,8 @@ import {
   startGovernedOperatorHarness,
   type GovernedOperatorHarness,
 } from '../../../shared/test-utils/typescript/governed-operator-harness.js'
+import type { Queryable } from '../../../../apps/api/src/db.js'
+import { loadStoreProviderConfigs } from '../../../../apps/api/src/operator-ai-manager.js'
 
 const databaseUrl = process.env.CARACAL_TEST_DATABASE_URL
 const suite = databaseUrl ? describe : describe.skip
@@ -73,6 +75,27 @@ suite('governed Operator boot wiring', () => {
     expect(rows[0].upstream_url).toMatch(/^http:\/\/127\.0\.0\.1:/)
     expect(Buffer.isBuffer(rows[0].envelope)).toBe(true)
     expect(rows[0].envelope.includes(Buffer.from(harness.upstreamKey))).toBe(false)
+
+    // Exercise the replica refresh against real schema state: DB metadata for the boot-sealed
+    // endpoint is selectable, while a metadata-only row with no sealed governed chain is not.
+    const sealedRegistrySlug = 'boot_e2e'
+    await harness.pool.query(
+      `INSERT INTO operator_ai_providers
+         (slug, label, base_url, models, context_window, enabled, sort_order, auth_config)
+       VALUES ($1, 'Boot sealed', 'https://sealed.example/v1', $2::jsonb, 32000, true, 1, $3::jsonb),
+              ('unsealed', 'Unsealed', 'https://unsealed.example/v1', $4::jsonb, 16000, true, 2, $3::jsonb)`,
+      [sealedRegistrySlug, JSON.stringify([harness.model]), JSON.stringify({ location: 'header' }), JSON.stringify(['dead-model'])],
+    )
+    const governedFetch = vi.fn(() => vi.fn() as unknown as typeof fetch)
+    const refreshedConfigs = await loadStoreProviderConfigs(
+      harness.pool as unknown as Queryable,
+      statusBody.system_zone_id!,
+      rows[0].operator_application_id,
+      'http://gateway.test',
+      governedFetch,
+    )
+    expect(refreshedConfigs.map((provider) => provider.id)).toEqual([sealedRegistrySlug])
+    expect(governedFetch).toHaveBeenCalledExactlyOnceWith(harness.resourceIdentifier)
 
     const check = await fetch(`${harness.apiUrl}/v1/operator/ai/check`, { method: 'POST', headers: auth })
     expect(check.status).toBe(200)

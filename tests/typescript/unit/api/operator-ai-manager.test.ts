@@ -3,12 +3,13 @@
 //
 // Unit tests for the runtime governed model-provider manager and its pure registry helpers.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { AdminClient } from '@caracalai/admin'
 import type { Queryable } from '../../../../apps/api/src/db.js'
 import {
   createOperatorAiManager,
   buildStoreProviderConfigs,
+  loadStoreProviderConfigs,
   mergeDesiredUpstreams,
   providerConfigId,
   OperatorAiUnavailableError,
@@ -28,6 +29,78 @@ interface StoreRow {
   sort_order: number
   auth_config: unknown
 }
+
+describe('replica registry refresh', () => {
+  it('builds configs from DB metadata only when the sealed resource and active grant exist', async () => {
+    const metadataRows: StoreRow[] = [
+      {
+        slug: 'sealed',
+        label: 'Sealed',
+        base_url: 'https://sealed.example/v1',
+        models: ['model-a'],
+        context_window: 32_000,
+        enabled: true,
+        sort_order: 1,
+        auth_config: { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' },
+      },
+      {
+        slug: 'unsealed',
+        label: 'Unsealed',
+        base_url: 'https://unsealed.example/v1',
+        models: ['model-b'],
+        context_window: 16_000,
+        enabled: true,
+        sort_order: 2,
+        auth_config: { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' },
+      },
+      {
+        slug: 'ungranted',
+        label: 'Ungranted',
+        base_url: 'https://ungranted.example/v1',
+        models: ['model-c'],
+        context_window: 16_000,
+        enabled: true,
+        sort_order: 3,
+        auth_config: { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' },
+      },
+    ]
+    const grantContent = [
+      '# caracal:data-document',
+      'package caracal.authz',
+      'import rego.v1',
+      'app_ids := {"operator-app":"operator-app"}',
+      'grants := {"caracal-sys://operator-llm-sealed":{"application":"operator-app","roles":{"operator":["llm:invoke"]}}}',
+      '',
+    ].join('\n')
+    const db: Queryable = {
+      query: vi.fn(async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+        if (sql.includes('FROM operator_ai_providers')) return { rows: metadataRows as T[] }
+        return {
+          rows: [
+            {
+              resource_identifier: 'caracal-sys://operator-llm-sealed',
+              provider_identifier: 'provider://caracal-sys-operator-llm-sealed',
+              grant_content: grantContent,
+            },
+            {
+              resource_identifier: 'caracal-sys://operator-llm-ungranted',
+              provider_identifier: 'provider://caracal-sys-operator-llm-ungranted',
+              grant_content: grantContent,
+            },
+          ] as T[],
+        }
+      }),
+    }
+    const transport = vi.fn() as unknown as typeof fetch
+    const governedFetch = vi.fn(() => transport)
+
+    const configs = await loadStoreProviderConfigs(db, 'system-zone', 'operator-app', 'http://gateway.test', governedFetch)
+
+    expect(configs).toHaveLength(1)
+    expect(configs[0]).toMatchObject({ id: 'sealed', model: 'model-a', baseUrl: 'http://gateway.test' })
+    expect(governedFetch).toHaveBeenCalledExactlyOnceWith('caracal-sys://operator-llm-sealed')
+  })
+})
 
 // An in-memory Queryable matching the store's four statements by their stable SQL shape, so the
 // manager exercises the real store parameter mapping without a live database.
