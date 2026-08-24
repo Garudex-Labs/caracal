@@ -40,7 +40,7 @@ export interface StackComposeHandle {
   exitCode: Promise<number>
 }
 
-function composeArgv(paths: StackPaths, args: string[]): string[] {
+export function stackComposeArgv(paths: StackPaths, args: string[]): string[] {
   const envFlags = paths.envFiles.flatMap((f) => (existsSync(f) ? ['--env-file', f] : []))
   return ['docker', 'compose', ...envFlags, '-f', paths.composeFile, ...args]
 }
@@ -57,7 +57,7 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
   const build = opts.paths.mode === 'dev' && opts.build !== false
   const args = build ? ['up', '-d', '--build', '--remove-orphans', ...opts.args] : ['up', '-d', '--remove-orphans', ...opts.args]
   const handle = runExec({
-    argv: composeArgv(opts.paths, args),
+    argv: stackComposeArgv(opts.paths, args),
     env: opts.env,
     cwd: opts.paths.cwd,
     onLine: opts.onLine,
@@ -66,7 +66,7 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
     if (code !== 0) return code
     // Remove exited one-shot containers (e.g. dbMigrate) so they don't linger.
     const rm = runExec({
-      argv: composeArgv(opts.paths, ['rm', '-f']),
+      argv: stackComposeArgv(opts.paths, ['rm', '-f']),
       env: opts.env,
       cwd: opts.paths.cwd,
     })
@@ -96,7 +96,7 @@ function ensureDevNetwork(opts: StackComposeOpts): number {
 
 export function stackDown(opts: StackComposeOpts): StackComposeHandle {
   const handle = runExec({
-    argv: composeArgv(opts.paths, ['down', ...opts.args]),
+    argv: stackComposeArgv(opts.paths, ['down', ...opts.args]),
     env: opts.env,
     cwd: opts.paths.cwd,
     onLine: opts.onLine,
@@ -199,7 +199,7 @@ export interface ComposeRunOpts {
 
 export function composeRun(opts: ComposeRunOpts): StackComposeHandle {
   const handle = runExec({
-    argv: composeArgv(opts.paths, opts.args),
+    argv: stackComposeArgv(opts.paths, opts.args),
     env: opts.env,
     cwd: opts.paths.cwd,
     onLine: opts.onLine,
