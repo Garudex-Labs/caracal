@@ -62,7 +62,8 @@ function composeOutput(opts: StackPortPreflightOpts, args: string[]): string {
     encoding: 'utf8',
   })
   if (result.status !== 0) {
-    throw new Error(`could not inspect Docker Compose port bindings (${args.join(' ')})`)
+    const detail = (result.stderr ?? '').trim()
+    throw new Error(`could not inspect Docker Compose port bindings (${args.join(' ')})${detail ? `: ${detail}` : ''}`)
   }
   return result.stdout ?? ''
 }
@@ -120,7 +121,8 @@ function normalizedHost(host: string | undefined): string {
 function targetOwnsBinding(binding: StackPortBinding, processes: ComposeProcess[]): boolean {
   const expectedHost = normalizedHost(binding.host)
   return processes.some((process) => {
-    if ((process.State ?? '').toLowerCase() !== 'running') return false
+    const state = (process.State ?? '').toLowerCase()
+    if (state === 'created' || state === 'exited' || state === 'dead' || state === 'removing') return false
     return (process.Publishers ?? []).some((publisher) => {
       if (publisher.PublishedPort !== binding.port || (publisher.Protocol ?? 'tcp').toLowerCase() !== binding.protocol) return false
       const ownerHost = normalizedHost(publisher.URL)

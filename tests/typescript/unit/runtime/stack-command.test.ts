@@ -162,6 +162,15 @@ describe('stack commands', () => {
     expect(stderr).toContain('pre-existing Compose project was left in place')
   })
 
+  it('does not remove a partial project when startup is interrupted', async () => {
+    engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(130) })
+
+    await expect(upCommand([])).rejects.toThrow('exit:130')
+
+    expect(engineMocks.stackDown).not.toHaveBeenCalled()
+    expect(stderr).not.toContain('stack startup failed')
+  })
+
   it('fails up with actionable guidance when a foreign stack holds the caracalData network', async () => {
     engineMocks.resolveStackPaths.mockReturnValue({
       mode: 'rc',

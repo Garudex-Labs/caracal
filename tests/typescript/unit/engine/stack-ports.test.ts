@@ -64,7 +64,7 @@ describe('stack port preflight', () => {
     })
   })
 
-  it('allows ports already published by the target Compose project', async () => {
+  it.each(['running', 'paused', 'restarting'])('allows ports published by a %s target-project container', async (state) => {
     spawnSyncMock
       .mockReturnValueOnce({
         status: 0,
@@ -72,7 +72,7 @@ describe('stack port preflight', () => {
       })
       .mockReturnValueOnce({
         status: 0,
-        stdout: JSON.stringify([{ State: 'running', Publishers: [{ URL: '127.0.0.1', PublishedPort: 3000, Protocol: 'tcp' }] }]),
+        stdout: JSON.stringify([{ State: state, Publishers: [{ URL: '127.0.0.1', PublishedPort: 3000, Protocol: 'tcp' }] }]),
       })
     const check = vi.fn(async () => false)
 
@@ -110,10 +110,10 @@ describe('stack port preflight', () => {
   })
 
   it('fails closed when Compose cannot resolve the configuration', async () => {
-    spawnSyncMock.mockReturnValueOnce({ status: 1, stdout: '', stderr: 'invalid compose' })
+    spawnSyncMock.mockReturnValueOnce({ status: 1, stdout: '', stderr: 'yaml: line 7: could not find expected colon\n' })
 
     await expect(stackPortPreflight({ paths, args: [] })).rejects.toThrow(
-      'could not inspect Docker Compose port bindings (config --format json)',
+      'could not inspect Docker Compose port bindings (config --format json): yaml: line 7: could not find expected colon',
     )
   })
 

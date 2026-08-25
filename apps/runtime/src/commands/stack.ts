@@ -190,7 +190,7 @@ export async function upCommand(argv: string[]): Promise<void> {
     process.exitCode = 0
     return
   }
-  if (code !== 0) {
+  if (code !== 0 && code !== 130) {
     if (preflight.projectExisted) {
       printError('stack startup failed; the pre-existing Compose project was left in place for inspection')
     } else {
