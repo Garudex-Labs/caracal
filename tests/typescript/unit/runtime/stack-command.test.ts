@@ -168,7 +168,17 @@ describe('stack commands', () => {
     await expect(upCommand([])).rejects.toThrow('exit:130')
 
     expect(engineMocks.stackDown).not.toHaveBeenCalled()
-    expect(stderr).not.toContain('stack startup failed')
+    expect(stdout).toContain('startup interrupted; run `caracal down` to remove resources created by this attempt')
+  })
+
+  it('does not suggest removing a pre-existing project after an interrupt', async () => {
+    engineMocks.stackPortPreflight.mockResolvedValue({ conflicts: [], projectExisted: true })
+    engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(130) })
+
+    await expect(upCommand([])).rejects.toThrow('exit:130')
+
+    expect(engineMocks.stackDown).not.toHaveBeenCalled()
+    expect(stdout).not.toContain('run `caracal down`')
   })
 
   it('fails up with actionable guidance when a foreign stack holds the caracalData network', async () => {
