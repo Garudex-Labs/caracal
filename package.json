@@ -35,8 +35,8 @@
     "@caracalai/admin": "workspace:*",
     "@eslint/js": "^10.0.1",
     "@testing-library/react": "^16.3.2",
-    "@vitest/coverage-v8": "4.1.10",
-    "eslint": "^10.8.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "^10.9.0",
     "express": "^5.2.1",
     "fastify": "^5.12.1",
     "globals": "^17.11.0",
@@ -45,7 +45,7 @@
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.11",
     "yaml": "^2.8.2"
   }
 }
