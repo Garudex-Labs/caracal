@@ -100,8 +100,8 @@ export interface GovernedUpstream {
 // data-plane grants. A zone has exactly one active policy-set, so the provisioner reuses
 // these by name rather than creating a new one each run. The names are in the reserved
 // caracal.sys/ form so a tenant can never author or replace them.
-const OPERATOR_POLICY_NAME = 'caracal.sys/operator-bindings'
-const OPERATOR_POLICY_SET_NAME = 'caracal.sys/operator-policy'
+export const OPERATOR_POLICY_NAME = 'caracal.sys/operator-bindings'
+export const OPERATOR_POLICY_SET_NAME = 'caracal.sys/operator-policy'
 // The role label the Operator's governed transports spawn with and its grants authorize,
 // so the sessions minting on governed resources attribute to the Operator by name.
 export const OPERATOR_ROLE = 'operator'
@@ -117,7 +117,7 @@ function sanitizeSlug(id: string): string {
   )
 }
 
-function llmProviderIdentifier(id: string): `provider://${string}` {
+export function llmProviderIdentifier(id: string): `provider://${string}` {
   return `${LLM_PROVIDER_PREFIX}${sanitizeSlug(id)}`
 }
 
