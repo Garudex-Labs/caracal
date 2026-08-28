@@ -97,6 +97,7 @@ import type {
   OperatorNarrativeInput,
   OperatorPlanDecisionInput,
   OperatorPlanInput,
+  OperatorPlanPreview,
   OperatorPlanSecretsResult,
   OperatorPlanSecretsStatus,
   OperatorPlanValidation,
@@ -1177,7 +1178,11 @@ export const consoleApi = {
         { method: "POST", body: JSON.stringify(plan) },
       ),
     createPlan: (zoneId: string, conversationId: string, plan: OperatorPlanInput) =>
-      request<{ turn: OperatorTurn; validation: OperatorPlanValidation }>(
+      request<{
+        turn: OperatorTurn;
+        validation: OperatorPlanValidation;
+        preview: OperatorPlanPreview;
+      }>(
         `/v1/zones/${encodeURIComponent(zoneId)}/operator-conversations/${encodeURIComponent(
           conversationId,
         )}/plan`,

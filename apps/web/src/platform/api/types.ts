@@ -976,6 +976,25 @@ export interface OperatorPlanValidation {
   diagnostics: OperatorPlanDiagnostic[];
 }
 
+export type OperatorStepEffect =
+  "create" | "update" | "delete" | "exists" | "blocked" | "read_only";
+
+export interface OperatorPlanPreviewStep {
+  id: string;
+  capability: string;
+  title: string;
+  mutating: boolean;
+  effect: OperatorStepEffect;
+  detail: string;
+}
+
+export interface OperatorPlanPreview {
+  ok: boolean;
+  mutating: boolean;
+  steps: OperatorPlanPreviewStep[];
+  diagnostics: OperatorPlanDiagnostic[];
+}
+
 export type OperatorConversationStatus = "active" | "archived";
 
 // The operation mode of a conversation, a Caracal-side setting enforced by the API. agent allows
@@ -1287,7 +1306,7 @@ export type OperatorMessageResult = (
       ok: true;
       turn: OperatorTurn;
       validation: OperatorPlanValidation;
-      preview: { ok: boolean; mutating: boolean; steps: OperatorValidatedStep[] };
+      preview: OperatorPlanPreview;
       // Present only for a composed (compound) plan; absent for a single change.
       advisory?: OperatorSecurityAdvisory;
       // Whether Caracal-governed autopilot auto-satisfied this plan's approval, and the approval

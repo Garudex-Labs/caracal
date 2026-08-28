@@ -200,6 +200,7 @@ describe('executeErrorMessage', () => {
     expect(executeErrorMessage({ code: 'plan_already_satisfied' })).toContain('already exists')
     expect(executeErrorMessage({ code: 'plan_state_changed' })).toContain('zone changed since this plan was approved')
     expect(executeErrorMessage({ code: 'plan_blocked' })).toContain("can't be applied")
+    expect(executeErrorMessage({ code: 'plan_preview_required' })).toContain('server-verified effects preview')
   })
   it('separates a resumable lease stop from one whose in-flight step is unknown', () => {
     expect(executeErrorMessage({ code: 'execution_lease_lost', detail: { outcome_uncertain: false } })).toContain(
@@ -217,6 +218,7 @@ describe('decideErrorMessage', () => {
   it('names known decision failures', () => {
     expect(decideErrorMessage({ code: 'plan_already_decided' })).toContain('already decided')
     expect(decideErrorMessage({ code: 'plan_not_found' })).toBe('This plan is no longer available.')
+    expect(decideErrorMessage({ code: 'plan_preview_required' })).toContain("can't be approved")
   })
   it('falls back for unknown codes', () => {
     expect(decideErrorMessage({ code: 'mystery' })).toBe("Couldn't record the decision. Please try again.")
