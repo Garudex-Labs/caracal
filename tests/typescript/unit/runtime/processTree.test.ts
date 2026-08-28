@@ -45,7 +45,7 @@ function fakeChild(pid: number | undefined): ChildProcess {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  spawnMock.mockReturnValue({ on: vi.fn(), kill: vi.fn(), pid: 4321 })
+  spawnMock.mockReturnValue({ on: vi.fn(), unref: vi.fn(), kill: vi.fn(), pid: 4321 })
   spawnSyncMock.mockReturnValue({ status: 0 })
   existsSyncMock.mockReturnValue(false)
   statSyncMock.mockReturnValue({ isFile: () => true })
@@ -137,5 +137,86 @@ describe('resolvePnpm', () => {
     delete process.env.npm_execpath
     process.env.PATH = 'shims'
     expect(mod.resolvePnpm()).toBeUndefined()
+  })
+})
+
+describe('deferRunningExecutableRemoval', () => {
+  it('schedules the running Windows executable for removal after exit', async () => {
+    process.env.SystemRoot = String.raw`C:\Windows`
+    const mod = await loadFor('win32')
+    expect(
+      mod.deferRunningExecutableRemoval(String.raw`C:\Program Files\Caracal\caracal.exe`, {
+        currentExecutable: String.raw`c:\program files\caracal\CARACAL.EXE`,
+        currentPid: 1234,
+        removeUserPathEntry: String.raw`C:\Program Files\Caracal`,
+      }),
+    ).toBe(true)
+
+    const [command, args, options] = spawnSyncMock.mock.calls[0] as [string, string[], Record<string, unknown>]
+    expect(command).toBe(String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`)
+    expect(args.slice(0, -1)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand'])
+    const launcher = Buffer.from(args.at(-1)!, 'base64').toString('utf16le')
+    expect(launcher).toContain('Start-Process')
+    expect(launcher).toContain('-WindowStyle Hidden')
+    const cleanup = /'-EncodedCommand', '([^']+)'/.exec(launcher)?.[1]
+    expect(cleanup).toBeDefined()
+    const script = Buffer.from(cleanup!, 'base64').toString('utf16le')
+    expect(script).toContain('Wait-Process -Id 1234')
+    expect(script).toContain("Remove-Item -LiteralPath 'C:\\Program Files\\Caracal\\caracal.exe' -Force")
+    expect(script).toContain('Start-Sleep -Milliseconds 100')
+    expect(script).toContain("SetEnvironmentVariable('Path', $next, 'User')")
+    expect(script.indexOf('if (-not $removed) { exit 1 }')).toBeLessThan(script.indexOf("SetEnvironmentVariable('Path', $next, 'User')"))
+    expect(options).toMatchObject({ stdio: 'ignore', windowsHide: true })
+  })
+
+  it('does not defer a different executable or any POSIX executable', async () => {
+    let mod = await loadFor('win32')
+    expect(mod.deferRunningExecutableRemoval('C:\\caracal.exe', { currentExecutable: 'C:\\node.exe', currentPid: 1234 })).toBe(false)
+    mod = await loadFor('linux')
+    expect(
+      mod.deferRunningExecutableRemoval('/usr/local/bin/caracal', {
+        currentExecutable: '/usr/local/bin/caracal',
+        currentPid: 1234,
+      }),
+    ).toBe(false)
+    expect(spawnSyncMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('removeWindowsUserPathEntry', () => {
+  it('removes the install directory from the persistent Windows user PATH', async () => {
+    process.env.SystemRoot = String.raw`C:\Windows`
+    const mod = await loadFor('win32')
+
+    expect(mod.removeWindowsUserPathEntry(String.raw`C:\Users\O'Brien\Programs\caracal`)).toBe(true)
+
+    const [, args] = spawnSyncMock.mock.calls[0] as [string, string[]]
+    const script = Buffer.from(args.at(-1)!, 'base64').toString('utf16le')
+    expect(script).toContain("GetEnvironmentVariable('Path', 'User')")
+    expect(script).toContain(String.raw`C:\Users\O''Brien\Programs\caracal`)
+    expect(script).toContain("SetEnvironmentVariable('Path', $next, 'User')")
+    expect(script).toContain("$current -split ';' | Where-Object { $_ -ine 'C:\\Users\\O''Brien\\Programs\\caracal' }")
+    expect(script).not.toContain('IsNullOrWhiteSpace')
+  })
+
+  it('preserves unrelated empty PATH entries while removing only the install directory', async () => {
+    const mod = await loadFor('win32')
+    mod.removeWindowsUserPathEntry(String.raw`C:\Caracal`)
+
+    const [, args] = spawnSyncMock.mock.calls[0] as [string, string[]]
+    const script = Buffer.from(args.at(-1)!, 'base64').toString('utf16le')
+    expect(script).toContain("$current -split ';' | Where-Object { $_ -ine 'C:\\Caracal' }")
+  })
+
+  it('does not mutate PATH on POSIX', async () => {
+    const mod = await loadFor('linux')
+    expect(mod.removeWindowsUserPathEntry('/usr/local/bin')).toBe(false)
+    expect(spawnSyncMock).not.toHaveBeenCalled()
+  })
+
+  it('reports when the Windows user PATH did not change', async () => {
+    spawnSyncMock.mockReturnValueOnce({ status: 2 })
+    const mod = await loadFor('win32')
+    expect(mod.removeWindowsUserPathEntry(String.raw`C:\Programs\caracal`)).toBe(false)
   })
 })

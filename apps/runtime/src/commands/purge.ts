@@ -4,16 +4,15 @@
 // `caracal purge`: centralized cleanup for selectable targets across dev and runtime installs.
 
 import { existsSync, readdirSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { join, relative } from 'node:path'
+import { basename, dirname, join, relative, resolve, win32 } from 'node:path'
 import pg from 'pg'
 import { devSecretsHome } from '@caracalai/server-core'
 import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
 import { defaultCaracalConfigDir } from '@caracalai/engine/runtime-config'
 import {
   caracalBinaries as caracalBinariesCore,
+  caracalInstallDirs,
   composeRun,
   installRuntimeAssets,
   listCaracalImages,
@@ -25,6 +24,14 @@ import { runtimePaths } from '@caracalai/engine'
 import { composeUnavailableReason, dockerComposeAvailable, resolvePaths } from './stack.ts'
 import { showHelp } from './shared.ts'
 import { style, SYMBOL, printError, printWarn, printStep, printSuccess, printHeader } from '../style.ts'
+import {
+  deferRunningExecutableRemoval,
+  isRunningExecutable,
+  isWindowsRuntime,
+  removeWindowsUserPathEntry,
+  resolvePnpm,
+  spawnSyncTree,
+} from '../processTree.ts'
 
 type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'secrets' | 'web' | 'cache' | 'images' | 'binary'
 
@@ -78,6 +85,7 @@ interface PurgeContext {
   repoRoot: string | undefined
   composeAvailable: boolean
   dryRun: boolean
+  binaryDiscovery?: { installDirs: string[]; paths: string[] }
 }
 
 interface SecretCleanupTarget {
@@ -162,7 +170,7 @@ function purgeHelp(): never {
     '',
     'Cached images & binaries (artifacts):',
     '  images      Remove cached Caracal docker images (caracal/*, ghcr.io/garudex-labs/caracal-*)',
-    '  binary      Uninstall Caracal runtime and web console binaries from $CARACAL_INSTALL_DIR (default ~/.local/bin)',
+    '  binary      Uninstall the Caracal runtime binary from $CARACAL_INSTALL_DIR (platform default when unset)',
     '',
     'Aggregate:',
     '  all         Purge every applicable target (destructive: wipes volumes, runtime, config, web, images, binary)',
@@ -272,15 +280,32 @@ function removePath(path: string, ctx: PurgeContext, label: string): void {
   process.stdout.write(`  ${style.success(SYMBOL.ok)} removed ${style.code(label)}: ${path}\n`)
 }
 
-function caracalBinariesPaths(): string[] {
-  const installDir = process.env.CARACAL_INSTALL_DIR ?? join(homedir(), '.local', 'bin')
-  const extra: string[] = []
-  const pnpmGlobal = spawnSync('pnpm', ['bin', '-g'], { encoding: 'utf8' })
-  if (pnpmGlobal.status === 0 && typeof pnpmGlobal.stdout === 'string') {
-    const dir = pnpmGlobal.stdout.trim()
-    if (dir) extra.push(dir)
+function discoverCaracalBinaries(): { installDirs: string[]; paths: string[] } {
+  const installDirs = caracalInstallDirs()
+  const pnpmDirs: string[] = []
+  const pnpm = resolvePnpm()
+  if (pnpm) {
+    const pnpmGlobal = spawnSyncTree(pnpm.cmd, [...pnpm.prefix, 'bin', '-g'], { encoding: 'utf8' })
+    if (pnpmGlobal.status === 0 && typeof pnpmGlobal.stdout === 'string') {
+      const dir = pnpmGlobal.stdout.trim()
+      if (dir) pnpmDirs.push(dir)
+    }
   }
-  return caracalBinariesCore(installDir, extra)
+  const [installDir, ...extraInstallDirs] = installDirs
+  return { installDirs, paths: caracalBinariesCore(installDir!, [...extraInstallDirs, ...pnpmDirs]) }
+}
+
+function caracalBinaryDiscovery(ctx: PurgeContext): { installDirs: string[]; paths: string[] } {
+  return (ctx.binaryDiscovery ??= discoverCaracalBinaries())
+}
+
+function sameDirectory(path: string, directory: string): boolean {
+  if (isWindowsRuntime()) {
+    return win32.resolve(win32.dirname(path)).toLowerCase() === win32.resolve(directory).toLowerCase()
+  }
+  const parent = resolve(dirname(path))
+  const target = resolve(directory)
+  return parent === target
 }
 
 const TARGETS: Target[] = [
@@ -424,15 +449,38 @@ const TARGETS: Target[] = [
   {
     id: 'binary',
     label: 'Uninstall Caracal binaries (DESTRUCTIVE)',
-    describe: () => {
-      const found = caracalBinariesPaths()
+    describe: (ctx) => {
+      const found = caracalBinaryDiscovery(ctx).paths
       if (found.length === 0) return '(no caracal binaries on $PATH)'
       return found.join(', ')
     },
-    available: () => caracalBinariesPaths().length > 0,
+    available: (ctx) => caracalBinaryDiscovery(ctx).paths.length > 0,
     run: async (ctx) => {
-      for (const bin of caracalBinariesPaths()) {
-        removePath(bin, ctx, `bin/${bin.split('/').pop()}`)
+      const discovery = caracalBinaryDiscovery(ctx)
+      const installedDirsFound = new Set<string>()
+      const deferredPathCleanup = new Set<string>()
+      for (const bin of discovery.paths) {
+        const label = `bin/${basename(bin)}`
+        const installedDir = discovery.installDirs.find((directory) => sameDirectory(bin, directory))
+        if (installedDir) installedDirsFound.add(installedDir)
+        if (ctx.dryRun && isRunningExecutable(bin)) {
+          process.stdout.write(`  ${style.label('[dry-run]')} schedule removal after exit ${style.code(label)}: ${bin}\n`)
+        } else if (!ctx.dryRun && deferRunningExecutableRemoval(bin, { removeUserPathEntry: installedDir })) {
+          if (installedDir) deferredPathCleanup.add(installedDir)
+          process.stdout.write(`  ${style.success(SYMBOL.ok)} scheduled removal of ${style.code(label)} after exit: ${bin}\n`)
+        } else {
+          removePath(bin, ctx, label)
+        }
+      }
+      if (isWindowsRuntime()) {
+        for (const installDir of installedDirsFound) {
+          if (deferredPathCleanup.has(installDir)) continue
+          if (ctx.dryRun) {
+            process.stdout.write(`  ${style.label('[dry-run]')} remove from Windows user PATH: ${installDir}\n`)
+          } else if (removeWindowsUserPathEntry(installDir)) {
+            process.stdout.write(`  ${style.success(SYMBOL.ok)} removed from Windows user PATH: ${installDir}\n`)
+          }
+        }
       }
     },
   },
