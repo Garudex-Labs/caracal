@@ -12,7 +12,11 @@ import { operatorRoutes } from '../../../../../apps/api/src/routes/operator.js'
 import { CAPABILITIES } from '../../../../../apps/api/src/operator-capabilities.js'
 import { isControlExecutable } from '../../../../../apps/api/src/operator-control-map.js'
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
-import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
+import {
+  OperatorAiConflictError,
+  OperatorAiKeyRequiredError,
+  type OperatorAiManager,
+} from '../../../../../apps/api/src/operator-ai-manager.js'
 import type { OperatorAiHealthStore } from '../../../../../apps/api/src/operator-ai-health.js'
 import type { OperatorControlIdentity } from '../../../../../apps/api/src/config.js'
 import type { OperatorRunLimiter } from '../../../../../apps/api/src/operator-run-limiter.js'
@@ -116,6 +120,62 @@ function sysIdentity(zoneId: string): OperatorControlIdentity {
     expiresAt: new Date(Date.now() + 3600_000),
   }
 }
+
+function rejectingAiManager(error: Error): OperatorAiManager {
+  return {
+    available: () => true,
+    list: async () => [],
+    create: async () => {
+      throw error
+    },
+    update: async () => {
+      throw error
+    },
+    rotateKey: async () => {
+      throw error
+    },
+    remove: async () => {
+      throw error
+    },
+    recover: async () => {},
+  }
+}
+
+describe('operator AI provider lifecycle errors', () => {
+  it('returns a conflict instead of replacing an existing provider through POST', async () => {
+    const { app } = buildApp(true, { aiManager: rejectingAiManager(new OperatorAiConflictError('openai')) })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/operator/ai/providers',
+      payload: {
+        slug: 'openai',
+        label: 'OpenAI',
+        base_url: 'https://api.example/v1',
+        models: ['gpt-5.5'],
+        context_window: 0,
+        api_key: 'sk-test',
+        enabled: true,
+      },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'provider_already_exists' })
+    await app.close()
+  })
+
+  it('returns the key-required code used by the edit retry flow', async () => {
+    const { app } = buildApp(true, { aiManager: rejectingAiManager(new OperatorAiKeyRequiredError('openai')) })
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/operator/ai/providers/openai',
+      payload: { label: 'Retry' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'api_key_required' })
+    await app.close()
+  })
+})
 
 // The internal control identity and endpoints that make governed execution available for
 // zone z1: the identity is bound to z1, so the control token executes in z1.

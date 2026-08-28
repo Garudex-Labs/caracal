@@ -1151,6 +1151,10 @@ export interface OperatorAiProvider {
   contextWindow: number;
   enabled: boolean;
   auth: OperatorAiAuth;
+  reconciliationState: "ready" | "pending" | "error" | "deleting";
+  reconciliationErrorCode: string | null;
+  credentialRequired: boolean;
+  reconciledAt: string | null;
 }
 
 export interface OperatorAiProviderList {

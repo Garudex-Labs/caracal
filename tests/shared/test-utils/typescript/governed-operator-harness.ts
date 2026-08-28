@@ -253,7 +253,16 @@ export async function startGovernedOperatorHarness(databaseUrl: string): Promise
         }
         const activeApp = app
         const activePool = pool
-        if (activeApp) await attempt(() => activeApp.close())
+        if (activeApp) {
+          await attempt(async () => {
+            // The test uses Node's global fetch, whose pooled keep-alive sockets can outlive
+            // the assertions (notably on Node 24). Begin Fastify shutdown first, then close
+            // those test-only connections so teardown does not wait for their idle timeout.
+            const appClosing = activeApp.close()
+            activeApp.server.closeAllConnections()
+            await appClosing
+          })
+        }
         if (activePool) await attempt(() => activePool.end())
         for (const fixture of [...fixtures].reverse()) await attempt(fixture.close)
         if (errors.length) throw new AggregateError(errors, 'governed Operator harness teardown failed')
