@@ -17,6 +17,7 @@ const engineMocks = vi.hoisted(() => ({
   resolveStackPaths: vi.fn(),
   runtimePaths: vi.fn(() => ({ home: '/tmp/caracal' })),
   stackDown: vi.fn(),
+  stackPortPreflight: vi.fn(),
   stackStatus: vi.fn(),
   stackUp: vi.fn(),
 }))
@@ -56,6 +57,7 @@ describe('stack commands', () => {
       secretsDir: '/tmp/caracal-secrets',
     })
     engineMocks.stackDown.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
+    engineMocks.stackPortPreflight.mockResolvedValue({ conflicts: [], projectExisted: false })
     engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
     engineMocks.composeRun.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
     engineMocks.stackStatus.mockResolvedValue([{ name: 'api', port: 3000, url: 'http://localhost:3000/ready', ok: true, detail: '200' }])
@@ -123,6 +125,60 @@ describe('stack commands', () => {
 
     expect(stderr).toContain('BuildKit is required to build the Caracal stack')
     expect(engineMocks.stackUp).not.toHaveBeenCalled()
+  })
+
+  it('fails up before image builds when required ports belong to another process', async () => {
+    engineMocks.stackPortPreflight.mockResolvedValue({
+      conflicts: [
+        { service: 'redis', host: '127.0.0.1', port: 6379, protocol: 'tcp' },
+        { service: 'web', host: '127.0.0.1', port: 3001, protocol: 'tcp' },
+      ],
+      projectExisted: false,
+    })
+
+    await expect(upCommand([])).rejects.toThrow('exit:1')
+
+    expect(stderr).toContain('127.0.0.1:6379 (redis), 127.0.0.1:3001 (web)')
+    expect(stderr).toContain('outside this Compose project')
+    expect(engineMocks.stackUp).not.toHaveBeenCalled()
+  })
+
+  it('removes partial resources after a failed first startup', async () => {
+    engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(1) })
+
+    await expect(upCommand([])).rejects.toThrow('exit:1')
+
+    expect(engineMocks.stackDown).toHaveBeenCalledWith(expect.objectContaining({ args: [] }))
+    expect(stdout).toContain('removed partial Compose resources created by the failed startup')
+  })
+
+  it('does not remove a Compose project that existed before a failed startup', async () => {
+    engineMocks.stackPortPreflight.mockResolvedValue({ conflicts: [], projectExisted: true })
+    engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(1) })
+
+    await expect(upCommand([])).rejects.toThrow('exit:1')
+
+    expect(engineMocks.stackDown).not.toHaveBeenCalled()
+    expect(stderr).toContain('pre-existing Compose project was left in place')
+  })
+
+  it('does not remove a partial project when startup is interrupted', async () => {
+    engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(130) })
+
+    await expect(upCommand([])).rejects.toThrow('exit:130')
+
+    expect(engineMocks.stackDown).not.toHaveBeenCalled()
+    expect(stdout).toContain('startup interrupted; run `caracal down` to remove resources created by this attempt')
+  })
+
+  it('does not suggest removing a pre-existing project after an interrupt', async () => {
+    engineMocks.stackPortPreflight.mockResolvedValue({ conflicts: [], projectExisted: true })
+    engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(130) })
+
+    await expect(upCommand([])).rejects.toThrow('exit:130')
+
+    expect(engineMocks.stackDown).not.toHaveBeenCalled()
+    expect(stdout).not.toContain('run `caracal down`')
   })
 
   it('fails up with actionable guidance when a foreign stack holds the caracalData network', async () => {

@@ -14,6 +14,7 @@ import {
   resolveStackPaths,
   runtimePaths,
   stackDown,
+  stackPortPreflight,
   stackStatus,
   stackUp,
   type ProbeKind,
@@ -158,9 +159,25 @@ export async function upCommand(argv: string[]): Promise<void> {
   requireDockerCompose()
   requireRuntimeNetworkClear(paths)
   if (paths.mode === 'dev') requireBuildKit()
+  const env = composeEnv(paths)
+  let preflight
+  try {
+    preflight = await stackPortPreflight({ paths, args: argv, env })
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+  if (preflight.conflicts.length > 0) {
+    const details = preflight.conflicts.map((conflict) => `${conflict.host}:${conflict.port} (${conflict.service})`).join(', ')
+    printError(
+      `required host ports are already in use by processes outside this Compose project: ${details}. ` +
+        'Stop the conflicting processes or change their port bindings, then run `caracal up` again.',
+    )
+    process.exit(1)
+  }
   printBanner(paths)
   lockStack(paths)
-  const handle = stackUp({ paths, args: argv, env: composeEnv(paths) })
+  const handle = stackUp({ paths, args: argv, env })
   const code = await handle.exitCode
   if (code === 0 && argv.length === 0) {
     try {
@@ -172,6 +189,18 @@ export async function upCommand(argv: string[]): Promise<void> {
     }
     process.exitCode = 0
     return
+  }
+  if (code === 130) {
+    if (!preflight.projectExisted) printInfo('startup interrupted; run `caracal down` to remove resources created by this attempt')
+  } else if (code !== 0) {
+    if (preflight.projectExisted) {
+      printError('stack startup failed; the pre-existing Compose project was left in place for inspection')
+    } else {
+      const cleanup = stackDown({ paths, args: [], env })
+      const cleanupCode = await cleanup.exitCode
+      if (cleanupCode === 0) printInfo('removed partial Compose resources created by the failed startup')
+      else printError('stack startup failed and partial cleanup also failed; run `caracal down` before retrying')
+    }
   }
   process.exit(code)
 }
