@@ -200,6 +200,7 @@ describe('executeErrorMessage', () => {
     expect(executeErrorMessage({ code: 'plan_already_satisfied' })).toContain('already exists')
     expect(executeErrorMessage({ code: 'plan_state_changed' })).toContain('zone changed since this plan was approved')
     expect(executeErrorMessage({ code: 'plan_blocked' })).toContain("can't be applied")
+    expect(executeErrorMessage({ code: 'plan_credentials_required' })).toContain('Provide them again')
   })
   it('separates a resumable lease stop from one whose in-flight step is unknown', () => {
     expect(executeErrorMessage({ code: 'execution_lease_lost', detail: { outcome_uncertain: false } })).toContain(

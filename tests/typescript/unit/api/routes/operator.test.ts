@@ -1269,13 +1269,48 @@ describe('plan credential vault endpoints', () => {
     expect(JSON.parse(res.body)).toEqual({ error: 'step_needs_no_credentials' })
   })
 
-  it('closes the credential window once the plan is decided', async () => {
+  it('replaces expired credentials for an approved, unspent plan without changing its approval', async () => {
     const { app, clientQuery } = buildApp()
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
       .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
       .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // already decided
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // no prior execution turns
+      .mockResolvedValueOnce(undefined) // sweep expired rows
+      .mockResolvedValueOnce(undefined) // replace the sealed row
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1' }] }) // all credential steps satisfied
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      plan_seq: 2,
+      step_id: 's1',
+      all_satisfied: true,
+      auto_approved: false,
+      approval_turn: null,
+    })
+    expect(res.body).not.toContain('cs_live_value')
+    const insert = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO operator_plan_secrets'))
+    expect(insert).toBeDefined()
+    expect(JSON.stringify(insert![1])).not.toContain('cs_live_value')
+    // Recovery keeps the original decision; it never appends a second approval.
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_turns'))).toBe(false)
+  })
+
+  it('keeps the credential window closed for a rejected plan', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [{ kind: 'rejection' }] }) // rejected
       .mockResolvedValueOnce(undefined) // ROLLBACK
     await app.ready()
     const res = await app.inject({
@@ -1284,7 +1319,48 @@ describe('plan credential vault endpoints', () => {
       payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
     })
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toEqual({ error: 'plan_already_decided' })
+    expect(JSON.parse(res.body)).toEqual({ error: 'plan_rejected' })
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_plan_secrets'))).toBe(false)
+  })
+
+  it('keeps the credential window closed after the credential step was spent', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // credential step already applied
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({ error: 'plan_already_executed' })
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_plan_secrets'))).toBe(false)
+  })
+
+  it('keeps the credential window closed after any execution step failed', async () => {
+    const { app, clientQuery } = buildApp()
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: false }] }) // conv FOR UPDATE
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlanContent }] }) // plan turn
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [{ step_id: 's2', status: 'failed' }] }) // plan is spent after an ambiguous failure
+      .mockResolvedValueOnce(undefined) // ROLLBACK
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({ error: 'plan_already_executed' })
+    expect(clientQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO operator_plan_secrets'))).toBe(false)
   })
 })
 
@@ -1423,6 +1499,47 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'plan_not_approved' })
+  })
+
+  it('asks for the exact expired credential fields before applying an approved plan', async () => {
+    const credentialPlan = {
+      summary: 'Connect Hooli OIDC',
+      steps: [
+        {
+          id: 's1',
+          capability: 'connectProvider',
+          mutating: true,
+          effect: 'create',
+          args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' },
+        },
+      ],
+    }
+    const fetchMock = controlFetch([{ id: 'provider-1' }])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent' }] }) // conversation
+      .mockResolvedValueOnce({ rows: [{ content: credentialPlan }] }) // approved plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // decision
+      .mockResolvedValueOnce({ rows: [] }) // no prior execution
+      .mockResolvedValueOnce({ rows: [] }) // preview: provider name is available
+      .mockResolvedValueOnce({ rows: [] }) // vaulted credential expired
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'plan_credentials_required',
+      steps: [{ step_id: 's1', fields: ['client_id', 'client_secret'] }],
+    })
+    // The refusal happens before any governed request can spend or mutate anything.
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('refuses to execute in an ask-mode conversation', async () => {

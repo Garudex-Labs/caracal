@@ -10,8 +10,9 @@ import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, type ProviderKind } from '
 // refusing pathological payloads.
 export const CREDENTIAL_VALUE_MAX = 16384
 
-// How long pasted credentials stay available for an undecided plan. A plan the operator
-// abandons leaves nothing behind: an expired row is treated as absent and swept on write.
+// How long pasted credentials stay available for a pending or approved plan. Approval does not
+// make secret material permanent: an expired value is treated as absent and may be pasted again
+// for the same immutable plan step, while abandoned values are swept on write.
 export const PLAN_SECRET_TTL_MS = 30 * 60 * 1000
 
 function isProviderKind(value: unknown): value is ProviderKind {
