@@ -24,7 +24,9 @@
 
 **Supported By:**
 
-<a href="https://vercel.com/blog/vercel-open-source-program-spring-2026-cohort#caracal"><img src="public/programs/vossp.png" alt="Vercel OSS Program" height="28"/></a>&nbsp;&nbsp;&nbsp;
+<a href="https://resources.github.com/github-secure-open-source-fund/"><img src="public/programs/gsof.png" alt="GitHub Secure Open Source Fund" height="28"/></a>&nbsp;&nbsp;&nbsp;
+<a href="https://vercel.com/blog/vercel-open-source-program-spring-2026-cohort#caracal"><img src="public/programs/vossp.png" alt="Vercel OSS Program" height="28"/></a>
+
 <a href="https://f.inc/canopy"><img src="public/programs/finc.png" alt="Founders Inc. Canopy Online" height="28"/></a>&nbsp;&nbsp;&nbsp;
 <a href="https://www.microsoft.com/startups"><img src="public/programs/mfs.png" alt="Microsoft for Startups" height="28"/></a>&nbsp;&nbsp;&nbsp;
 <a href="https://mentorship.lfx.linuxfoundation.org/project/9cfe285b-7006-4610-84a8-1a52b0dff662"><img src="public/programs/lfx.png" alt="LFX Mentorship 2026" height="28"/></a>
