@@ -1,0 +1,64 @@
+{
+  "harness": "copilot-cli",
+  "events": [
+    {
+      "timestamp": "2026-02-02 13:00:00",
+      "event_name": "hook_sessionstart",
+      "body": "session start (cwd: /repo)",
+      "attributes": {
+        "session_id": "s1",
+        "cwd": "/repo"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-02-02 13:00:01",
+      "event_name": "hook_userpromptsubmit",
+      "body": "hello",
+      "attributes": {
+        "tool_input": "hello"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-02-02 13:00:03",
+      "event_name": "hook_pretooluse",
+      "body": "bash",
+      "attributes": {
+        "tool_name": "bash",
+        "tool_input": "{\"cmd\": \"pwd\"}",
+        "tool_use_id": "f1",
+        "tool_response": "/repo"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-02-02 13:00:05",
+      "event_name": "hook_assistant_response",
+      "body": "all done",
+      "attributes": {
+        "tool_response": "all done",
+        "model": "gpt-x",
+        "input_tokens": "8",
+        "output_tokens": "2"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-02-02 13:00:06",
+      "event_name": "copilot_cli_custom_thing",
+      "body": "custom.thing",
+      "attributes": {},
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-02-02 13:00:07",
+      "event_name": "hook_sessionend",
+      "body": "session end (finished)",
+      "attributes": {
+        "reason": "finished"
+      },
+      "service_name": "copilot-cli"
+    }
+  ]
+}

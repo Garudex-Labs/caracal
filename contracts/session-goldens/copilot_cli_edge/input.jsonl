@@ -1,0 +1,8 @@
+{"agentId": "a1", "ts": "2026-02-02T13:00:00Z", "event": {"type": "session.start", "sessionId": "s1", "context": {"cwd": "/repo"}}}
+{"agentId": "a1", "ts": "2026-02-02T13:00:01Z", "event": {"type": "user.message", "content": {"text": "hello"}}}
+{"agentId": "a1", "ts": "2026-02-02T13:00:02Z", "event": {"type": "assistant.message_delta", "content": "skip me"}}
+{"type": "tool.call", "id": "f1", "timestamp": "2026-02-02T13:00:03Z", "data": {"toolName": "bash", "args": {"cmd": "pwd"}}}
+{"type": "tool.result", "parentId": "f1", "timestamp": "2026-02-02T13:00:04Z", "data": {"output": {"textResultForLlm": "/repo"}}}
+{"agentId": "a1", "ts": "2026-02-02T13:00:05Z", "event": {"type": "assistant.message", "content": "all done", "model": "gpt-x", "usage": {"input_tokens": 8, "output_tokens": 2}}}
+{"agentId": "a1", "ts": "2026-02-02T13:00:06Z", "event": {"type": "custom.thing", "x": 1}}
+{"agentId": "a1", "ts": "2026-02-02T13:00:07Z", "event": {"type": "session.end", "reason": "finished"}}
