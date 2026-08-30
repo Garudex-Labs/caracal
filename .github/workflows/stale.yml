@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: Stale issues and PRs
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    # Issue/PR housekeeping belongs to the canonical repository, not forks.
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
+        with:
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not
+            had recent activity. It will be closed in 14 days if no further
+            activity occurs. Add the **keep open** label to prevent this.
+          stale-pr-message: >
+            This PR has been automatically marked as stale because it has not
+            had recent activity. It will be closed in 14 days if no further
+            activity occurs. Add the **keep open** label to prevent this.
+          close-issue-message: "Closed due to inactivity. Reopen if still relevant."
+          close-pr-message: "Closed due to inactivity. Reopen if still relevant."
+          days-before-stale: 60
+          days-before-close: 14
+          exempt-issue-labels: "keep open"
+          exempt-pr-labels: "keep open"
+          stale-issue-label: stale
+          stale-pr-label: stale
