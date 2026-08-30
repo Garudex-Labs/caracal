@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: caracal
+description: >
+  Caracal, agent-centric registry and observability platform for AI coding agents.
+  Self-hosted Helm chart for Kubernetes deployments.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+icon: https://raw.githubusercontent.com/Garudex-Labs/caracal/main/docs/logo.svg
+keywords:
+  - caracal
+  - ai-agents
+  - observability
+  - registry
+home: https://github.com/Garudex-Labs/caracal
+sources:
+  - https://github.com/Garudex-Labs/caracal
+maintainers:
+  - name: Garudex Labs
+    email: support@caracal.run
+    url: https://github.com/Garudex-Labs/caracal
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/Garudex-Labs/caracal/tree/main/docs/self-hosting
+    - name: Source
+      url: https://github.com/Garudex-Labs/caracal
+    - name: Support
+      url: https://github.com/Garudex-Labs/caracal/issues
