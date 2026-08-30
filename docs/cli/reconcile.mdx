@@ -1,0 +1,70 @@
+---
+title: "caracal reconcile"
+description: "Backfill local session records missed by automatic delivery"
+---
+
+Manually scans recent local session sources and delivers anything the automatic hooks or extensions missed. Reconcile is a recovery command over the same durable delivery engine - see [Session telemetry](/concepts/telemetry) for the underlying protocol and [Backfill missed sessions](/guides/backfill-sessions) for the workflow.
+
+## Synopsis
+
+```bash
+caracal reconcile --dry-run --output json          # preview, no network, no cursor changes
+caracal reconcile --output json                    # every installed harness, last 7 days
+caracal reconcile --harness kiro --since 24        # one harness, 24-hour window
+```
+
+| Option | Description |
+| --- | --- |
+| `--dry-run` | Read local sources and cursors only; no outbox drain, no ingest calls, no state changes |
+| `--harness <name>` | Limit discovery to one harness adapter |
+| `--since <hours>` | Discovery window, 1–8,760 hours (default 168) |
+| `--output table\|json` | Output format |
+
+## Behavior (non-dry run)
+
+1. Validates configuration and harness selection before any side effect.
+2. Retries the existing durable outbox.
+3. Discovers recent session sources through installed harness adapters.
+4. Skips locally finalized sources that have not grown.
+5. Recovers the contiguous server checkpoint for unfinished sources.
+6. Queues and sends only complete records **after** that checkpoint.
+7. Sends final metadata for sessions fully uploaded but never finalized.
+8. Leaves transient failures queued for the next wake-up or run.
+9. Quarantines permanent server rejections and reports them explicitly.
+
+Acknowledged checkpoints make repeated runs idempotent.
+
+## JSON result
+
+```json
+{
+  "dry_run": false,
+  "since_hours": 168,
+  "outbox_drained": true,
+  "targets": [
+    {
+      "harness": "kiro",
+      "discovered": 2, "pushed": 1, "finalized": 0, "queued": 1,
+      "rejected": 0, "up_to_date": 0, "skipped": 0, "errors": 0,
+      "sessions": [
+        { "session_id": "session-1", "status": "pushed", "bytes_new": 512 },
+        { "session_id": "session-2", "status": "queued", "bytes_new": 128 }
+      ]
+    }
+  ],
+  "summary": { "discovered": 2, "pushed": 1, "finalized": 0, "queued": 1, "rejected": 0, "up_to_date": 0, "skipped": 0, "errors": 0 },
+  "rejections": []
+}
+```
+
+`outbox_drained: false` means durable records remain pending. `queued` sessions are safely stored for retry - not lost, not yet delivered. Permanent rejections include their HTTP status in `rejections`.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 3 | Session delivery identity is not configured |
+| 7 | Unknown harness or invalid discovery window |
+| 9 | Outbox storage or session discovery unavailable |
+
+Per-session read failures and checkpoint mismatches are reported as explicit result items so other sessions still recover.

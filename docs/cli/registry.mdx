@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "caracal registry"
+description: "Publish, browse, install, and version components; models, recommendations, and bulk submission"
+---
+
+Manages the five component types: MCP servers, skills, hooks, prompts, and sandboxes. Task-oriented walkthrough: [Publish components](/guides/publish-components).
+
+```
+caracal registry <type> <action> [args]
+```
+
+## Action availability
+
+| Type | submit | list | my | show | install | render | edit |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `mcp` | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| `skill` | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| `hook` | ✓ | ✓ | – | ✓ | ✓ | – | ✓ |
+| `prompt` | ✓ | ✓ | ✓ | ✓ | – | ✓ | ✓ |
+| `sandbox` | ✓ | ✓ | – | ✓ | – | – | ✓ |
+
+Every type also supports `archive`, `unarchive`, `transfer-owner`, and `co-authors` (same semantics as [agents](/cli/agent#governance)). References accept UUIDs, `namespace/slug`, unique bare names, row numbers from the latest same-type list (humans only), and `@aliases`.
+
+Visibility applies on submit: `--visibility public|project` publishes an item publicly or shares it with the active Project's members. On lists, `--namespace` restricts to one namespace. Non-members get the same not-found response for private items as for unknown items.
+
+## MCP servers
+
+```bash
+caracal registry mcp submit                        # paste JSON config (harness, bare, SSE/HTTP, or server.json)
+echo '{"command": "npx", "args": ["-y", "@example/mcp-server"]}' \
+  | caracal registry mcp submit -y -n my-server -c developer-tools --output json
+caracal registry mcp submit --git https://github.com/org/mcp-server   # repo analysis (framework, tools, env vars)
+caracal registry mcp submit --draft                # save without submitting
+caracal registry mcp submit --submit my-server     # submit an existing draft
+
+caracal registry mcp list --search github --category ai-ml --sort name --limit 10
+caracal registry mcp list --interactive            # fuzzy picker (human only)
+caracal registry mcp my                            # yours, all statuses
+caracal registry mcp show my-server --output json
+
+caracal registry mcp install my-server --harness claude-code
+caracal registry mcp install my-server --harness cursor --raw > .cursor/mcp.json
+caracal registry mcp edit my-server -d "New description" -c databases
+caracal registry mcp edit my-server --bump minor --changelog "..."   # approved listing → new version
+```
+
+`mcp install` generates a harness config snippet (prompting for required env/headers unless `--no-prompt`); it does **not** write harness config or record an installation. Options: `--version`, `--env`, `--header`, `--env-file`, `--raw`.
+
+Categories: `browser-automation`, `cloud-platforms`, `code-execution`, `communication`, `databases`, `developer-tools`, `devops`, `file-systems`, `finance`, `knowledge-memory`, `monitoring`, `multimedia`, `productivity`, `search`, `security`, `version-control`, `ai-ml`, `data-analytics`, `general`. Transports: `stdio`, `sse`, `streamable-http`. Frameworks: `python`, `docker`, `typescript`, `go`.
+
+## Skills
+
+```bash
+caracal registry skill submit --git-url https://github.com/org/repo
+caracal registry skill submit --skill-md ./SKILL.md --name review \
+  --description "Review code" --task-type code-review
+caracal registry skill list --task-type code-review --search refactor
+caracal registry skill install my-skill --harness claude-code            # user scope (default)
+caracal registry skill install my-skill --harness kiro --scope project   # .agents/skills/ + symlinks
+caracal registry skill edit my-skill --git-url https://github.com/org/new-repo
+```
+
+`skill install` clones the skill directory via sparse checkout into the harness skill path. `--raw` and `--no-write` skip file writes and installation tracking. Task types: `code-review`, `code-generation`, `testing`, `documentation`, `debugging`, `refactoring`, `deployment`, `security-audit`, `performance`, `general`.
+
+## Hooks
+
+```bash
+caracal registry hook submit --script ./protect-files.sh
+caracal registry hook submit --source-url https://github.com/org/hooks --source-path hooks/guard/
+caracal registry hook list --event Stop --search guard
+caracal registry hook install my-hook --harness claude-code [--platform darwin] [--dir ./project]
+caracal registry hook edit my-hook --event Stop --version 1.1.0
+```
+
+Hook installs validate paths before writing, refuse to replace malformed JSON, write atomically, and never duplicate an existing event entry on repeat. Schema: [Hook specification](/reference/hooks).
+
+## Prompts
+
+```bash
+caracal registry prompt submit --from-file template.md      # non-JSON file = template content
+caracal registry prompt list --category code-review
+caracal registry prompt render my-prompt --var lang=python --var task=refactor
+caracal registry prompt edit my-prompt --template "New template: {{ var }}"
+```
+
+`render` performs server-side variable substitution - use it to verify a template before sharing.
+
+## Sandboxes
+
+```bash
+caracal registry sandbox submit --from-file sandbox.json
+caracal registry sandbox list --runtime docker
+caracal registry sandbox edit my-sandbox --image node:20-alpine
+```
+
+No standalone install: attach sandboxes to agents (`caracal agent add sandbox <uuid>`); they install with the agent pull.
+
+## version - component releases
+
+```bash
+caracal registry version publish mcp acme/server --version 2.0.0 \
+  --description "New authentication flow" --changelog "Breaking change"
+caracal registry version list mcp acme/server --page 2 --page-size 100
+```
+
+`publish` requires a description; JSON mode requires an explicit `--version` (human mode offers server suggestions). `--harness` is repeatable; `--extra` takes a JSON object of type-specific metadata. `list` page size: 1–200.
+
+## models - packaged harness model catalogs
+
+```bash
+caracal registry models --harness pi --output json
+```
+
+Reads model JSON packaged with the CLI (`packages/harness-data/harness_models/`, bundled into the wheel) - no server contact. Returns `{ "models": [...], "source": "harness-registry", "degraded": false }`; unknown harness → usage error (exit 2).
+
+## recommend - personalized recommendations
+
+```bash
+caracal registry recommend --limit 12 --type mcp --refresh --output json
+caracal registry recommend dismiss skill acme/reviewer --action not_relevant
+caracal registry recommend dismiss mcp acme/postgres --action installed
+```
+
+Ranks visible components against your own sessions. Key JSON fields: `personalized` (whether your sessions drove the ranking - popularity-based when false), `profile_sessions`, `topics`, `items[].reason`, `items[].matched_on`. Dismiss actions: `dismissed`, `not_relevant`, `installed`. Limit 1–24. Recommendations and dismissals are strictly per-user.
+
+## bulk - mixed submission
+
+```bash
+caracal registry bulk submit --from-file components.json --dry-run --output json
+caracal registry bulk submit --from-file components.json --yes --output json
+```
+
+Up to 200 entries, each `{"type": ..., ...submission fields}`. Dry run validates structure only. Execution validates every entry before the first mutation, submits in order, skips conflicts, and returns per-entry IDs, canonical names, and review status. Auth, permission, rate-limit, version, and service failures stop the batch.
+
+## Exit codes
+
+Standard [CLI exit codes](/cli#exit-codes). Common: `6` duplicate identity or edit-lock conflict, `7` invalid type, category, event, version, or metadata.
