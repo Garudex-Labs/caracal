@@ -1,0 +1,57 @@
+{
+  "harness": "antigravity",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "145"
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01",
+      "event_name": "hook_userpromptsubmit",
+      "body": "list the repo root",
+      "attributes": {
+        "tool_input": "list the repo root"
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02",
+      "event_name": "hook_posttooluse",
+      "body": "list_dir",
+      "attributes": {
+        "tool_name": "list_dir",
+        "tool_input": "{\"path\": \".\"}",
+        "tool_response": "README.md\npyproject.toml"
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:04",
+      "event_name": "hook_assistant_response",
+      "body": "Two entries at the root.",
+      "attributes": {
+        "tool_response": "Two entries at the root."
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:05",
+      "event_name": "hook_posttooluse",
+      "body": "RUN_COMMAND",
+      "attributes": {
+        "tool_name": "RUN_COMMAND",
+        "tool_response": "command not found"
+      },
+      "service_name": "antigravity"
+    }
+  ]
+}
