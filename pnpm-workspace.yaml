@@ -1,0 +1,4 @@
+packages:
+  - "apps/auth"
+  - "apps/web"
+  - "tests/e2e"
