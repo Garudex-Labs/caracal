@@ -1,0 +1,89 @@
+{
+  "harness": "copilot-cli",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "134"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_userpromptsubmit",
+      "body": "bump the chart version",
+      "attributes": {
+        "tool_input": "bump the chart version"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02.000",
+      "event_name": "hook_assistant_thinking",
+      "body": "chart lives under infra/helm",
+      "attributes": {
+        "tool_response": "chart lives under infra/helm"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:03.000",
+      "event_name": "hook_pretooluse",
+      "body": "str_replace_editor",
+      "attributes": {
+        "tool_name": "str_replace_editor",
+        "tool_input": "{\"path\": \"infra/helm/Chart.yaml\"}",
+        "tool_use_id": "agent_1"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:04.000",
+      "event_name": "hook_toolresult",
+      "body": "tool_result",
+      "attributes": {
+        "tool_name": "",
+        "tool_response": "version: 1.2.0",
+        "tool_use_id": ""
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:05.000",
+      "event_name": "hook_assistant_response",
+      "body": "Bumped to 1.2.0.",
+      "attributes": {
+        "tool_response": "Bumped to 1.2.0.",
+        "model": "gpt-4.1",
+        "input_tokens": "140",
+        "output_tokens": "9"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:06.000",
+      "event_name": "hook_assistant_response",
+      "body": "flat format fallback",
+      "attributes": {
+        "tool_response": "flat format fallback",
+        "model": "gpt-4.1"
+      },
+      "service_name": "copilot-cli"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:07.000",
+      "event_name": "hook_sessionend",
+      "body": "session end (completed)",
+      "attributes": {
+        "reason": "completed"
+      },
+      "service_name": "copilot-cli"
+    }
+  ]
+}
