@@ -1,0 +1,49 @@
+---
+title: "Harness support matrix"
+description: "Capability, scope, and telemetry support across all ten harnesses"
+---
+
+Caracal supports ten harnesses. Support is defined per capability - see [Harnesses and capabilities](/concepts/harnesses) for the model. This page is the at-a-glance reference; each harness has a detail page with exact paths and quirks.
+
+## Capabilities
+
+| Harness | MCP servers | Skills | Hooks | Prompts | Scopes | Default scope |
+| --- | :-: | :-: | :-: | :-: | --- | --- |
+| [Claude Code](/harnesses/claude-code) | ✓ | ✓ | ✓ | – | project, user | project |
+| [Kiro](/harnesses/kiro) | ✓ | – | ✓ | – | project, user | user |
+| [Cursor](/harnesses/cursor) | ✓ | – | ✓ | – | project, user | project |
+| [Copilot](/harnesses/copilot) | ✓ | ✓ | ✓ | ✓ | project | project |
+| [Copilot CLI](/harnesses/copilot) | ✓ | ✓ | ✓ | ✓ | project | project |
+| [Codex CLI](/harnesses/codex) | ✓ | ✓ | ✓ | – | project, user | project |
+| [OpenCode](/harnesses/opencode) | ✓ | ✓ | ✓ | – | project, user | user |
+| [Goose](/harnesses/goose) | ✓ | ✓ | ✓ | – | project, user | user |
+| [Antigravity](/harnesses/antigravity) | ✓ | ✓ | ✓ | – | project, user | user |
+| [Pi](/harnesses/pi) | ✓ | ✓ | ✓ | – | project, user | user |
+
+## Telemetry mechanism
+
+| Harness | Instrumentation | Session source |
+| --- | --- | --- |
+| Claude Code | Command hooks in `settings.json` | JSONL transcripts |
+| Kiro | Per-agent hook commands in agent JSON | `~/.kiro/sessions/cli/*.jsonl` + credit metadata |
+| Cursor | Command hooks with detached-worker delivery | Cursor transcripts (incl. subagent transcripts) |
+| Copilot | Command hooks under `.github/hooks/` | Materialized hook records (`copilot-cli` parser) |
+| Copilot CLI | Command hooks under `.github/hooks/` | Native `events.jsonl` sessions |
+| Codex CLI | Command hooks in `.codex/hooks.json` | Codex session files |
+| OpenCode | TypeScript plugin | Native message API → stable records |
+| Goose | Hook plugin (`~/.agents/plugins/caracal/`) | SQLite `sessions.db` mirrored to JSONL |
+| Antigravity | Command hooks | Antigravity session files |
+| Pi | Bundled TypeScript extension | Native extension API → stable records |
+
+All ten harnesses resolve a server-side session parser, so [`caracal reconcile`](/guides/backfill-sessions) works everywhere. Every mechanism uses the same durable outbox and contiguous-acknowledgement delivery protocol described in [Session telemetry](/concepts/telemetry).
+
+## Common commands
+
+```bash
+caracal scan                                  # read-only inventory across all harnesses
+caracal doctor patch --harness <name>         # install session instrumentation
+caracal agent pull <agent> --harness <name>   # install an agent
+caracal reconcile --harness <name>            # backfill sessions
+```
+
+Valid harness identifiers: `claude-code`, `kiro`, `cursor`, `copilot`, `copilot-cli`, `codex`, `opencode`, `goose`, `antigravity`, `pi`.

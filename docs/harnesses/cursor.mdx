@@ -1,0 +1,60 @@
+---
+title: "Cursor"
+description: "File paths, hooks, and session telemetry for the Cursor harness"
+---
+
+Caracal installs Cursor agents, configures MCP servers, wires session hooks, and collects Cursor session telemetry including subagent transcripts.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ `.cursor/mcp.json` / `~/.cursor/mcp.json` (`mcpServers` key) |
+| Skills | – |
+| Hooks | ✓ `.cursor/hooks.json` / `~/.cursor/hooks.json` |
+| Prompts | – |
+| Scopes | `project` (default), `user` |
+| Session parser | `cursor` |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness cursor              # project scope: .cursor/agents/{name}.md
+caracal agent pull <agent> --harness cursor --scope user # ~/.cursor/agents/{name}.md
+caracal doctor patch --harness cursor                    # telemetry hooks
+```
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile (Markdown + frontmatter) | `.cursor/agents/{name}.md` | `~/.cursor/agents/{name}.md` |
+| MCP config | `.cursor/mcp.json` | `~/.cursor/mcp.json` |
+| Hook config | `.cursor/hooks.json` | `~/.cursor/hooks.json` |
+| Hook scripts | `.cursor/hooks/` | - |
+| Guidance files (scan-only) | `.cursor/rules/*.mdc`, `AGENTS.md` | - |
+
+## Event map
+
+| Caracal event | Cursor event |
+| --- | --- |
+| `SessionStart` | `sessionStart` |
+| `UserPromptSubmit` | `beforeSubmitPrompt` |
+| `PreToolUse` | `preToolUse` |
+| `PostToolUse` | `postToolUse` |
+| `Stop` | `sessionEnd` |
+| `SubagentStop` | `subagentStop` |
+
+## Session telemetry
+
+Cursor enforces tight hook timeouts, so delivery is split: the hook synchronously writes complete transcript records (and Stop-event token usage) into the durable SQLite outbox, then hands network delivery to a detached worker. The local cursor advances only on contiguous server acknowledgement - never on hook exit or worker launch.
+
+A delayed finalizer captures records Cursor writes after its Stop event, restores stale local state from the server checkpoint, and runs the final SHA-256 audit; mismatches rewind and replay the affected range. The adapter resolves the transcript path supplied by Cursor (falling back to project-directory discovery) and also discovers separately stored subagent transcripts.
+
+```bash
+caracal reconcile --harness cursor
+```
+
+## Notes
+
+- Auto-model sentinel configuration is not available for Cursor; select models explicitly if the agent defines them.

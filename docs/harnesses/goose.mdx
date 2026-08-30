@@ -1,0 +1,91 @@
+---
+title: "Goose"
+description: "SQLite session mirroring, extensions config, and the hook plugin for the Goose harness"
+---
+
+Caracal installs Goose custom agents, merges MCP servers into Goose's extensions config, installs skills, and collects telemetry from Goose's SQLite session store. Supported: **Goose 1.10.0+** (SQLite session storage), verified against 1.45.0. Goose CLI and Goose Desktop share configuration, so one install covers both.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ as Goose *extensions* in `~/.config/goose/config.yaml` (`stdio` and `streamable_http`) |
+| Skills | ✓ `.agents/skills/{name}/SKILL.md` / `~/.agents/skills/{name}/SKILL.md` |
+| Hooks | ✓ hook plugin at `~/.agents/plugins/caracal/` |
+| Prompts | – (registry prompts are written into the generated agent file) |
+| Scopes | `project`, `user` (default) |
+| Session parser | `goose` |
+| Model selection | ✓ registry-backed Goose model catalog |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness goose        # user scope: ~/.agents/agents/{name}.md
+caracal doctor patch --harness goose              # install/refresh the hook plugin
+caracal scan --harness goose                      # verify
+```
+
+Restart your Goose session after patching so the plugin is discovered. Goose registers each plugin in `config.yaml` and activates it on the next session.
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile (Markdown + frontmatter) | `.agents/agents/{name}.md` | `~/.agents/agents/{name}.md` |
+| MCP extensions | - (user file only) | `~/.config/goose/config.yaml` |
+| Skills | `.agents/skills/{name}/SKILL.md` | `~/.agents/skills/{name}/SKILL.md` |
+| Hook plugin | `.agents/plugins/caracal/` | `~/.agents/plugins/caracal/` |
+| Session database | - | `~/.local/share/goose/sessions/sessions.db` |
+| Guidance files (scan-only) | `.goosehints`, `AGENTS.md` | `~/.config/goose/.goosehints` |
+
+Goose resolves user locations via `$GOOSE_PATH_ROOT`, then `$XDG_CONFIG_HOME`/`$XDG_DATA_HOME`, then the defaults above. On Windows, scanning and session reading resolve `%APPDATA%\Block\goose\...` automatically, but `pull` writes the Unix paths - move generated extensions into the `%APPDATA%` config manually.
+
+## Extension format
+
+```yaml
+extensions:
+  filesystem:
+    type: stdio
+    name: filesystem
+    enabled: true
+    cmd: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    envs: {}
+    timeout: 300
+```
+
+Caracal touches only the entries it owns and leaves providers, models, and other keys alone. Legacy `sse` extensions are reported by `scan` but not written; Goose's in-process `builtin`/`platform`/`frontend` and `inline_python` extensions are neither reported nor rewritten.
+
+## Hook plugin
+
+`doctor patch` writes `~/.agents/plugins/caracal/` with a `plugin.json` manifest and `hooks/hooks.json` firing on `SessionStart`, `UserPromptSubmit`, `Stop`, and `SessionEnd`. Design constraints worth knowing:
+
+- Rules omit `matcher` deliberately - Goose treats `matcher` as a regex, so `"*"` would be invalid.
+- Goose runs hooks through `sh -c`, passes event JSON on stdin, and enforces the rule timeout. The Caracal hook only reads the database and appends to the local outbox; upload happens in a detached worker, so a slow server can never stall a Goose turn.
+- The hook writes nothing to stdout and never exits `2`, so it can never block a tool call or turn boundary.
+- `doctor patch` preserves non-Caracal rules in the same plugin. Disable without removing via `disabledPlugins` in `~/.config/goose/settings.json`; remove with `caracal doctor cleanup --harness goose`.
+
+`Stop` fires at the end of **every turn** (not the session); `SessionEnd` is emitted by the Goose CLI only. Most events omit `working_dir`, so Caracal reads it from `sessions.working_dir` for correct attribution.
+
+## Session telemetry
+
+Goose stores sessions in SQLite, so the adapter projects each session onto an append-only JSONL mirror at `~/.caracal/sessions/goose/<session_id>.jsonl`, then uses the shared delivery engine:
+
+1. `sessions.db` is opened read-only (`file:...?mode=ro` with a busy timeout) - Caracal never writes to or migrates Goose's database.
+2. Rows newer than the mirror cursor append as records: `session` (metadata), `message` (role, content blocks, token usage), `session_end` (final token/cost totals).
+3. Batches spool to the outbox; a detached worker uploads. `SessionEnd` finalizes with the integrity hash.
+4. Delegated (subagent) sessions linked by `parent_session_id` are mirrored and delivered with their parent.
+
+Content blocks parse into trace events: `text`, `thinking`, `redactedThinking`, `toolRequest`, `toolResponse` (including failures), `toolConfirmationRequest`, `error`.
+
+```bash
+caracal reconcile --harness goose
+caracal reconcile --harness goose --since 720 --dry-run
+```
+
+## Caveats
+
+- **Extensions are user-scope only.** `--scope project` still writes extensions to the user `config.yaml`; agents and skills honor the requested scope. YAML comments in that file are not preserved (by Goose or Caracal).
+- **Desktop sessions finalize late.** Only the CLI emits `SessionEnd`; Desktop sessions are captured turn-by-turn and finalized by background recovery or `reconcile`.
+- **Rewritten conversations replay.** `goose session --resume --edit` rewrites history; the append-only mirror appends the rewrite rather than replacing delivered records.
+- **Pre-1.10 sessions** are covered via Goose's own import into `sessions.db`; leftover `.jsonl` files are ignored.
