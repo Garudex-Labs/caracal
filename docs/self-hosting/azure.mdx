@@ -1,0 +1,83 @@
+---
+title: "Azure with OpenTofu"
+description: "Provision Caracal on Azure: Container Apps, PostgreSQL Flexible Server, Redis, and a ClickHouse VM"
+---
+
+The Azure OpenTofu module (`infra/opentofu/azure`, also compatible with Terraform) runs the stateless tier on VNet-integrated Azure Container Apps, backed by Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, and a self-hosted ClickHouse VM - with images served from Azure Container Registry and dashboards in Azure Managed Grafana.
+
+## What gets provisioned
+
+- **Container Apps** - `api` (autoscale 2–10), `web` (2–6), `worker` (1–5), and a one-shot `init` job for migrations
+- **PostgreSQL Flexible Server** - zone-redundant in prod
+- **Azure Cache for Redis** - Standard tier, TLS-only
+- **ClickHouse VM** - Premium SSD data disk, with Prometheus on the same host
+- **Azure Managed Grafana** - connected to Log Analytics and ClickHouse
+- **ACR** - private registry the Container Apps pull from
+- **Key Vault** - generated database, ClickHouse, and application secrets
+- **Log Analytics** - centralized logging
+
+All data services sit on a private VNet; only the Container Apps ingress is public.
+
+## Prerequisites
+
+Azure CLI (`az login`), OpenTofu ≥ 1.6, and Docker (to push images to ACR).
+
+## Deploy
+
+```bash
+cd caracal/infra/opentofu/azure
+tofu init
+tofu apply -var-file=staging.tfvars      # or prod.tfvars
+
+# Push images to the registry created by the first apply
+ACR=$(tofu output -raw acr_login_server)
+az acr login --name $ACR
+docker tag ghcr.io/garudex-labs/caracal-api:latest $ACR/caracal-api:latest
+docker tag ghcr.io/garudex-labs/caracal-web:latest $ACR/caracal-web:latest
+docker push $ACR/caracal-api:latest
+docker push $ACR/caracal-web:latest
+
+# Run migrations, then get the URLs
+az containerapp job start -n caracal-staging-init -g caracal-staging-rg
+tofu output api_url
+tofu output web_url
+```
+
+<Note>
+Unlike the AWS and GCP modules, Azure Container Apps pull from ACR, so images must be pushed there after the first apply creates the registry. Re-run the init job after every image update.
+</Note>
+
+## Environments
+
+| tfvars file | Profile |
+| --- | --- |
+| `staging.tfvars` | Cost-optimized: single replicas, smaller SKUs |
+| `prod.tfvars` | Zone-redundant PostgreSQL, HA Redis, autoscaling, larger VMs |
+
+## ClickHouse modes
+
+| `clickhouse_mode` | Behavior |
+| --- | --- |
+| `"self_hosted"` (default) | Azure VM with a managed disk - cheapest |
+| `"cloud"` | ClickHouse Cloud; supply `clickhouse_cloud_url` and `clickhouse_cloud_password` |
+
+## Cost estimate (staging)
+
+| Resource | ~$/month |
+| --- | --- |
+| Container Apps (3 apps, min replicas) | $30 |
+| PostgreSQL Flexible (B2s) | $25 |
+| Redis (Standard C0) | $15 |
+| ClickHouse VM (D2s_v5) | $70 |
+| Managed Grafana | $10 |
+| Log Analytics | $5 |
+| ACR (Basic) | $5 |
+| **Total** | **~$160** |
+
+## Tear down
+
+```bash
+tofu destroy -var-file=staging.tfvars
+```
+
+A minimal ready-to-apply example lives at `infra/opentofu/azure/examples/minimal`. General hardening guidance: [production checklist](/self-hosting/production#hardening-checklist); application configuration: [Configuration](/self-hosting/configuration).

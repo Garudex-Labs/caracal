@@ -1,0 +1,129 @@
+---
+title: "AWS with OpenTofu"
+description: "Provision an HA Caracal deployment on AWS: configuration, operations, and troubleshooting"
+---
+
+The AWS OpenTofu module (`infra/opentofu/aws`, also compatible with Terraform) provisions a complete deployment behind an ALB: ECS Fargate for the stateless tier, RDS Postgres and ElastiCache Redis, an EC2 data host for ClickHouse, S3 backups, SSM-managed secrets, and CloudWatch logging. For evaluation, use [run from source](/self-hosting/docker-compose) instead.
+
+## What gets provisioned
+
+- **VPC** - public + private subnets across two AZs, NAT gateway, flow logs (skippable - see BYO VPC)
+- **ALB** - HTTPS via DNS-validated ACM when you supply a domain (HTTP-only otherwise); path routing: `/api/*` → api, optional `/grafana/*` → data host, default → web
+- **ECS Fargate** - `api` (2 tasks, autoscale 2–10), `web` (2, 2–6), `worker` (1, 1–5), and a one-shot `init` task (migrations + seeds) that re-runs on every `image_tag` change
+- **RDS Postgres 16** - Multi-AZ on `prod`, encrypted, automated backups, Performance Insights
+- **ElastiCache Redis 7** - 2-node replication with automatic failover on `prod`
+- **EC2 data host** - ClickHouse on EBS gp3 (AWS has no managed ClickHouse), optional Prometheus/Grafana, static private IP, internal DNS, daily ClickHouse → S3 snapshots, shell via SSM Session Manager (no SSH)
+- **S3 backups bucket** - versioned, encrypted, lifecycle Standard → IA → Glacier → expire
+- **SSM Parameter Store** - generated `DB_PASSWORD`, `CLICKHOUSE_PASSWORD`, `SECRET_KEY`, `GRAFANA_ADMIN_PASSWORD`, and prebuilt connection URLs, injected into tasks at start
+
+## Prerequisites
+
+OpenTofu ≥ 1.6, AWS CLI v2, the Session Manager plugin, an IAM principal with the documented managed policies (EC2, ECS, RDS, ElastiCache, ELB, ACM, Route 53, IAM, SSM, S3, CloudWatch Logs, Auto Scaling), and optionally a Route 53 hosted zone for HTTPS.
+
+## Deploy
+
+```bash
+cd caracal/infra/opentofu/aws
+export AWS_PROFILE=caracal-prod
+cp terraform.tfvars.example terraform.tfvars && $EDITOR terraform.tfvars
+tofu init && tofu plan -out tf.plan && tofu apply tf.plan
+tofu output app_url
+```
+
+First apply: 12–15 minutes (RDS dominates). A ready-to-apply example lives at `infra/opentofu/aws/examples/minimal`.
+
+### Recommended configuration
+
+```hcl
+region      = "us-east-1"
+environment = "prod"          # "staging" halves cost: single-AZ RDS, one Redis node
+sizing      = "medium"        # small | medium | large | custom
+
+domain_name     = "caracal.example.com"
+route53_zone_id = "Z0123456789ABCDEFGHIJ"
+alb_ingress_cidrs = ["203.0.113.0/24"]      # lock ingress to your VPN/egress
+```
+
+OpenTofu requests the ACM certificate, validates via DNS, attaches it, and creates the alias record - no manual DNS step.
+
+### Sizing
+
+| Preset | ~$/mo | API | Data host | RDS | Redis |
+| --- | --- | --- | --- | --- | --- |
+| `small` | $150 | 1× 0.25 vCPU | t3.medium / 50 GB | db.t4g.micro | cache.t4g.micro |
+| `medium` | $255 | 2× 0.5 vCPU | t3.large / 100 GB | db.t4g.small | cache.t4g.micro |
+| `large` | $600 | 3× 1 vCPU | r6i.xlarge / 500 GB | db.r6g.large | cache.r6g.large |
+
+<Warning>
+Presets and individual resource variables are mutually exclusive: with `sizing = "small|medium|large"`, variables like `api_cpu` and `db_instance_class` are **ignored**. Set `sizing = "custom"` to control resources individually (`api_cpu`, `api_desired_count`, `data_instance_type`, `data_volume_size_gb`, `db_instance_class`, `redis_node_type`, `observability_stack = "none|prometheus|grafana"`, …).
+</Warning>
+
+Sustained > 100 trace events/sec: `data_instance_type = "m6i.xlarge"`, `db_instance_class = "db.m6g.large"`, or move to ClickHouse Cloud:
+
+```hcl
+clickhouse_mode           = "cloud"
+clickhouse_cloud_url      = "https://abc123.us-east-1.aws.clickhouse.cloud:8443"
+clickhouse_cloud_user     = "default"
+clickhouse_cloud_password = "..."
+```
+
+This skips the data host entirely (you host Grafana yourself).
+
+### Application options
+
+```hcl
+deployment_mode     = "enterprise"   # SSO-only login
+data_retention_days = 90             # ClickHouse TTL; 0 disables
+log_retention_days  = 30
+image_tag           = "v1.4.0"       # pin a release; "latest" tracks main
+```
+
+### Bring your own VPC
+
+```hcl
+vpc_id             = "vpc-0abc1234def56789a"
+private_subnet_ids = ["subnet-aaa11111", "subnet-bbb22222"]
+public_subnet_ids  = ["subnet-xxx11111", "subnet-yyy22222"]
+alb_scheme         = "internet-facing"   # or "internal"
+# optional pre-created SGs:
+alb_security_group_id = "sg-…"    # inbound 80/443 from your CIDRs
+ecs_security_group_id = "sg-…"    # inbound 8080/8000 from the ALB SG
+```
+
+Requirements: DNS support enabled, private subnets with outbound internet (image pulls + AWS APIs), ≥ 2 AZs. Working example: `infra/opentofu/aws/examples/byovpc`.
+
+### Remote state
+
+Create a versioned, encrypted S3 bucket and a DynamoDB lock table, fill the backend block in `versions.tf`, and re-run `tofu init`. Do this before the install matters.
+
+## Operations
+
+```bash
+aws logs tail /aws/ecs/caracal-prod/api --follow                # tail a service
+tofu output log_group_names
+
+aws ecs update-service --cluster $(tofu output -raw ecs_cluster_name) \
+  --service caracal-prod-api --force-new-deployment              # rolling deploy
+
+$(tofu output -raw init_run_task_command)                   # re-run migrations manually
+
+$(tofu output -raw data_host_ssm_session_command)           # shell into the data host
+#   sudo docker compose -f /opt/caracal/docker-compose.data.yml ps
+
+aws ssm get-parameter --with-decryption \
+  --name /caracal-prod/SECRET_KEY --query Parameter.Value --output text
+```
+
+**Upgrade:** set `image_tag = "v1.5.0"` and `tofu apply` - init re-runs migrations, services roll with zero downtime. **Resize the data volume:** raise `data_volume_size_gb`, apply, then `growpart` + `resize2fs` on the host. **Destroy:** `prod` RDS has deletion protection and a final snapshot enabled; the backup bucket blocks destroy unless `backup_bucket_force_destroy = true`.
+
+## Troubleshooting
+
+| Symptom | Diagnosis |
+| --- | --- |
+| Apply succeeds, URL returns 502 | Tasks still starting - watch `aws ecs describe-services … --query 'services[0].deployments'` and tail the api logs. The init task runs migrations before api can start. |
+| Init task fails | Check `/aws/ecs/caracal-prod/init`. Usually RDS not yet reachable (re-run) or a migration error. |
+| ALB target unhealthy | api checks `/readyz` :8080, web checks `/` :8000, Grafana `/api/health` :8002 - tail the matching logs / SSM into the data host. |
+| ACM stuck `Pending validation` | Wrong `route53_zone_id` or missing `route53:ChangeResourceRecordSets`; fix and re-apply. |
+| RDS storage full | Storage autoscales to 500 GB by default; raise `db_max_allocated_storage_gb`. |
+
+Application-level issues: [Troubleshooting](/self-hosting/troubleshooting). Hardening: [production checklist](/self-hosting/production#hardening-checklist).
