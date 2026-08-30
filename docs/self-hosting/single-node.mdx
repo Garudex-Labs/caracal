@@ -1,0 +1,149 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Single-node deployment"
+description: "Run the full stack on one VM: install, TLS, reboots, backups, upgrades"
+---
+
+One VM running the complete stack. Right for teams up to ~50 users, internal tools, and evaluations - anywhere simplicity beats multi-AZ redundancy. End state: Caracal behind TLS, surviving reboots, with automated backups.
+
+## Two install paths
+
+<Tabs>
+<Tab title="Packaged installer (recommended)">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-server.sh | bash
+```
+
+The installer downloads a config package, runs guided setup (domain, secrets, ports), generates restricted credential files under `secrets/` with their `NAME_FILE` paths recorded in `.env`, binds host ports to loopback, pulls images from GHCR, and starts the stack. Headless environments get the same safe defaults automatically.
+
+</Tab>
+<Tab title="From source">
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git && cd caracal
+cp .env.example .env
+# For production, replace defaults (see below), then:
+docker compose -f infra/docker/docker-compose.yml up -d --build
+```
+
+Minimum production edits to `.env`:
+
+```bash
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+POSTGRES_PASSWORD=$(openssl rand -base64 24)
+CLICKHOUSE_PASSWORD=$(openssl rand -base64 24)
+CORS_ALLOWED_ORIGINS=https://caracal.yourcompany.com
+FRONTEND_URL=https://caracal.yourcompany.com
+# and delete all DEMO_* variables
+```
+
+Prefer the documented `NAME_FILE` inputs over placing secret contents in `.env` - see [Configuration](/self-hosting/configuration).
+
+</Tab>
+</Tabs>
+
+## VM sizing
+
+| Team size | Spec | Example (AWS) |
+| --- | --- | --- |
+| 1–10 | 2 vCPU / 4 GB | `t3.medium`, ~$30/mo |
+| 10–30 | 2 vCPU / 8 GB | `t3.large`, ~$60/mo |
+| 30–50 | 4 vCPU / 16 GB | `t3.xlarge`, ~$120/mo |
+| 50+ | Use the [OpenTofu module](/self-hosting/production) | ~$255/mo |
+
+Ubuntu 22.04+/Debian 12/Amazon Linux 2023, 100 GB SSD, Docker Engine ≥ 24.0 with Compose v2, ports 80/443 open, and a DNS record for TLS. ClickHouse is the memory consumer - raise its limit before resizing the VM.
+
+## TLS
+
+Terminate TLS in front of the stack. Pick one:
+
+- **Caddy (simplest):** `reverse_proxy` to the local listener; automatic Let's Encrypt.
+- **Certbot + production overlay:** `sudo certbot certonly --standalone -d caracal.yourcompany.com`, then `docker compose -f docker-compose.yml -f docker-compose.production.yml up -d`, with a renewal cron that restarts `caracal-lb`.
+- **Cloud LB / Cloudflare:** terminate there and proxy to the VM.
+
+Never expose the plain-HTTP listener to remote clients directly.
+
+## Verify
+
+```bash
+docker compose -f infra/docker/docker-compose.yml logs -f caracal-init caracal-api
+# wait for: "Database up to date." then "Application startup complete."
+curl -fsSL http://localhost/health     # {"status":"ok"}
+```
+
+## Survive reboots
+
+Containers use `restart: unless-stopped`; make sure Docker itself starts on boot:
+
+```bash
+sudo systemctl enable docker
+```
+
+## Automated backups
+
+Nightly PostgreSQL dump + JWT keys, weekly ClickHouse backup, pruned after 30 days:
+
+```bash
+#!/bin/bash
+# /opt/caracal-backups/backup.sh  (run from cron: 0 3 * * *)
+set -euo pipefail
+BACKUP_DIR=/opt/caracal-backups
+DATE=$(date +%Y%m%d-%H%M)
+COMPOSE="docker compose -f /home/ubuntu/caracal/docker/docker-compose.yml"
+
+$COMPOSE exec -T caracal-db pg_dump -U postgres caracal | gzip > "$BACKUP_DIR/pg-$DATE.sql.gz"
+$COMPOSE exec -T caracal-api tar czf - -C /data keys > "$BACKUP_DIR/keys-$DATE.tar.gz"
+find "$BACKUP_DIR" -name "pg-*.sql.gz" -mtime +30 -delete
+find "$BACKUP_DIR" -name "keys-*.tar.gz" -mtime +30 -delete
+# optional: aws s3 sync "$BACKUP_DIR" s3://your-backup-bucket/caracal/
+```
+
+Restore procedures: [Backup and restore](/self-hosting/backup-restore).
+
+## First login
+
+```bash
+caracal auth login --server https://caracal.yourcompany.com
+```
+
+With no `DEMO_*` accounts seeded, the CLI bootstraps the first deployment operator account (the bootstrap endpoint is restricted to localhost access). Verify with `caracal auth whoami`.
+
+## Upgrades
+
+```bash
+cd ~/caracal && git fetch --tags && git checkout v1.5.0
+docker compose -f infra/docker/docker-compose.yml up -d --build
+# or, with a managed backup + health check + rollback support:
+./ops.sh upgrade 1.5.0
+```
+
+The init service applies migrations before API startup. Details and rollback: [Upgrades](/self-hosting/upgrades).
+
+## Monitoring
+
+```bash
+docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.observability.yml up -d          # + Prometheus
+COMPOSE_PROFILES=grafana docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.observability.yml up -d  # + Grafana (:8002)
+```
+
+Minimal alerting without Grafana: a cron that curls `/health` every 5 minutes and mails on failure.
+
+## Hardening checklist
+
+- Remove all `DEMO_*` variables; set a strong `SECRET_KEY`
+- Key-only SSH; firewall allowing only 80/443
+- [SSO](/self-hosting/sso) configured
+- Automatic security updates (`unattended-upgrades`)
+- Database ports bound to localhost (default in the shipped Compose)
+
+## When you outgrow one node
+
+| Symptom | Fix |
+| --- | --- |
+| API latency rising | Increase `API_WORKERS`, or a bigger VM |
+| Slow ClickHouse queries | More ClickHouse memory, bigger VM, or ClickHouse Cloud |
+| Disk filling | Lower `DATA_RETENTION_DAYS`, bigger disk, separate ClickHouse volume |
+| Need HA / zero-downtime deploys | [OpenTofu production deployment](/self-hosting/production) |

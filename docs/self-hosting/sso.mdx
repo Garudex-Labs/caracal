@@ -1,0 +1,108 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Single sign-on"
+description: "OIDC, Google, GitHub, and SAML 2.0 setup with JIT provisioning"
+---
+
+Caracal supports four SSO provider slots that can coexist on the login screen: generic OIDC, Google, GitHub, and SAML 2.0. All are configured as dynamic settings in **Admin → SSO** (or via the admin API / CLI). To make SSO the only login method, set `deployment.sso_only=true` after verifying a real test user can sign in.
+
+<Note>
+The first SSO user is never automatically an admin. Bootstrap a local admin first, then promote SSO users. HTTPS is required for SAML - IdPs reject plain-HTTP ACS URLs.
+</Note>
+
+## Generic OIDC
+
+Set three settings, then **restart the API** so the OIDC client is rebuilt:
+
+| Setting | Value |
+| --- | --- |
+| `oauth.client_id` | Client ID from your IdP |
+| `oauth.client_secret` | Client secret (stored encrypted, never shown again) |
+| `oauth.server_metadata_url` | Discovery URL, e.g. `https://accounts.example.com/.well-known/openid-configuration` |
+
+Caracal reads the IdP discovery document, so any OIDC-compliant provider works (Okta, Auth0, Azure AD, Keycloak, Authentik, Dex, …). Requested scope is `openid profile email`; the `email` claim is the canonical identifier. Allow this redirect URI in the IdP:
+
+```
+{FRONTEND_URL}/api/v1/auth/oauth/callback
+```
+
+## Google
+
+A first-class provider, independent of the generic OIDC slot (both can be enabled):
+
+```
+GOOGLE_OAUTH_CLIENT_ID=1234567890-abc...apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-...
+GOOGLE_OAUTH_ALLOWED_DOMAINS=acme.com,acme.io    # optional domain allowlist (403 otherwise)
+```
+
+Create a **Web application** OAuth client in the Google Cloud Console with authorized origin `{FRONTEND_URL}` and redirect URI `{FRONTEND_URL}/api/v1/auth/oauth/google/callback`, then restart the API. The discovery URL is hardcoded. Google's `email_verified` must be `true` (400 otherwise). Users are recorded with `auth_provider="google"` and their Google subject ID.
+
+## GitHub
+
+Also first-class - plain OAuth 2.0, not OIDC (no discovery, no ID token; the profile and verified emails are fetched from the GitHub API):
+
+```
+GITHUB_OAUTH_CLIENT_ID=Iv1.abc123...
+GITHUB_OAUTH_CLIENT_SECRET=...
+GITHUB_OAUTH_ALLOWED_ORGS=acme-inc,acme-labs     # optional org allowlist (active members only)
+```
+
+Create an OAuth app (preferably on your GitHub org) with homepage `{FRONTEND_URL}` and callback `{FRONTEND_URL}/api/v1/auth/oauth/github/callback`, then restart the API. With an org allowlist, Caracal additionally requests `read:org` to see private memberships. Only **verified** emails from `GET /user/emails` are accepted; users are recorded by numeric GitHub ID (handles can be renamed).
+
+## SAML 2.0
+
+Three settings make SAML work; the rest are optional:
+
+| Setting | Required | Description |
+| --- | --- | --- |
+| `saml.idp_entity_id` | ✓ | IdP entity ID ("Issuer") |
+| `saml.idp_sso_url` | ✓ | IdP single sign-on URL |
+| `saml.idp_x509_cert` | ✓ | PEM certificate (including BEGIN/END lines) used to verify IdP signatures |
+| `saml.idp_slo_url` | | Single logout URL |
+| `saml.idp_metadata_url` | | IdP metadata XML URL - periodically fetched to keep certs/endpoints current |
+| `saml.sp_entity_id` / `saml.sp_acs_url` | | Auto-derived from `FRONTEND_URL` |
+| `saml.sp_key_encryption_password` | | Only for IdPs sending encrypted assertions |
+| `saml.jit_provisioning` | | Default `true` |
+| `saml.default_role` | | Role for JIT-provisioned users; default `user` |
+
+Configure via **Admin → SSO** or `PUT /api/v1/operator/saml-config` (include `"regenerate_sp_key": true` to rotate the auto-generated SP key pair). Reads always redact key material.
+
+**SP metadata** for IdP import: `GET /api/v1/sso/saml/metadata` - a standard `EntityDescriptor` with the SP entity ID, ACS URL, and public signing certificate. Most IdPs can import it directly.
+
+**IdP configuration in brief** (Okta / Azure AD / Google Workspace all follow the same shape):
+
+- ACS / reply URL: `https://caracal.example.com/api/v1/sso/saml/acs`
+- Audience / SP entity ID: your SP entity ID
+- Name ID format: email
+- Attribute mappings: `email`, `firstName`, `lastName`
+
+**Flows.** SP-initiated (`GET /api/v1/sso/saml/login`) and IdP-initiated (unsolicited response to the ACS) both work. SP-initiated logout (`GET /api/v1/sso/saml/logout` → IdP SLO → `GET /api/v1/sso/saml/sls`) is used when an SLO URL is configured. Assertion IDs are tracked in Redis with a 5-minute TTL for replay protection - replays get a 400 plus a security event.
+
+**JIT provisioning.** With `saml.jit_provisioning=true` (default), first-time SAML users are created automatically with `saml.default_role`. With it disabled, unrecognized users get 403 - create accounts manually or via [SCIM](/self-hosting/scim).
+
+**File-backed SP keys.** `SAML_SP_PRIVATE_KEY_FILE` and `SAML_SP_X509_CERT_FILE` (set together) keep SP key material out of the database; they're reported as externally managed and rotate by replacing both files and restarting the API.
+
+## CLI login over SSO
+
+Developers authenticate the CLI through the browser:
+
+```bash
+caracal auth login --sso     # device flow: verification URL + user code
+caracal auth login --saml
+```
+
+In JSON mode, `--sso` emits a JSON Lines stream whose first event carries the verification URL and code.
+
+## Troubleshooting SAML
+
+| Symptom | Cause / fix |
+| --- | --- |
+| 404 on SAML endpoints | API not running the expected release; restart and check startup logs |
+| 400 at the ACS | ACS URL mismatch (compare with `/api/v1/sso/saml/metadata`), wrong/expired IdP certificate, clock skew (run NTP), or malformed response - server logs name the failing validation step |
+| 403 after successful IdP auth | JIT disabled with no pre-existing account, deactivated user, or missing `email` attribute mapping |
+| Replayed assertion | Rejected by design; check security events |
+
+Debug with `LOG_LEVEL=debug` (raw assertion + validation steps) and a SAML-tracer browser extension; get SP-initiated flow working before IdP-initiated.
