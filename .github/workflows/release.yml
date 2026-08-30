@@ -1,0 +1,754 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# Curated release pipeline for Caracal.
+#
+# A release PR is based on a selected, contiguous main-branch cutoff. After the
+# PR is squash/rebase merged, this workflow builds and publishes its exact PR
+# head so later commits already on main cannot leak into the release.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Release preparation commit SHA to validate and resume"
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/garudex-labs/caracal
+
+jobs:
+  # ── Preflight: detect and validate the release commit ─────
+  preflight:
+    name: Preflight checks
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      bump_type: ${{ steps.version.outputs.bump_type }}
+      channel: ${{ steps.version.outputs.channel }}
+      target: ${{ steps.target.outputs.target }}
+      is_release: ${{ steps.target.outputs.is_release }}
+    steps:
+      - name: Generate release app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: read
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve release target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_TARGET: ${{ inputs.target }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -n "$MANUAL_TARGET" ]; then
+            git fetch --no-tags origin "$MANUAL_TARGET" || true
+            TARGET=$(git rev-parse "$MANUAL_TARGET^{commit}")
+          else
+            if [[ "$BEFORE" =~ ^0+$ ]]; then
+              BEFORE=$(git rev-parse "$AFTER^")
+            fi
+            TARGET=$(go run ./tools/release \
+              --resolve-push \
+              --before "$BEFORE" \
+              --after "$AFTER" \
+              --repo "$GITHUB_REPOSITORY")
+            if [ -z "$TARGET" ]; then
+              echo "is_release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "is_release=true" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release manifest and cutoff
+        id: version
+        if: steps.target.outputs.is_release == 'true'
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+        run: |
+          git checkout --detach "$TARGET"
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import tomllib
+
+          target = os.environ["TARGET"]
+          manifest = tomllib.loads(pathlib.Path(".release.toml").read_text())
+          version = manifest["version"]
+          subject = subprocess.check_output(["git", "show", "-s", "--format=%s", target], text=True).strip()
+          if subject != f"chore(release): v{version}":
+              raise SystemExit(f"invalid release commit subject: {subject}")
+          channel = manifest["channel"]
+          cutoff = manifest["cutoff"]
+          previous_tag = manifest["previous_tag"]
+
+          if channel not in {"stable", "rc", "beta", "alpha"}:
+              raise SystemExit(f"invalid release channel: {channel}")
+          expected = r"\d+\.\d+\.\d+" if channel == "stable" else rf"\d+\.\d+\.\d+-{channel}\.\d+"
+          if not re.fullmatch(expected, version):
+              raise SystemExit(f"version {version} does not match channel {channel}")
+
+          parents = subprocess.check_output(["git", "show", "-s", "--format=%P", target], text=True).split()
+          if parents != [cutoff]:
+              raise SystemExit("release commit must have the selected cutoff as its only parent")
+          previous_manifest = subprocess.run(
+              ["git", "show", f"{previous_tag}:.release.toml"], text=True, capture_output=True
+          )
+          if previous_manifest.returncode == 0:
+              previous_cutoff = tomllib.loads(previous_manifest.stdout)["cutoff"]
+          else:
+              previous_cutoff = previous_tag
+          subprocess.run(["git", "merge-base", "--is-ancestor", previous_cutoff, cutoff], check=True)
+          subprocess.run(["git", "merge-base", "--is-ancestor", cutoff, "origin/main"], check=True)
+
+          allowed = {
+              "apps/web/package.json", "packages/pi-extension/package.json",
+              "CHANGELOG.md", ".release.toml", ".github/release-notes.md",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", f"{cutoff}..{target}"], text=True
+          ).splitlines())
+          unexpected = changed - allowed
+          if unexpected:
+              raise SystemExit(f"release commit changed forbidden files: {sorted(unexpected)}")
+
+          versions = {
+              json.loads(pathlib.Path("apps/web/package.json").read_text())["version"],
+              json.loads(pathlib.Path("packages/pi-extension/package.json").read_text())["version"],
+          }
+          if versions != {version}:
+              raise SystemExit(f"release versions disagree: {sorted(versions)}")
+          if f"## [{version}]" not in pathlib.Path("CHANGELOG.md").read_text():
+              raise SystemExit("release version is missing from CHANGELOG.md")
+          notes = pathlib.Path(".github/release-notes.md").read_text()
+          if f"{previous_tag}...v{version}" not in notes:
+              raise SystemExit("release notes are incomplete")
+
+          previous = previous_tag.removeprefix("v").split(".")
+          current = version.split("-")[0].split(".")
+          bump = "major" if current[0] != previous[0] else "feature" if current[1] != previous[1] else "patch"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\nchannel={channel}\nbump_type={bump}\n")
+          PY
+
+          VERSION=$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path(".release.toml").read_text())["version"])')
+          TAG="v$VERSION"
+          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            [ "$(git rev-parse "$TAG^{commit}")" = "$TARGET" ] || {
+              echo "::error::$TAG already points to a different commit"
+              exit 1
+            }
+          fi
+
+  # ── Job 1: Build CLI binaries (5-platform matrix) ──────────
+  cli-binaries:
+    name: CLI (${{ matrix.os }}-${{ matrix.arch }})
+    needs: preflight
+    if: needs.preflight.outputs.is_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x64
+            goarch: amd64
+            artifact: caracal-linux-x64
+          - os: linux
+            arch: arm64
+            goarch: arm64
+            artifact: caracal-linux-arm64
+          - os: macos
+            arch: arm64
+            goarch: arm64
+            artifact: caracal-macos-arm64
+          - os: windows
+            arch: x64
+            goarch: amd64
+            artifact: caracal-windows-x64.exe
+          - os: windows
+            arch: arm64
+            goarch: arm64
+            artifact: caracal-windows-arm64.exe
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.preflight.outputs.target }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          GOOS_NAME=${{ matrix.os }}
+          if [ "$GOOS_NAME" = "macos" ]; then GOOS_NAME=darwin; fi
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=$GOOS_NAME GOARCH=${{ matrix.goarch }} \
+            go build -trimpath -ldflags "-s -w -X main.cliVersion=$VERSION" \
+            -o dist/${{ matrix.artifact }} ./cmd/caracal
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  # ── Job 2: Docker images to GHCR (native per-arch builds) ──
+  docker-build:
+    name: Docker (${{ matrix.image }}-${{ matrix.arch }})
+    needs: preflight
+    if: needs.preflight.outputs.is_release == 'true'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, web, server, auth]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.preflight.outputs.target }}
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: infra/docker/Dockerfile.${{ matrix.image }}
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }},mode=max
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: docker-digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-merge:
+    name: Docker manifest (${{ matrix.image }})
+    needs: [preflight, docker-build, tag]
+    if: needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        image: [api, web, server, auth]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: /tmp/digests
+          pattern: docker-digest-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+        run: |
+          IMAGE="${{ env.IMAGE_PREFIX }}-${{ matrix.image }}"
+          TAGS=(-t "$IMAGE:$VERSION")
+          if [ "$CHANNEL" = "stable" ]; then
+            TAGS+=(-t "$IMAGE:latest")
+          fi
+          docker buildx imagetools create \
+            "${TAGS[@]}" \
+            $(printf "$IMAGE@sha256:%s " $(ls /tmp/digests/))
+
+  # ── Job 3: Server deployment tarball ───────────────────────
+  server-package:
+    name: Server package
+    needs: preflight
+    if: needs.preflight.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.preflight.outputs.target }}
+          persist-credentials: false
+
+      - name: Build server tarball
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          STAGING="caracal-server-v${VERSION}"
+          mkdir -p "$STAGING/clickhouse/users.d"
+          mkdir -p "$STAGING/grafana"
+
+          # Standalone compose (pre-built images, no source needed)
+          cp infra/docker/server-package/docker-compose.yml "$STAGING/"
+          cp infra/docker/server-package/docker-compose.observability.yml "$STAGING/"
+          cp infra/docker/server-package/setup.sh "$STAGING/"
+          cp infra/docker/server-package/env.template "$STAGING/"
+          cp infra/docker/nginx.conf "$STAGING/nginx.conf"
+          cp infra/docker/prometheus.yml "$STAGING/"
+          cp .env.example "$STAGING/"
+          cp LICENSE.md NOTICE "$STAGING/"
+
+          # Supporting configs
+          cp -r infra/docker/clickhouse/config.d "$STAGING/clickhouse/config.d"
+          cp infra/docker/clickhouse/users.d/memory.xml "$STAGING/clickhouse/users.d/"
+          cp -r infra/grafana/provisioning "$STAGING/grafana/provisioning"
+          cp -r infra/grafana/dashboards "$STAGING/grafana/dashboards"
+
+          tar -czf "caracal-server-v${VERSION}.tar.gz" "$STAGING"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: caracal-server-v${{ needs.preflight.outputs.version }}.tar.gz
+          path: caracal-server-v${{ needs.preflight.outputs.version }}.tar.gz
+
+  # ── Approval gate (all releases) ────────────────────────────
+  approve:
+    name: Approval gate
+    needs: [preflight, cli-binaries, docker-build, server-package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - env:
+          BUMP_TYPE: ${{ needs.preflight.outputs.bump_type }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: echo "$BUMP_TYPE release v$VERSION approved"
+
+  tag:
+    name: Create release tag
+    needs: [preflight, approve]
+    if: needs.approve.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Generate release app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.target }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: chainguard-dev/actions/setup-gitsign@9d631658f55713e5f63ca0cc21ee168f81301fd9 # v1.6.30
+
+      # setup-gitsign configures Git but still installs gitsign 0.16.1.
+      - name: Install gitsign 0.17.1
+        env:
+          GITSIGN_VERSION: "0.17.1"
+          GITSIGN_SHA256: "69213a8a0813a151e5a47d0060862952ff833a845d57309dff76f7ba6600abae"
+        run: |
+          GITSIGN_BIN=$(mktemp)
+          trap 'rm -f "$GITSIGN_BIN"' EXIT
+          curl -fLsS \
+            "https://github.com/sigstore/gitsign/releases/download/v${GITSIGN_VERSION}/gitsign_${GITSIGN_VERSION}_linux_amd64" \
+            -o "$GITSIGN_BIN"
+          printf '%s  %s\n' "$GITSIGN_SHA256" "$GITSIGN_BIN" | sha256sum -c
+          install -m 0755 "$GITSIGN_BIN" "$HOME/.gitsign/gitsign"
+          gitsign version
+
+      - name: Create or verify tag
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          TARGET: ${{ needs.preflight.outputs.target }}
+          GITSIGN_ENABLE_SIGSTORE_GO: "true"
+          GITSIGN_REKOR_MODE: "online"
+          GITSIGN_REKOR_VERSION: "1"
+        run: |
+          TAG="v$VERSION"
+          verify_tag() {
+            for attempt in {1..5}; do
+              if gitsign verify-tag "$TAG" \
+                --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" \
+                --certificate-oidc-issuer "https://token.actions.githubusercontent.com"; then
+                return 0
+              fi
+              [ "$attempt" -eq 5 ] && return 1
+              echo "Tag verification attempt $attempt failed, retrying in 15 seconds"
+              sleep 15
+            done
+          }
+          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            [ "$(git rev-parse "$TAG^{commit}")" = "$TARGET" ] || {
+              echo "::error::$TAG points to a different commit"
+              exit 1
+            }
+            if verify_tag; then
+              echo "$TAG already points to the validated release commit and has a valid Sigstore signature"
+              exit 0
+            fi
+            git fetch origin main
+            POLICY_COMMIT=$(git log origin/main --diff-filter=A --format=%H -- docs/security/release-verification.md | tail -1)
+            if [ -n "$POLICY_COMMIT" ] && [ "$TARGET" != "$POLICY_COMMIT" ] && \
+              git merge-base --is-ancestor "$TARGET" "$POLICY_COMMIT"; then
+              echo "$TAG predates signed-tag enforcement; leaving the historical tag unchanged"
+              exit 0
+            fi
+            echo "::error::$TAG is unsigned but does not predate signed-tag enforcement"
+            exit 1
+          fi
+          git tag -s "$TAG" -m "Release $TAG" "$TARGET"
+          verify_tag
+          git push origin "$TAG"
+
+  # ── Job 4: npm publish (after approval) ────────────────────
+  npm:
+    name: Publish to npm
+    needs: [preflight, tag]
+    if: needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.preflight.outputs.target }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync version from release
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          cd packages/pi-extension
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Check if already published
+        id: published
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          if npm view "caracal-pi@$VERSION" version 2>/dev/null | grep -qx "$VERSION"; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "caracal-pi $VERSION is already on npm, skipping publish"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish caracal-pi
+        if: steps.published.outputs.already_published != 'true'
+        env:
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/pi-extension
+          TAG="latest"
+          [ "$CHANNEL" = "stable" ] || TAG="$CHANNEL"
+          npm publish --access public --tag "$TAG"
+
+  # ── Job 5: Helm chart to GHCR (after approval) ──────────
+  helm-chart:
+    name: Publish Helm chart
+    needs: [preflight, approve, tag]
+    if: needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.target }}
+          persist-credentials: false
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
+      - uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+
+      - name: Lint and package chart
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          mkdir -p chart-dist
+
+          helm lint infra/helm/caracal
+          helm package infra/helm/caracal \
+            --destination chart-dist \
+            --version "$VERSION" \
+            --app-version "$VERSION"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: caracal-helm-chart-v${{ needs.preflight.outputs.version }}
+          path: chart-dist/caracal-${{ needs.preflight.outputs.version }}.tgz
+
+      - name: Publish chart to GHCR
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HELM_OCI_REPO="oci://ghcr.io/garudex-labs/charts"
+          HELM_OCI_REF="ghcr.io/garudex-labs/charts/caracal"
+
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+          echo "$GHCR_TOKEN" | oras login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+
+          # Skip if this chart version is already published
+          if helm pull "$HELM_OCI_REPO/caracal" --version "$VERSION" --destination /tmp 2>/dev/null; then
+            echo "Chart $VERSION is already on GHCR, skipping push"
+          else
+            helm push "chart-dist/caracal-${VERSION}.tgz" "$HELM_OCI_REPO"
+          fi
+
+          # artifacthub metadata is idempotent, always push
+          oras push "${HELM_OCI_REF}:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            infra/helm/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+
+  # ── Final: Create GitHub Release with all artifacts ────────
+  release:
+    name: GitHub Release
+    needs: [preflight, cli-binaries, docker-merge, server-package, npm, helm-chart, tag]
+    if: needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.target }}
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts
+          pattern: caracal-*
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name 'caracal-*' -o -name '*.tar.gz' \) -exec cp {} release/ \;
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
+
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: "release/caracal-*"
+
+      - name: Copy attestation bundle into release/
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          test -n "$BUNDLE_PATH" -a -s "$BUNDLE_PATH" || {
+            echo "::error::Attestation bundle is missing or empty"
+            exit 1
+          }
+          cp "$BUNDLE_PATH" release/build-provenance.intoto.jsonl
+          echo "Bundle copied ($(wc -c < release/build-provenance.intoto.jsonl) bytes)"
+
+      - name: Verify provenance before publishing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Verify every attested artifact against the bundle. gh attestation verify
+          # validates the Sigstore certificate chain, the signer workflow identity,
+          # and the source repository/commit recorded in the provenance.
+          # The signer-workflow identity uses refs/heads/main because push-triggered
+          # runs record that ref in the signing certificate, not the commit SHA.
+          fail=0
+          for f in release/caracal-*; do
+            echo "Verifying $f"
+            gh attestation verify "$f" \
+              --repo "$GITHUB_REPOSITORY" \
+              --bundle release/build-provenance.intoto.jsonl \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" \
+              || { echo "::error::Provenance verification failed for $f"; fail=1; }
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          echo "All artifacts verified against the attestation bundle."
+
+      - name: Create or resume GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          CHANNEL: ${{ needs.preflight.outputs.channel }}
+        run: |
+          VERSION="v$RELEASE_VERSION"
+          FLAGS=(--title "Caracal $VERSION" --notes-file .github/release-notes.md)
+          if [ "$CHANNEL" = "stable" ]; then
+            FLAGS+=(--latest)
+          else
+            FLAGS+=(--prerelease)
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            DRAFT=$(gh release view "$VERSION" --json isDraft --jq '.isDraft')
+            if [ "$DRAFT" = "true" ]; then
+              gh release upload "$VERSION" --clobber release/*
+              gh release edit "$VERSION" "${FLAGS[@]}"
+            else
+              echo "$VERSION is already published; assets will be verified without replacement"
+            fi
+          else
+            gh release create "$VERSION" --draft "${FLAGS[@]}" release/*
+          fi
+
+      - name: Verify assets and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          VERSION="v$RELEASE_VERSION"
+          EXPECTED=$(find release -maxdepth 1 -type f | wc -l)
+          ACTUAL=$(gh release view "$VERSION" --json assets --jq '.assets | length')
+          [ "$ACTUAL" -eq "$EXPECTED" ] || {
+            echo "::error::Expected $EXPECTED release assets, found $ACTUAL"
+            exit 1
+          }
+          gh release edit "$VERSION" --draft=false
+
+  verify:
+    name: Verify published release
+    needs: [preflight, release]
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify registries and smoke test CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          retry() {
+            for attempt in {1..12}; do
+              "$@" && return 0
+              echo "Attempt $attempt failed, retrying in 10 seconds"
+              sleep 10
+            done
+            return 1
+          }
+          gh release view "v$VERSION" --repo Garudex-Labs/caracal --json isDraft --jq '.isDraft' | grep -qx false
+          retry sh -c "npm view 'caracal-pi@$VERSION' version | grep -qx '$VERSION'"
+          echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          retry docker buildx imagetools inspect "${{ env.IMAGE_PREFIX }}-api:$VERSION"
+          retry docker buildx imagetools inspect "${{ env.IMAGE_PREFIX }}-web:$VERSION"
+          retry docker buildx imagetools inspect "${{ env.IMAGE_PREFIX }}-server:$VERSION"
+          retry docker buildx imagetools inspect "${{ env.IMAGE_PREFIX }}-auth:$VERSION"
+          retry helm pull oci://ghcr.io/garudex-labs/charts/caracal --version "$VERSION" --destination /tmp
+          # Smoke test the published CLI binary end-to-end from the release assets.
+          retry gh release download "v$VERSION" --repo Garudex-Labs/caracal \
+            --pattern caracal-linux-x64 --pattern checksums.txt --dir /tmp/cli --clobber
+          (cd /tmp/cli && grep " caracal-linux-x64$" checksums.txt | sha256sum -c)
+          chmod +x /tmp/cli/caracal-linux-x64
+          /tmp/cli/caracal-linux-x64 --version | grep -F "$VERSION"

@@ -1,0 +1,147 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: SBOM & License Compliance
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: sbom-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # ── Node.js SBOM (web) ───────────────────────────────────
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Generate Node.js SBOM
+        run: |
+          pnpm install --frozen-lockfile
+          cd web
+          pnpm dlx @cyclonedx/cdxgen@12.8.4 -o ../sbom-node.cdx.json
+
+      # ── Go SBOM (CLI + Go server) ───────────────────────
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Generate Go SBOM
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0
+          "$(go env GOPATH)/bin/cyclonedx-gomod" mod -json -licenses -output sbom-go.cdx.json .
+
+      # ── Vulnerability check (non-blocking) ───────────────────
+      - name: Check vulnerabilities
+        continue-on-error: true
+        run: go run ./tools/checkvulns sbom-node.cdx.json sbom-go.cdx.json
+
+      - name: Ensure labels exist
+        if: github.repository == 'Garudex-Labs/caracal'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "security" --color "D73A4A" --description "Security vulnerabilities and hardening" 2>/dev/null || true
+          gh label create "automated" --color "0E8A16" --description "Created by CI automation" 2>/dev/null || true
+
+      - name: Post vulnerability summary
+        if: github.repository == 'Garudex-Labs/caracal' && hashFiles('vulnerability-report.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --state open --label "automated" --search "SBOM vulnerability report in:title" --json number --jq 'length')
+          if [ "$EXISTING" = "0" ]; then
+            gh issue create \
+              --title "SBOM vulnerability report" \
+              --body-file vulnerability-report.md \
+              --label "security,automated"
+          fi
+
+      # ── Generate VEX document ────────────────────────────────
+      - name: Generate VEX document
+        run: go run ./tools/genvex caracal.openvex.json
+
+      # ── Generate third-party notices ─────────────────────────
+      - name: Generate third-party notices
+        run: go run ./tools/gennotices THIRD_PARTY_NOTICES.md
+
+      # ── Upload SBOM artifacts ────────────────────────────────
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sbom
+          path: |
+            sbom-node.cdx.json            sbom-go.cdx.json            caracal.openvex.json
+            THIRD_PARTY_NOTICES.md
+
+      # ── Attach to release ────────────────────────────────────
+      - name: Attach SBOMs to release
+        if: github.event_name == 'release' && github.repository == 'Garudex-Labs/caracal'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG_NAME" \
+            sbom-node.cdx.json \
+            sbom-go.cdx.json \
+            caracal.openvex.json \
+            THIRD_PARTY_NOTICES.md \
+            --clobber
+
+  license-check:
+    name: License compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run ScanCode license scan
+        run: |
+          uv tool install "scancode-toolkit>=32.0,<33.0"
+          scancode \
+            --license --package --info \
+            --license-policy .reuse/license-policy.yml \
+            --json-pp scan-results.json \
+            --processes $(nproc) \
+            --timeout 120 \
+            --ignore "*.pyc" --ignore "__pycache__" \
+            --ignore ".git" --ignore "node_modules" \
+            --ignore ".venv" --ignore "dist" \
+            --ignore "*.egg-info" --ignore "dist" \
+            --ignore "ee" \
+            .
+
+      - name: Check license policy
+        run: go run ./tools/checklicenses scan-results.json
