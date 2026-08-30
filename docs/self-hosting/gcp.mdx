@@ -1,0 +1,92 @@
+---
+title: "GCP with OpenTofu"
+description: "Provision an HA Caracal deployment on GCP: configuration, operations, and troubleshooting"
+---
+
+The GCP OpenTofu module (`infra/opentofu/gcp`, also compatible with Terraform) runs the stateless tier on Cloud Run behind a Global HTTPS Load Balancer, backed by Cloud SQL Postgres, Memorystore Redis, and a GCE data host for ClickHouse - with Secret Manager for credentials and GCS backups.
+
+## What gets provisioned
+
+- **VPC** - private subnet, Cloud NAT, Serverless VPC Access Connector
+- **Cloud Run v2** - `api`, `web`, `worker` services with min/max instance autoscaling, plus the one-shot `init` job (migrations + seeds)
+- **Cloud SQL Postgres** - optional HA, encrypted, automated backups
+- **Memorystore Redis** - `BASIC` or `STANDARD_HA`
+- **GCE data host** - ClickHouse on a persistent disk, optional Prometheus/Grafana, shell only via IAP tunnel (no public SSH, no keys)
+- **Global HTTPS LB** - Google-managed SSL certificate + Cloud DNS record when a domain is supplied
+- **Secret Manager** - generated credentials and connection URLs injected into Cloud Run
+- **GCS backups bucket** - versioned, lifecycle Nearline → delete
+
+## Deploy
+
+```bash
+cd caracal/infra/opentofu/gcp
+gcloud auth application-default login
+gcloud services enable run.googleapis.com sqladmin.googleapis.com redis.googleapis.com \
+  compute.googleapis.com secretmanager.googleapis.com dns.googleapis.com \
+  vpcaccess.googleapis.com servicenetworking.googleapis.com iam.googleapis.com
+
+cp terraform.tfvars.example terraform.tfvars   # at minimum: project_id
+tofu init && tofu plan -out tf.plan && tofu apply tf.plan
+
+$(tofu output -raw init_job_run_command)   # run migrations
+tofu output app_url
+```
+
+### Configuration
+
+```hcl
+project_id  = "my-gcp-project"
+region      = "us-central1"
+environment = "prod"
+
+# HTTPS on your domain (Google-managed cert + DNS record)
+domain_name           = "caracal.example.com"
+dns_managed_zone_name = "example-com"
+
+# Sizing
+api_cpu              = "1"
+api_memory           = "1Gi"
+api_min_instances    = 1
+api_max_instances    = 10
+data_machine_type    = "e2-standard-2"     # e2-standard-4 for high throughput
+data_disk_size_gb    = 100
+db_tier              = "db-g1-small"       # db-custom-4-16384 for high throughput
+db_ha_enabled        = false               # true for production HA
+redis_memory_size_gb = 1
+redis_tier           = "BASIC"             # STANDARD_HA for failover
+
+# ClickHouse Cloud instead of the GCE host:
+# clickhouse_mode      = "cloud"
+# clickhouse_cloud_url = "https://abc123.us-central1.gcp.clickhouse.cloud:8443"
+```
+
+Baseline cost ~$200/mo in us-central1; Cloud Run scales to zero with `min_instances = 0`, cutting costs for low-traffic installs.
+
+## Operations
+
+```bash
+$(tofu output -raw data_host_ssh_command)          # IAP shell into the data host
+#   sudo docker compose -f /opt/caracal/docker-compose.data.yml ps
+
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=caracal-prod-api" --limit 50
+
+$(tofu output -raw init_job_run_command)           # re-run migrations
+gcloud secrets versions access latest --secret="caracal-prod-SECRET_KEY"
+```
+
+**Upgrade:** set `image_tag = "v1.5.0"`, `tofu apply`, then run the init job - Cloud Run rolls with zero downtime. **Resize the data disk:** raise `data_disk_size_gb`, apply, then `growpart` + `resize2fs` on the host. **Destroy:** Cloud SQL deletion protection is enabled on prod; disable manually first.
+
+## Hardening
+
+`db_ha_enabled = true` · `redis_tier = "STANDARD_HA"` · restrict Cloud Run ingress to the LB (`INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER`) · Cloud Armor on the LB · Security Command Center · alerts on Cloud SQL CPU/memory and Cloud Run error rates · ClickHouse Cloud for HA · [SSO](/self-hosting/sso) · tested [backups](/self-hosting/backup-restore) · remote OpenTofu state in GCS.
+
+## Troubleshooting
+
+| Symptom | Diagnosis |
+| --- | --- |
+| Revision stuck `not ready` | Cloud Logging: usually missing Secret Manager permission, VPC connector not ready, or image pull failure |
+| Init job fails | `gcloud run jobs executions list --job=caracal-prod-init`; usually Cloud SQL not yet reachable (transient) or missing secret access |
+| 502 from the LB | Managed SSL certs take 10–30 minutes to provision; check backend-service health |
+| Cloud SQL connection refused | VPC connector must be in the same region as Cloud Run; check `connector_cidr` doesn't overlap the subnet |
+
+Application-level issues: [Troubleshooting](/self-hosting/troubleshooting).
