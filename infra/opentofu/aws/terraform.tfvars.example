@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# Copy to terraform.tfvars and fill in.
+# terraform.tfvars is gitignored - never commit secrets or per-customer values.
+
+region      = "us-east-1"
+environment = "prod"
+name_prefix = "caracal"
+
+# ── DNS / TLS (optional) ──────────────────────────────────────────────
+# Leave both empty to expose the install over plain HTTP on the ALB DNS name.
+# domain_name     = "caracal.example.com"
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# ── Image tag (matches the Caracal release you want to install) ──────
+image_tag = "latest"
+
+# ── ECS Fargate sizing (api / auth / web) ──────────────────────
+# Defaults give you HA out of the box: 2× api, 2× auth, 2× web, all autoscaling on CPU.
+# api_cpu            = 512
+# api_memory         = 1024
+# api_desired_count  = 2
+# auth_desired_count = 2
+# web_desired_count  = 2
+
+# ── Data tier (ClickHouse on one EC2) ────────────────────────────────
+# clickhouse_mode      = "self_hosted"     # or "cloud", see below
+# data_instance_type   = "t3.large"
+# data_volume_size_gb  = 100
+# observability_stack  = "none"            # one of: none, prometheus, grafana
+
+# ── ClickHouse Cloud (uncomment if clickhouse_mode = "cloud") ─────────
+# clickhouse_mode           = "cloud"
+# clickhouse_cloud_url      = "https://abc123.us-east-1.aws.clickhouse.cloud:8443"
+# clickhouse_cloud_password = "..."
+
+# ── Managed services ──────────────────────────────────────────────────
+# db_instance_class = "db.t4g.small"
+# redis_node_type   = "cache.t4g.micro"
+
+# ── Access ────────────────────────────────────────────────────────────
+# Restrict ALB ingress for private installs (e.g. office VPN, corporate egress).
+# alb_ingress_cidrs = ["203.0.113.0/24"]
+
+# ── App config ────────────────────────────────────────────────────────
+log_retention_days  = 30
+
+
+# ── Bring-your-own VPC (BYO-VPC) ─────────────────────────────────────────────
+# Deploy into an existing VPC instead of creating one. Useful for corporate
+# environments with Transit Gateway, shared VPCs, or no IGW.
+#
+# vpc_id             = "vpc-08ffcfb6fed514106"
+# public_subnet_ids  = ["subnet-05b9a5aa32f4e6460", "subnet-09c4c954239fc48c0"]
+# private_subnet_ids = ["subnet-05b9a5aa32f4e6460", "subnet-09c4c954239fc48c0"]
+
+# ── TLS ──────────────────────────────────────────────────────────────────────
+# Set enable_tls = false for private Route53 zones where ACM DNS validation
+# cannot complete. The domain still gets a Route53 A record pointing to the ALB.
+#
+# enable_tls = false
