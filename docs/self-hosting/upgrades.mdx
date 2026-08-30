@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Upgrades"
+description: "Safe server upgrade and rollback flows, from single node to blue/green"
+---
+
+## Managed upgrade (recommended)
+
+For Docker deployments, the CLI runs the whole flow - managed PostgreSQL backup, image pull, atomic version update, container recreation, and health check with automatic revert on failure:
+
+```bash
+./ops.sh upgrade --dry-run
+./ops.sh upgrade 1.5.0
+./ops.sh rollback        # restores Postgres + prior image (not ClickHouse)
+```
+
+Local shell and Docker access authorize this - no API role needed. The operator script lives in the server package (`infra/docker/server-package/ops.sh`).
+
+**Server-package installs** (`install-server.sh`): rerun the installer for the target release. Setup detects the existing `.env`; answer **No** when asked to replace configuration to keep custom values and credentials. Back up `.env`, `secrets/`, `apidata`, and `pgdata` first.
+
+## Before any manual upgrade
+
+1. **Back up `pgdata` and `apidata`** ([procedures](/self-hosting/backup-restore)). `chdata` is nice-to-have.
+2. **Read the CHANGELOG** across the versions you're jumping. Destructive migrations are always called out.
+3. **Pin the target**: check out a release tag, never `git pull main` blindly.
+
+## Standard upgrade (source deployment)
+
+```bash
+cd caracal
+git fetch --tags && git checkout v1.5.0
+docker compose -f infra/docker/docker-compose.yml pull
+docker compose -f infra/docker/docker-compose.yml up --build -d
+curl http://localhost/health
+```
+
+The init container applies Alembic (PostgreSQL) then ClickHouse migrations before the API starts - watch `docker logs -f caracal-init`.
+
+## Minimizing downtime
+
+**Small teams (~30 s window):** back up → `docker compose stop caracal-api caracal-worker` → apply migrations out of band (run the init container once, or `alembic upgrade head` + `python -m services.clickhouse.migrations`) → pull/rebuild → `docker compose up -d` → smoke test. Databases and web UI stay up.
+
+**Blue/green at scale:** run a second stack (different project name and host ports) against the same volumes, apply migrations before cutover, flip the reverse proxy, decommission blue. Additive migrations work with API versions N−1 and N during rollout; non-additive ones (rare, CHANGELOG-flagged) need a brief outage.
+
+## Rolling back
+
+```bash
+docker compose -f infra/docker/docker-compose.yml down
+git checkout <previous-version>
+docker compose -f infra/docker/docker-compose.yml up --build -d
+```
+
+If the failed version applied migrations: additive ones (most) are harmless to the previous API; destructive ones require restoring the pre-upgrade `pgdata` backup - which is why the backup is step 1.
+
+## CLI upgrades
+
+Independent of the server: users run `caracal self upgrade`. The CLI/server contract is stable within a release or two in either direction; a genuine incompatibility surfaces as exit code 10.
+
+The web UI is a static build and redeploys instantly - users see at most a page reload.
