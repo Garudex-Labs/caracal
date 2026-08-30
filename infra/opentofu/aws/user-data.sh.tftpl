@@ -1,0 +1,358 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+set -eo pipefail
+
+# Bootstrap the data tier host: ClickHouse plus optional observability via docker compose.
+# The api, auth, and web services run on ECS Fargate - they are NOT started here.
+
+exec > >(tee /var/log/caracal-bootstrap.log | logger -t caracal-bootstrap -s 2>/dev/console) 2>&1
+echo "Caracal data-host bootstrap starting at $(date -u)"
+
+# ── Packages ─────────────────────────────────────────────────────
+dnf -y update
+dnf -y install docker jq awscli amazon-cloudwatch-agent
+systemctl enable --now docker
+
+# Compose v2 plugin (pinned version - do not use releases/latest)
+DOCKER_COMPOSE_VERSION="v2.35.1"
+mkdir -p /usr/libexec/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/$${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+# ── Mount /data on the EBS volume ────────────────────────────────
+DEVICE=""
+for d in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
+  if [ -b "$d" ]; then DEVICE="$d"; break; fi
+done
+if [ -z "$DEVICE" ]; then
+  echo "Data volume not found"; exit 1
+fi
+if ! blkid "$DEVICE" >/dev/null 2>&1; then
+  mkfs.ext4 -F "$DEVICE"
+fi
+mkdir -p /data
+UUID=$(blkid -s UUID -o value "$DEVICE")
+grep -q "$UUID" /etc/fstab || echo "UUID=$UUID /data ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+mkdir -p /data/clickhouse
+%{ if observability_grafana_enabled }
+mkdir -p /data/grafana
+%{ endif }
+%{ if observability_prometheus_enabled }
+mkdir -p /data/prometheus
+%{ endif }
+chown -R 101:101 /data/clickhouse  || true   # clickhouse user inside the official image
+%{ if observability_grafana_enabled }
+chown -R 472:472 /data/grafana     || true   # grafana user
+%{ endif }
+%{ if observability_prometheus_enabled }
+chown -R 65534:65534 /data/prometheus || true # nobody
+%{ endif }
+
+# ── Pull secrets from SSM ────────────────────────────────────────
+# Disable xtrace here so secrets are not echoed to CloudWatch logs (SEC-020).
+set +x
+fetch() { aws ssm get-parameter --with-decryption --name "$1" --region "${region}" --query Parameter.Value --output text; }
+
+CLICKHOUSE_PASSWORD=$(fetch "${ssm_prefix}/CLICKHOUSE_PASSWORD")
+%{ if observability_grafana_enabled }
+GRAFANA_ADMIN_PASSWORD=$(fetch "${ssm_prefix}/GRAFANA_ADMIN_PASSWORD")
+%{ endif }
+set -x  # re-enable tracing for non-sensitive operations
+
+# ── CloudWatch agent (ship docker logs + system logs) ────────────
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          { "file_path": "/var/log/caracal-bootstrap.log", "log_group_name": "${log_group}", "log_stream_name": "bootstrap" },
+          { "file_path": "/var/log/messages", "log_group_name": "${log_group}", "log_stream_name": "messages" }
+        ]
+      }
+    }
+  }
+}
+EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+# ── Fetch the upstream docker config bundle (CH config.d, Grafana provisioning) ──
+INSTALL_DIR=/opt/caracal
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+TARBALL_URL="https://github.com/Garudex-Labs/caracal/releases/download/v${image_tag}/caracal-server-v${image_tag}.tar.gz"
+TARBALL_OK=false
+if [ "${image_tag}" != "latest" ]; then
+  for attempt in 1 2 3 4 5; do
+    if curl -fsSL "$TARBALL_URL" -o /tmp/caracal.tgz; then
+      tar -xzf /tmp/caracal.tgz --strip-components=1
+      rm /tmp/caracal.tgz
+      TARBALL_OK=true
+      break
+    fi
+    echo "Tarball download attempt $attempt failed, retrying in 10s..."
+    sleep 10
+  done
+fi
+if [ "$TARBALL_OK" = "false" ]; then
+  echo "Using embedded configs (tarball skipped or unavailable)."
+fi
+
+# ── Ensure critical ClickHouse configs exist (embedded fallback) ───────
+# These are written unconditionally so bootstrapping succeeds even if the
+# tarball download fails (e.g. private repo, missing release, network issue).
+mkdir -p "$INSTALL_DIR/docker/clickhouse/config.d"
+mkdir -p "$INSTALL_DIR/docker/clickhouse/users.d"
+
+cat > "$INSTALL_DIR/docker/clickhouse/config.d/memory.xml" <<'CHCFG'
+<clickhouse>
+    <listen_host>::</listen_host>
+    <listen_host>0.0.0.0</listen_host>
+    <listen_try>1</listen_try>
+    <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+    <merge_tree>
+        <parts_to_delay_insert>200</parts_to_delay_insert>
+        <parts_to_throw_insert>500</parts_to_throw_insert>
+        <max_bytes_to_merge_at_max_space_in_pool>5368709120</max_bytes_to_merge_at_max_space_in_pool>
+    </merge_tree>
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </query_log>
+    <trace_log>
+        <database>system</database>
+        <table>trace_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 1 DAY</ttl>
+    </trace_log>
+    <text_log>
+        <database>system</database>
+        <table>text_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 1 DAY</ttl>
+    </text_log>
+    <metric_log>
+        <database>system</database>
+        <table>metric_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 1 DAY</ttl>
+    </metric_log>
+    <asynchronous_metric_log>
+        <database>system</database>
+        <table>asynchronous_metric_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 1 DAY</ttl>
+    </asynchronous_metric_log>
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 1 DAY</ttl>
+    </part_log>
+</clickhouse>
+CHCFG
+
+cat > "$INSTALL_DIR/docker/clickhouse/users.d/default-user.xml" <<CHUSER
+<clickhouse>
+  <users>
+    <default remove="remove"></default>
+    <default>
+      <profile>default</profile>
+      <networks><ip>::/0</ip></networks>
+      <password><![CDATA[$${CLICKHOUSE_PASSWORD}]]></password>
+      <quota>default</quota>
+      <access_management>0</access_management>
+    </default>
+  </users>
+</clickhouse>
+CHUSER
+
+cat > "$INSTALL_DIR/docker/clickhouse/users.d/memory.xml" <<'CHPROF'
+<clickhouse>
+    <profiles>
+        <default>
+            <max_memory_usage>400000000</max_memory_usage>
+            <max_bytes_before_external_group_by>200000000</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>200000000</max_bytes_before_external_sort>
+            <max_bytes_in_join>100000000</max_bytes_in_join>
+            <join_algorithm>auto</join_algorithm>
+            <async_insert>1</async_insert>
+            <wait_for_async_insert>0</wait_for_async_insert>
+            <async_insert_max_data_size>1048576</async_insert_max_data_size>
+            <async_insert_busy_timeout_ms>200</async_insert_busy_timeout_ms>
+        </default>
+    </profiles>
+</clickhouse>
+CHPROF
+
+# ── Render the data-tier compose file ──
+cat > "$INSTALL_DIR/docker-compose.data.yml" <<'COMPOSE'
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.6
+    container_name: caracal-clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: $${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: $${CLICKHOUSE_PASSWORD}
+      MAX_SERVER_MEMORY_USAGE_RATIO: "0.7"
+    volumes:
+      - /data/clickhouse:/var/lib/clickhouse
+      - ./docker/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - ./docker/clickhouse/users.d:/etc/clickhouse-server/users.d
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+%{ if observability_grafana_enabled }
+  grafana:
+    image: grafana/grafana-oss:11.6.5
+    container_name: caracal-grafana
+    restart: unless-stopped
+    ports:
+      - "8002:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: $${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: $${GRAFANA_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SERVER_ROOT_URL: $${GRAFANA_ROOT_URL}$${GRAFANA_SUBPATH_PREFIX}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      CLICKHOUSE_PASSWORD: $${CLICKHOUSE_PASSWORD}
+    volumes:
+      - /data/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+%{ endif }
+%{ if observability_prometheus_enabled }
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    container_name: caracal-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /data/prometheus:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+%{ endif }
+COMPOSE
+
+# Render the .env consumed by docker-compose
+cat > "$INSTALL_DIR/.env" <<EOF
+CLICKHOUSE_DB=${clickhouse_db}
+CLICKHOUSE_PASSWORD=$${CLICKHOUSE_PASSWORD}
+%{ if observability_grafana_enabled }
+GRAFANA_ADMIN_USER=${grafana_admin_user}
+GRAFANA_ADMIN_PASSWORD=$${GRAFANA_ADMIN_PASSWORD}
+GRAFANA_ROOT_URL=${grafana_root_url}
+GRAFANA_SUBPATH_PREFIX=${grafana_subpath_prefix}
+%{ endif }
+EOF
+chmod 600 "$INSTALL_DIR/.env"
+
+# ── Start ────────────────────────────────────────────────────────
+cd "$INSTALL_DIR"
+
+# Clear stale preprocessed configs from previous ClickHouse versions
+rm -rf /data/clickhouse/preprocessed_configs
+
+%{ if observability_prometheus_enabled }
+# Create prometheus.yml because compose bind-mounts it.
+cat > "$INSTALL_DIR/prometheus.yml" <<'PROM'
+global:
+  scrape_interval: 30s
+scrape_configs:
+  - job_name: caracal-clickhouse
+    static_configs:
+      - targets: ['localhost:9363']
+PROM
+
+%{ endif }
+docker compose --env-file "$INSTALL_DIR/.env" -f docker-compose.data.yml pull
+docker compose --env-file "$INSTALL_DIR/.env" -f docker-compose.data.yml up -d
+
+# Wait for ClickHouse to become healthy before declaring bootstrap done
+echo "Waiting for ClickHouse HTTP interface..."
+for i in $(seq 1 30); do
+  if wget -q --spider http://localhost:8123/ping 2>/dev/null; then
+    echo "ClickHouse healthy after $i attempts"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "ERROR: ClickHouse did not become healthy within 5 minutes"
+    docker compose -f docker-compose.data.yml logs clickhouse | tail -50
+    exit 1
+  fi
+  sleep 10
+done
+
+# ── Daily ClickHouse snapshot to S3 ──────────────────────────────
+cat > /usr/local/bin/caracal-ch-backup.sh <<'BACKUP'
+#!/bin/bash
+set -euo pipefail
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+CH_PASS=$(grep CLICKHOUSE_PASSWORD /opt/caracal/.env | cut -d= -f2-)
+
+# Attempt native BACKUP command first (ClickHouse 26+)
+docker exec caracal-clickhouse clickhouse-client \
+  --password "$CH_PASS" \
+  --query "BACKUP DATABASE caracal TO Disk('backups', '$TS')" 2>/dev/null && {
+  # Upload the backup via AWS CLI using the instance IAM role
+  BACKUP_PATH=$(docker exec caracal-clickhouse find /var/lib/clickhouse/backups -maxdepth 1 -name "$TS" -type d)
+  if [ -n "$BACKUP_PATH" ]; then
+    docker cp "caracal-clickhouse:$BACKUP_PATH" "/tmp/ch-backup-$TS"
+    aws s3 sync "/tmp/ch-backup-$TS" "s3://${backups_bucket}/clickhouse/$TS/" --quiet
+    rm -rf "/tmp/ch-backup-$TS"
+  fi
+} || echo "ClickHouse backup failed (non-fatal), check instance IAM role and disk config"
+BACKUP
+chmod +x /usr/local/bin/caracal-ch-backup.sh
+
+cat > /etc/systemd/system/caracal-ch-backup.service <<'EOF'
+[Unit]
+Description=ClickHouse daily snapshot to S3
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/caracal-ch-backup.sh
+EOF
+
+cat > /etc/systemd/system/caracal-ch-backup.timer <<'EOF'
+[Unit]
+Description=Run ClickHouse snapshot daily at 03:30 UTC
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now caracal-ch-backup.timer
+
+echo "Caracal data-host bootstrap finished at $(date -u)"
