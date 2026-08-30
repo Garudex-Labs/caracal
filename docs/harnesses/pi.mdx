@@ -1,0 +1,50 @@
+---
+title: "Pi"
+description: "Extension-based telemetry, agent guidance, and MCP config for the Pi harness"
+---
+
+Pi integration is extension-based: telemetry ships as a bundled TypeScript extension rather than transcript-reading hooks. Agent guidance is delivered through `AGENTS.md` files.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ `.pi/mcp.json` / `~/.pi/agent/mcp.json` (`mcpServers` key) |
+| Skills | ✓ `.pi/skills/{name}/SKILL.md` / `~/.pi/agent/skills/{name}/SKILL.md` |
+| Hooks | ✓ via the telemetry extension configured in `~/.pi/agent/settings.json` |
+| Prompts | – |
+| Scopes | `project`, `user` (default) |
+| Session parser | `pi` |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness pi        # user scope (default)
+caracal doctor patch --harness pi              # install the telemetry extension
+```
+
+`doctor patch` installs the bundled TypeScript extension at `~/.pi/agent/extensions/caracal.ts` and removes any legacy npm package registration. There is no hook spec to merge - the extension subscribes to Pi's native events directly.
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent guidance (Markdown) | `AGENTS.md` | `~/.pi/agent/AGENTS.md` |
+| MCP config | `.pi/mcp.json` | `~/.pi/agent/mcp.json` |
+| Skills | `.pi/skills/{name}/SKILL.md` | `~/.pi/agent/skills/{name}/SKILL.md` |
+| Extension settings | - | `~/.pi/agent/settings.json` |
+| Telemetry extension | - | `~/.pi/agent/extensions/caracal.ts` |
+| Guidance files (scan-only) | `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md`, `AGENTS.md` | `~/.pi/agent/AGENTS.md` |
+
+## Session telemetry
+
+The extension converts Pi messages into stable JSONL-compatible source records via Pi's native API - the same approach as [OpenCode](/harnesses/opencode). Pending batches persist under `~/.caracal/pi_session_outbox/` with cursor state in `~/.caracal/sync_state.json`, and delivery follows the shared contract: spool before network, idempotent retries, contiguous acknowledgement, checkpoint recovery, finalization audit.
+
+```bash
+caracal reconcile --harness pi
+```
+
+## Notes
+
+- The extension is also published to npm as `caracal-pi`, but `doctor patch` now installs the bundled file directly instead of registering the npm package.
+- Agent installs write to `AGENTS.md` (project) or `~/.pi/agent/AGENTS.md` (user) rather than a dedicated agent profile directory.

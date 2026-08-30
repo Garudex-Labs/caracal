@@ -1,0 +1,60 @@
+---
+title: "OpenCode"
+description: "Plugin-based telemetry, agent profiles, and MCP config for the OpenCode harness"
+---
+
+OpenCode integration is plugin-based: instead of reading transcript files, Caracal installs an in-process TypeScript plugin that listens to OpenCode's runtime events and reads messages through the OpenCode client API.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ `opencode.json` / `~/.config/opencode/opencode.json` (`mcp` key) |
+| Skills | ✓ `.opencode/skills/{name}/SKILL.md` / `~/.config/opencode/skills/{name}/SKILL.md` |
+| Hooks | ✓ TypeScript plugins under `.opencode/plugins/` |
+| Prompts | – (registry prompts are written into the generated agent profile) |
+| Scopes | `project`, `user` (default) |
+| Session parser | `opencode` |
+| Model selection | ✓ registry-backed OpenCode model catalog |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness opencode                 # user scope: ~/.config/opencode/agents/{name}.md
+caracal agent pull <agent> --harness opencode --scope project # .opencode/agents/{name}.md
+caracal doctor patch --harness opencode                       # install/refresh the telemetry plugin
+```
+
+The telemetry plugin (`caracal-plugin.ts`) is installed **once per OpenCode install** - by `caracal auth login` (when OpenCode is detected) or `doctor patch` - not by each agent pull. `doctor patch` checks the bundled spec version and content hash, replacing stale copies.
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile (Markdown) | `.opencode/agents/{name}.md` | `~/.config/opencode/agents/{name}.md` |
+| MCP config | `opencode.json` | `~/.config/opencode/opencode.json` |
+| Skills | `.opencode/skills/{name}/SKILL.md` | `~/.config/opencode/skills/{name}/SKILL.md` |
+| Caracal plugin | `.opencode/plugins/caracal-plugin.ts` | `~/.config/opencode/plugins/caracal-plugin.ts` |
+
+## Plugin events
+
+| OpenCode event | Caracal use |
+| --- | --- |
+| `session.created` | Capture the active agent name for the session |
+| `message.updated` | Mark the session as having new data |
+| `session.idle` | Fetch new messages and deliver them |
+| `session.updated` / `session.next.agent.switched` | Refresh active-agent tracking |
+
+## Attribution
+
+OpenCode exposes the active **agent name**, not a Caracal UUID. The plugin resolves the name against the entries `caracal agent pull` recorded in `~/.caracal/lockfile.json` (project-scoped match for the current directory wins, then user scope). Built-in OpenCode agents (`build`, `plan`, `general`, `explore`, `scout`, `compaction`, `title`, `summary`) are ignored. With no lockfile match, the session ships unattributed - never guessed. Hand-copied agent profiles therefore won't be attributed; use `pull`.
+
+## Session telemetry
+
+On `session.idle`, the plugin fetches messages via `client.session.messages`, converts each into one stable JSONL-compatible record, and persists the batch atomically under `~/.caracal/opencode_session_outbox/` **before** any network attempt. Delivery follows the shared contract: idempotent retries, cursor advance only on contiguous acknowledgement, checkpoint recovery for lost state, SHA-256 audit on finalization with server-directed replay.
+
+Acknowledged state is retained for seven days to avoid replay; capacity errors fail closed without discarding pending records; corrupt state is quarantined and rebuilt from the server checkpoint plus the message source.
+
+```bash
+caracal reconcile --harness opencode
+```

@@ -1,0 +1,73 @@
+---
+title: "Kiro"
+description: "File paths, per-agent hooks, credits, and session telemetry for the Kiro harness"
+---
+
+Caracal installs Kiro agents, configures MCP servers, and collects Kiro session telemetry including credit usage.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ `.kiro/settings/mcp.json` / `~/.kiro/settings/mcp.json` (`mcpServers` key) |
+| Skills | – |
+| Hooks | ✓ embedded per-agent in the Kiro agent JSON |
+| Prompts | – (registry prompts are embedded into the generated agent profile) |
+| Scopes | `project`, `user` (default) |
+| Session parser | `kiro` |
+| Model selection | ✓ registry-backed Kiro model catalog |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness kiro                 # user scope (default): ~/.kiro/agents/{name}.json
+caracal agent pull <agent> --harness kiro --scope project # .kiro/agents/{name}.json
+```
+
+<Note>
+Kiro telemetry hooks are **per agent**: each pulled agent's JSON carries hook commands bound to that agent's UUID (`CARACAL_AGENT_ID`). `doctor patch` does not install generic Kiro hooks - pull the agent (again) to install or refresh its hooks.
+</Note>
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile (JSON, hooks embedded) | `.kiro/agents/{name}.json` | `~/.kiro/agents/{name}.json` |
+| MCP config | `.kiro/settings/mcp.json` | `~/.kiro/settings/mcp.json` |
+| Standalone hook definitions | `.kiro/hooks/{name}.json` | `~/.kiro/hooks/{name}.json` |
+| Guidance files (scan-only) | `.kiro/steering/*.md`, `AGENTS.md` | `~/.kiro/steering/*.md` |
+| Session transcripts | - | `~/.kiro/sessions/cli/{session_id}.jsonl` |
+| Credit metadata | - | `~/.kiro/sessions/cli/{session_id}.json` |
+
+## Event map
+
+| Caracal event | Kiro event |
+| --- | --- |
+| `SessionStart` | `agentSpawn` |
+| `UserPromptSubmit` | `userPromptSubmit` |
+| `PreToolUse` | `preToolUse` |
+| `PostToolUse` | `postToolUse` |
+| `Stop` | `stop` |
+
+`preToolUse`/`postToolUse` accept a `matcher`; Caracal uses `*` when none is set. The default telemetry hooks fire on `userPromptSubmit` and `stop` and run the shared exporter (`caracal_cli.hooks.session_push --harness kiro`).
+
+## Attribution
+
+Kiro's transcript doesn't identify the active Caracal agent, so attribution flows through the hook command:
+
+1. `pull` writes the agent UUID into the hook command as `CARACAL_AGENT_ID`.
+2. The exporter reads that UUID on each hook fire and resolves it against the active registry's entries in `~/.caracal/lockfile.json`.
+3. Sessions with no UUID or no lockfile match are left unattributed - never guessed.
+
+## Session telemetry
+
+The shared exporter reads `~/.kiro/sessions/cli/{session_id}.jsonl` past the acknowledged cursor, spools to the durable outbox, and delivers with contiguous acknowledgement. On `stop`, a delayed stable-file pass captures late records and finalizes. The adapter also reads the session's credit metadata file and durably reports Kiro credit usage - even when the final hook added no transcript lines.
+
+```bash
+caracal reconcile --harness kiro
+```
+
+## Notes
+
+- Generated hook commands are rewritten during pull to use the active Python interpreter (`python` vs `python3`).
+- Guidance files (steering, `AGENTS.md`) are scanned as context but never overwritten by pulls.
