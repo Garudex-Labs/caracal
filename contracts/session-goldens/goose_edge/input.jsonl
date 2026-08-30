@@ -1,0 +1,6 @@
+{"type": "session", "timestamp": "2026-02-02T14:00:00Z", "session_id": "g1", "working_dir": "/w", "provider": "anthropic", "model": "c4"}
+{"type": "message", "timestamp": "2026-02-02T14:00:01Z", "role": "user", "content": [{"type": "text", "text": "goose hi"}]}
+{"type": "message", "timestamp": "2026-02-02T14:00:02Z", "role": "assistant", "metadata": {"usage": {"inputTokens": 6, "outputTokens": 4}, "inference": {"resolvedModel": "c4-exact"}}, "content": [{"type": "toolRequest", "id": "t1", "toolCall": {"value": {"name": "shell", "arguments": {"command": "ls"}}}}]}
+{"type": "message", "timestamp": "2026-02-02T14:00:03Z", "role": "user", "content": [{"type": "toolResponse", "id": "t1", "toolResult": {"value": {"content": [{"type": "text", "text": "out"}], "isError": false}}}]}
+{"type": "message", "timestamp": "2026-02-02T14:00:04Z", "role": "assistant", "content": [{"type": "redactedThinking"}, {"type": "error", "message": "boom"}]}
+{"type": "session_end", "timestamp": "2026-02-02T14:00:05Z", "usage": {"inputTokens": 20, "outputTokens": 9, "totalTokens": 29, "cost": 0.05}}

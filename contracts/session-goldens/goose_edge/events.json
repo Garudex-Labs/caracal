@@ -1,0 +1,76 @@
+{
+  "harness": "goose",
+  "events": [
+    {
+      "timestamp": "2026-02-02 14:00:00",
+      "event_name": "hook_sessionstart",
+      "body": "g1",
+      "attributes": {
+        "working_dir": "/w",
+        "provider": "anthropic",
+        "model": "c4"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-02-02 14:00:01",
+      "event_name": "hook_userpromptsubmit",
+      "body": "goose hi",
+      "attributes": {
+        "tool_input": "goose hi"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-02-02 14:00:02",
+      "event_name": "hook_posttooluse",
+      "body": "shell",
+      "attributes": {
+        "tool_name": "shell",
+        "tool_input": "{\"command\": \"ls\"}",
+        "tool_use_id": "t1",
+        "tool_response": "out"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-02-02 14:00:02",
+      "event_name": "hook_token_usage",
+      "body": "",
+      "attributes": {
+        "input_tokens": "6",
+        "output_tokens": "4",
+        "model": "c4-exact"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-02-02 14:00:04",
+      "event_name": "hook_assistant_thinking",
+      "body": "[redacted]",
+      "attributes": {},
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-02-02 14:00:04",
+      "event_name": "hook_error",
+      "body": "boom",
+      "attributes": {
+        "tool_response": "boom"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-02-02 14:00:05",
+      "event_name": "hook_stop",
+      "body": "",
+      "attributes": {
+        "input_tokens": "20",
+        "output_tokens": "9",
+        "total_tokens": "29",
+        "cost": "0.05"
+      },
+      "service_name": "goose"
+    }
+  ]
+}
