@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Caracal development interface, for contributors working on Caracal itself.
+# Included by the root Makefile; every command runs as plain `make <command>`.
+# Requires the dev toolchain (Go, pnpm, uv) - operating a deployment never does.
+#
+# Options (append VAR=value to a command):
+#   SUITE=go|web   test/coverage: limit to one suite (default runs both)
+#   PREVIEW=1      release: dry run, writes nothing
+#   MSG="..."      new-migration: description of the migration
+
+.PHONY: setup test coverage lint format check new-migration release clean help-dev
+
+ifneq ($(strip $(SUITE)),)
+  ifeq ($(filter go web,$(SUITE)),)
+    $(error invalid SUITE='$(SUITE)': use SUITE=go or SUITE=web)
+  endif
+endif
+
+##@ Develop
+
+setup:  ## One-time contributor setup: install pre-commit hooks
+	uvx --from pre-commit pre-commit install
+	uvx --from pre-commit pre-commit install --hook-type commit-msg
+	uvx --from pre-commit pre-commit install --hook-type pre-push
+	@echo "Hooks installed"
+
+test:  ## Run all tests: Go incl. contract tests, then web (SUITE=go|web limits to one)
+ifneq ($(SUITE),web)
+	go test -race ./...
+endif
+ifneq ($(SUITE),go)
+	cd apps/web && pnpm test
+endif
+
+coverage:  ## Collect coverage as CI/Codecov measures it (SUITE=go|web limits to one)
+ifneq ($(SUITE),web)
+	go test -race -covermode=atomic -coverprofile=coverage.out \
+		-coverpkg=./cmd/...,./internal/...,./packages/... ./...
+	go tool cover -func=coverage.out | tail -1
+endif
+ifneq ($(SUITE),go)
+	cd apps/web && pnpm run test:coverage
+endif
+
+lint:  ## Static checks: gofmt + go vet
+	test -z "$$(gofmt -l .)" || { gofmt -l .; exit 1; }
+	go vet ./...
+
+format:  ## Auto-format Go code
+	gofmt -w .
+
+check:  ## Full pre-commit suite on all files
+	SKIP=no-commit-to-branch uvx --from pre-commit pre-commit run --all-files
+
+new-migration:  ## Scaffold a migration: make new-migration MSG="add foo to bar"
+	@test -n "$(MSG)" || (echo 'Usage: make new-migration MSG="description"' && exit 1)
+	@next=$$(printf '%03d' $$(($$(ls internal/dbinit/migrations/postgres/*.sql | wc -l) + 1))); \
+	slug=$$(echo "$(MSG)" | tr 'A-Z ' 'a-z_' | tr -cd 'a-z0-9_'); \
+	file="internal/dbinit/migrations/postgres/$${next}_$${slug}.sql"; \
+	printf -- '-- SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>\n-- SPDX-License-Identifier: Apache-2.0\n-- %s\n' "$(MSG)" > "$$file"; \
+	echo "Created $$file - add statements, then apply with: make migrate"
+
+clean:  ## Remove local build artifacts and caches (never touches Docker volumes)
+	rm -rf caracal caracal-server gennotices release coverage.out apps/web/dist apps/auth/dist
+
+##@ Release
+
+release:  ## Interactively prepare a curated release PR (PREVIEW=1 for a dry run)
+ifdef PREVIEW
+	go run ./tools/release --preview
+else
+	go run ./tools/release
+endif
+
+##@ Help
+
+help-dev:  ## Show the contributor commands
+	@awk 'BEGIN {FS = ":.*##"; printf "Caracal development commands (Go, pnpm, and uv required):\n"} \
+		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } \
+		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' Makefile.dev
+	@printf '\nOptions: SUITE=go|web  PREVIEW=1  MSG="..."\n'
+	@printf 'Operating a deployment? `make help` lists the self-hosting commands.\n'
