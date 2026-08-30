@@ -1,0 +1,101 @@
+---
+title: "Backup and restore"
+description: "What to back up, in what order, and how to restore each volume"
+---
+
+Caracal's persistent volumes have very different loss profiles. Back up accordingly.
+
+| Priority | Volume | Contents | Loss impact |
+| --- | --- | --- | --- |
+| **Critical** | `apidata` | JWT signing keys | Every session invalidated; **no recovery** without the keys |
+| **Critical** | `pgdata` | Users, RBAC, registry, agents | All accounts and registry lost |
+| Important | `chdata` | Session events, aggregates, audit/security events | All telemetry lost; accounts and registry survive |
+| Low | `grafanadata` | Custom Grafana dashboards | Provisioned defaults return automatically |
+| Low | `redisdata` | Job queue state | In-flight jobs re-queue on worker restart |
+
+<Warning>
+Always back up `apidata` and `pgdata` **together**. Restoring one without the other leaves a broken state.
+</Warning>
+
+**Cadence:** daily `pgdata` + `apidata` (retain 30 days) · weekly `chdata` (retain 12 weeks) · all three before every upgrade (retain until stable).
+
+## PostgreSQL
+
+```bash
+# Backup
+docker compose -f infra/docker/docker-compose.yml exec -T caracal-db \
+  pg_dump -U postgres caracal | gzip > caracal-pg-$(date +%Y%m%d).sql.gz
+
+# Restore into a fresh database
+docker compose -f infra/docker/docker-compose.yml down -v
+docker compose -f infra/docker/docker-compose.yml up -d caracal-db
+zcat caracal-pg-20260421.sql.gz | \
+  docker compose -f infra/docker/docker-compose.yml exec -T caracal-db psql -U postgres caracal
+docker compose -f infra/docker/docker-compose.yml up -d
+```
+
+## JWT keys (`apidata`)
+
+```bash
+# Backup (keys live at /data/keys in the API container)
+docker compose -f infra/docker/docker-compose.yml exec -T caracal-api \
+  tar czf - -C /data keys > caracal-keys-$(date +%Y%m%d).tar.gz
+
+# Restore (API stopped)
+docker compose -f infra/docker/docker-compose.yml stop caracal-api
+docker run --rm -v caracal_apidata:/data -v "$(pwd)":/backup \
+  alpine sh -c "cd /data && tar xzf /backup/caracal-keys-20260421.tar.gz"
+docker compose -f infra/docker/docker-compose.yml start caracal-api
+```
+
+## ClickHouse
+
+<Tabs>
+<Tab title="Volume snapshot (simplest)">
+
+```bash
+docker compose -f infra/docker/docker-compose.yml stop caracal-clickhouse
+docker run --rm -v caracal_chdata:/data -v "$(pwd)":/backup \
+  alpine tar czf /backup/caracal-ch-$(date +%Y%m%d).tar.gz -C /data .
+docker compose -f infra/docker/docker-compose.yml start caracal-clickhouse
+```
+
+Downtime = tar duration (minutes to tens of minutes).
+
+</Tab>
+<Tab title="Native BACKUP (no downtime)">
+
+```bash
+docker compose -f infra/docker/docker-compose.yml exec caracal-clickhouse \
+  clickhouse-client --query "BACKUP DATABASE caracal TO Disk('backups', 'caracal-$(date +%Y%m%d).zip')"
+# Restore:
+docker compose -f infra/docker/docker-compose.yml exec caracal-clickhouse \
+  clickhouse-client --query "RESTORE DATABASE caracal FROM Disk('backups', 'caracal-20260421.zip')"
+```
+
+Requires a configured backup disk in the ClickHouse config.
+
+</Tab>
+</Tabs>
+
+## Restore order after catastrophic failure
+
+1. `docker compose down`
+2. Restore `apidata` (JWT keys) **first** - skipping it works, but everyone re-logs-in
+3. Restore `pgdata`
+4. Restore `chdata`
+5. `docker compose up -d`
+6. Smoke test: `caracal auth login`, `caracal auth whoami`, `caracal agent list`, `caracal ops traces --limit 5`
+
+## Automate it
+
+```cron
+# Daily 03:00 - Postgres + JWT keys
+0 3 * * * cd /opt/caracal && docker compose -f infra/docker/docker-compose.yml exec -T caracal-db pg_dump -U postgres caracal | gzip > /backups/pg-$(date +\%Y\%m\%d).sql.gz
+0 3 * * * cd /opt/caracal && docker compose -f infra/docker/docker-compose.yml exec -T caracal-api tar czf - -C /data keys > /backups/keys-$(date +\%Y\%m\%d).tar.gz
+
+# Weekly Sunday 04:00 - ClickHouse
+0 4 * * 0 cd /opt/caracal && docker compose -f infra/docker/docker-compose.yml stop caracal-clickhouse && docker run --rm -v caracal_chdata:/data -v /backups:/backup alpine tar czf /backup/ch-$(date +\%Y\%m\%d).tar.gz -C /data . && docker compose -f infra/docker/docker-compose.yml start caracal-clickhouse
+```
+
+Ship `/backups` offsite (S3, B2, rsync). **Test restores in staging at least quarterly** - untested backups are guesses.
