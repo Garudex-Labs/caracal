@@ -1,0 +1,130 @@
+// SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
+
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { toast } from "sonner";
+import {
+  dashboard,
+  exec,
+} from "@/lib/api";
+
+// ── Dashboard ───────────────────────────────────────────────────────
+
+export function useOverviewStats(range?: string) {
+  return useQuery({ queryKey: ["overview", "stats", range], queryFn: () => dashboard.stats(range) });
+}
+
+export function useTopMcps() {
+  return useQuery({ queryKey: ["overview", "top-mcps"], queryFn: dashboard.topMcps });
+}
+
+export function useTopAgents(limit?: number) {
+  return useQuery({ queryKey: ["overview", "top-agents", limit], queryFn: () => dashboard.topAgents(limit) });
+}
+
+export function useTrends(range?: string) {
+  return useQuery({ queryKey: ["overview", "trends", range], queryFn: () => dashboard.trends(range) });
+}
+
+// ── New Dashboard Hooks ─────────────────────────────────────────────
+
+export function useTokenStats(range?: string) {
+  return useQuery({ queryKey: ['dashboard', 'tokens', range], queryFn: () => dashboard.tokenStats(range) });
+}
+export function useHarnessUsage() {
+  return useQuery({ queryKey: ['dashboard', 'harness-usage'], queryFn: dashboard.harnessUsage });
+}
+// ── Exec Dashboard ─────────────────────────────────────────────────
+
+export function useExecAdoption() {
+  return useQuery({ queryKey: ["exec", "adoption"], queryFn: exec.adoption });
+}
+
+export function useExecAgentCounts() {
+  return useQuery({ queryKey: ["exec", "agent-counts"], queryFn: exec.agentCounts });
+}
+
+export function useExecUsageByCategory(range?: string) {
+  return useQuery({ queryKey: ["exec", "usage-by-category", range], queryFn: () => exec.usageByCategory(range) });
+}
+
+export function useExecPlatformCoverage() {
+  return useQuery({ queryKey: ["exec", "platform-coverage"], queryFn: exec.platformCoverage });
+}
+
+export function useExecPlatforms() {
+  return useQuery({ queryKey: ["exec", "platforms"], queryFn: exec.platforms });
+}
+
+export function useExecVelocity() {
+  return useQuery({ queryKey: ["exec", "velocity"], queryFn: exec.velocity });
+}
+
+export function useExecTopAgents(limit?: number) {
+  return useQuery({ queryKey: ["exec", "top-agents", limit], queryFn: () => exec.topAgents(limit) });
+}
+
+export function useExecDepartments(range?: string) {
+  return useQuery({ queryKey: ["exec", "departments", range], queryFn: () => exec.departments(range) });
+}
+
+export function useExecDeptTokens(range?: string) {
+  return useQuery({ queryKey: ["exec", "dept-tokens", range], queryFn: () => exec.deptTokens(range) });
+}
+
+export function useExecCostSummary(range?: string) {
+  return useQuery({ queryKey: ["exec", "cost-summary", range], queryFn: () => exec.costSummary(range) });
+}
+
+export function useExecConfig() {
+  return useQuery({ queryKey: ["exec", "config"], queryFn: exec.config });
+}
+
+export function useExecROIProjections() {
+  return useQuery({ queryKey: ["exec", "roi-projections"], queryFn: exec.roiProjections });
+}
+
+export function useExecStrategicInsights() {
+  return useQuery({ queryKey: ["exec", "strategic-insights"], queryFn: exec.strategicInsights });
+}
+
+export function useExecDeveloperBreakdown(limit?: number) {
+  return useQuery({ queryKey: ["exec", "developer-breakdown", limit], queryFn: () => exec.developerBreakdown(limit) });
+}
+
+export function useExecInactivityAlerts() {
+  return useQuery({ queryKey: ["exec", "inactivity-alerts"], queryFn: exec.inactivityAlerts });
+}
+
+export function useExecTimeToValue() {
+  return useQuery({ queryKey: ["exec", "time-to-value"], queryFn: exec.timeToValue });
+}
+
+export function useExecAIInsights() {
+  return useQuery({
+    queryKey: ["exec", "ai-insights"],
+    queryFn: exec.aiInsights,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+export function useGenerateExecAIInsights() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: exec.generateAiInsights,
+    onSuccess: (data) => {
+      qc.setQueryData(["exec", "ai-insights"], data);
+      toast.success("Executive insight report generated");
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Failed to generate executive insight report");
+    },
+  });
+}

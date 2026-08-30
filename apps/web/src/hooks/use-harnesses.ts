@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
+
+import { useQuery } from "@tanstack/react-query";
+import { config } from "@/lib/api";
+
+/**
+ * Fetches the canonical harness list from the server (filtered by allowlist).
+ * Also returns the configured default harness if set.
+ */
+export function useHarnesses() {
+	const query = useQuery({
+		queryKey: ["config", "harnesses"],
+		queryFn: config.harnesses,
+		staleTime: Infinity,
+		gcTime: Infinity,
+	});
+
+	return {
+		...query,
+		data: query.data?.harnesses,
+		defaultHarness: query.data?.default_harness ?? undefined,
+	};
+}
