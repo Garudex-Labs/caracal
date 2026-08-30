@@ -1,0 +1,96 @@
+{
+  "harness": "claude-code",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "103"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "89"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "15"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "2"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "20"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "2"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "system",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "42"
+      },
+      "service_name": "claude-code"
+    }
+  ]
+}

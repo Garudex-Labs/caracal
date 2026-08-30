@@ -1,0 +1,8 @@
+3{"type":"user","message":{"role":"user","content":[{"type":"text","text":"truncated write follows"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_9","name":"Bash"
+not json at all
+42
+"a bare string line"
+[]
+{"type":{"nested":"object"},"message":1.5}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"orphan","content":"no matching call"}]}}
