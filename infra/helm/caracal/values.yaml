@@ -1,0 +1,146 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# =============================================================================
+# Caracal Helm values
+# =============================================================================
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+api:
+  image:
+    repository: ghcr.io/garudex-labs/caracal-server
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    limits:
+      memory: 256Mi
+    requests:
+      memory: 64Mi
+      cpu: 50m
+  # Persistent /data volume: migration artifacts and temp staging.
+  storage:
+    size: 5Gi
+    storageClassName: ""
+
+web:
+  image:
+    repository: ghcr.io/garudex-labs/caracal-web
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    limits:
+      memory: 128Mi
+    requests:
+      memory: 64Mi
+      cpu: 50m
+
+auth:
+  image:
+    repository: ghcr.io/garudex-labs/caracal-auth
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    limits:
+      memory: 256Mi
+    requests:
+      memory: 128Mi
+      cpu: 50m
+
+postgresql:
+  enabled: true
+  externalUrl: ""
+  image:
+    repository: postgres
+    tag: "18"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 1Gi
+    requests:
+      memory: 256Mi
+      cpu: 100m
+  storage:
+    size: 10Gi
+    storageClassName: ""
+
+clickhouse:
+  enabled: true
+  externalUrl: ""
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: "26.3"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 3Gi
+    requests:
+      memory: 512Mi
+      cpu: 250m
+  storage:
+    size: 50Gi
+    storageClassName: ""
+
+redis:
+  enabled: true
+  externalUrl: ""
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 128Mi
+      cpu: 50m
+  maxmemory: "400mb"
+  storage:
+    size: 2Gi
+    storageClassName: ""
+
+ingress:
+  enabled: true
+  className: nginx
+  host: caracal.example.com
+  tls:
+    enabled: false
+    secretName: ""
+    certManager:
+      enabled: false
+      issuerName: letsencrypt-prod
+      issuerKind: ClusterIssuer
+  annotations: {}
+
+secrets:
+  # Use a pre-existing Secret instead of creating one. Secret must contain all
+  # keys: SECRET_KEY, AUTH_INTERNAL_SECRET, BETTER_AUTH_SECRET,
+  # POSTGRES_PASSWORD, CLICKHOUSE_PASSWORD, DATABASE_URL,
+  # CARACAL_POSTGRES_URL, CARACAL_CLICKHOUSE_URL, CARACAL_REDIS_URL
+  existingSecret: ""
+  secretKey: ""
+  authInternalSecret: ""
+  betterAuthSecret: ""
+  postgresPassword: ""
+  clickhousePassword: ""
+
+config:
+  # Identity service endpoint the API validates bearer tokens against.
+  # Defaults to the chart's own auth service when empty.
+  authServiceUrl: ""
+  # Defaults to <authServiceUrl>/api/auth/jwks when empty.
+  jwksUrl: ""
+  # Public origin of the deployment: token issuer, identity base URL, and
+  # trusted browser origin all derive from this single knob.
+  jwtIssuer: "http://localhost"
+  jwtAudience: "caracal-api"
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
