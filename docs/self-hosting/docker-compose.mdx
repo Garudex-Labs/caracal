@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Run from source"
+description: "Docker Compose bring-up for development and evaluation"
+---
+
+Runs the stack from a clone of the repository. This is the development and evaluation path - production single-node installs should use the [packaged installer](/self-hosting/single-node).
+
+## Bring-up
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal
+cp .env.example .env
+docker compose -f infra/docker/docker-compose.yml up --build -d
+```
+
+`.env.example` ships working local defaults - no editing needed for local use. First build takes a few minutes; later starts are fast.
+
+Optional monitoring:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.observability.yml up --build -d                       # + Prometheus (:9090)
+COMPOSE_PROFILES=grafana docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.observability.yml up --build -d  # + Grafana (:8002)
+```
+
+## Verify
+
+```bash
+docker compose -f infra/docker/docker-compose.yml ps    # everything healthy/running
+curl http://localhost/health                       # {"status":"ok"}
+```
+
+The API waits for PostgreSQL, ClickHouse, and Redis health checks - expect 15–30 seconds on first boot.
+
+## First user
+
+A fresh stack has no accounts. Bootstrap the first deployment operator:
+
+```bash
+caracal auth login
+# No users detected - bootstrapping operator account.
+```
+
+The CLI creates the first deployment operator interactively. `/api/v1/auth/bootstrap` only accepts localhost access.
+
+<Note>
+For local development only, the web login page can offer a **Development login** button. The identity service registers that route only when `NODE_ENV` is not `production` **and** `AUTH_DEV_LOGIN=1` - production builds cannot expose it.
+</Note>
+
+## Day-to-day commands
+
+```bash
+make up / make down / make rebuild / make logs        # shortcuts from the repo root
+make up OBS=prometheus / make up OBS=grafana          # with monitoring overlays
+
+docker compose -f infra/docker/docker-compose.yml restart caracal-api        # one service
+docker compose -f infra/docker/docker-compose.yml up --build -d caracal-api  # rebuild one service
+docker compose -f infra/docker/docker-compose.yml logs -f caracal-api        # logs
+
+# Nuke everything including volumes:
+docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.observability.yml --profile grafana down -v
+```
+
+## Port conflicts
+
+Every host port is remappable via env vars:
+
+```bash
+POSTGRES_HOST_PORT=5433 REDIS_HOST_PORT=6380 \
+  docker compose -f infra/docker/docker-compose.yml up --build -d
+```
+
+Defaults: LB `80`, web `8000`, API `8080`, Postgres `5432`, ClickHouse `8123`, Redis `6379`, Prometheus `9090`, Grafana `8002`. See [Environment variables](/reference/environment-variables#docker-host-ports).
