@@ -1,0 +1,54 @@
+---
+title: "Antigravity"
+description: "File paths, hooks, and session telemetry for the Antigravity harness"
+---
+
+Caracal installs Antigravity agents, configures MCP servers, installs skills, and wires session telemetry hooks.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ `.agents/mcp_config.json` / `~/.gemini/antigravity-cli/mcp_config.json` (`mcpServers` key) |
+| Skills | ✓ `.agents/skills/{name}/SKILL.md` / `~/.gemini/antigravity-cli/skills/{name}/SKILL.md` |
+| Hooks | ✓ `.agents/hooks.json` / `~/.gemini/config/hooks.json` |
+| Prompts | – |
+| Scopes | `project`, `user` (default) |
+| Session parser | `antigravity` |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness antigravity                 # user scope (default)
+caracal agent pull <agent> --harness antigravity --scope project
+caracal doctor patch --harness antigravity                       # telemetry hooks
+```
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile (JSON) | `.agents/agents/{name}/agent.json` | `~/.gemini/antigravity-cli/agents/{name}/agent.json` |
+| MCP config | `.agents/mcp_config.json` | `~/.gemini/antigravity-cli/mcp_config.json` |
+| Skills | `.agents/skills/{name}/SKILL.md` | `~/.gemini/antigravity-cli/skills/{name}/SKILL.md` |
+| Hook config | `.agents/hooks.json` | `~/.gemini/config/hooks.json` |
+| Hook scripts | `.agents/hooks/` | - |
+| Guidance files (scan-only) | `AGENTS.md`, `GEMINI.md` | - |
+
+## Event map
+
+| Caracal event | Antigravity event |
+| --- | --- |
+| `SessionStart` | `SessionStart` |
+| `UserPromptSubmit` | `PreInvocation` |
+| `PreToolUse` | `PreToolUse` |
+| `PostToolUse` | `PostToolUse` |
+| `Stop` | `Stop` |
+
+## Session telemetry
+
+Antigravity sessions are discovered by the `antigravity` adapter and delivered through the shared Python exporter: durable outbox at `~/.caracal/telemetry_buffer.db`, contiguous acknowledgement, checkpoint recovery, and finalization audit.
+
+```bash
+caracal reconcile --harness antigravity
+```

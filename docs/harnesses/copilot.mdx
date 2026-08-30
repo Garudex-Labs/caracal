@@ -1,0 +1,66 @@
+---
+title: "Copilot and Copilot CLI"
+description: "File paths, hooks, prompts, and session telemetry for GitHub Copilot (VS Code) and Copilot CLI"
+---
+
+Copilot (VS Code) and Copilot CLI are registered as separate harnesses - `copilot` and `copilot-cli` - with nearly identical layouts. They are the only harnesses that support all four capabilities, including prompts, and they share one session parser.
+
+## Capabilities
+
+| Capability | Copilot | Copilot CLI |
+| --- | --- | --- |
+| MCP servers | ✓ `.vscode/mcp.json` (`servers` key) | ✓ `~/.copilot/mcp-config.json` (`mcpServers` key) |
+| Skills | ✓ `.github/skills/{name}/SKILL.md` | ✓ `.agents/skills/{name}/SKILL.md` |
+| Hooks | ✓ `.github/hooks/{name}.json` | ✓ `.github/hooks/{name}.json` |
+| Prompts | ✓ | ✓ |
+| Scopes | `project` only | `project` only |
+| Session parser | `copilot-cli` (shared) | `copilot-cli` |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness copilot        # VS Code Copilot
+caracal agent pull <agent> --harness copilot-cli    # Copilot CLI
+caracal doctor patch --harness copilot --harness copilot-cli
+```
+
+## Config paths
+
+| Purpose | Copilot | Copilot CLI |
+| --- | --- | --- |
+| Agent profile (Markdown) | `.github/agents/{name}.agent.md` | `.github/agents/{name}.agent.md` |
+| MCP config | `.vscode/mcp.json` | `~/.copilot/mcp-config.json` |
+| Skills (project) | `.github/skills/{name}/SKILL.md` | `.agents/skills/{name}/SKILL.md` |
+| Skills (user) | `~/.copilot/skills/{name}/SKILL.md` | `~/.copilot/skills/{name}/SKILL.md` |
+| Hook config | `.github/hooks/{name}.json` | `.github/hooks/{name}.json` |
+| Hook scripts | `.github/hooks/scripts/` | `.github/hooks/scripts/` |
+| Guidance files (scan-only) | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `AGENTS.md` | same, plus `~/.copilot/copilot-instructions.md` |
+
+## Event map
+
+| Caracal event | Copilot | Copilot CLI |
+| --- | --- | --- |
+| `SessionStart` | `SessionStart` | `sessionStart` |
+| `UserPromptSubmit` | `UserPromptSubmit` | `userPromptSubmitted` |
+| `PreToolUse` | `PreToolUse` | `preToolUse` |
+| `PostToolUse` | `PostToolUse` | `postToolUse` |
+| `Stop` | `Stop` | `sessionEnd` |
+
+## Session telemetry
+
+Both harnesses parse with the shared `copilot-cli` parser but keep separate source adapters:
+
+- **Copilot (VS Code)**: hook events are durably materialized as JSONL-compatible source records.
+- **Copilot CLI**: the adapter discovers the CLI's native `events.jsonl` session files.
+
+Both route through the shared spool-first delivery engine - durable outbox before network, stable source indexes on retry, cursor advance only on contiguous acknowledgement, checkpoint recovery, and final hash audit with rewind/replay.
+
+```bash
+caracal reconcile --harness copilot
+caracal reconcile --harness copilot-cli
+```
+
+## Notes
+
+- Both harnesses are project-scope only for agent installs; there is no `--scope user`.
+- Configuration is split across directories in VS Code Copilot: MCP under `.vscode/`, hooks and skills under `.github/`.

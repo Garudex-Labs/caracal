@@ -1,0 +1,54 @@
+---
+title: "Codex CLI"
+description: "File paths, TOML config, hooks, and session telemetry for the Codex CLI harness"
+---
+
+Caracal installs Codex CLI agents, merges MCP servers into Codex's TOML config, installs skills, and collects session telemetry.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ `.codex/config.toml` / `~/.codex/config.toml` (`mcp_servers` tables) |
+| Skills | ✓ `.agents/skills/{name}/SKILL.md` / `~/.agents/skills/{name}/SKILL.md` |
+| Hooks | ✓ `.codex/hooks.json` / `~/.codex/hooks.json` |
+| Prompts | – |
+| Scopes | `project` (default), `user` |
+| Session parser | `codex` |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness codex               # project scope: .codex/agents/{name}.toml
+caracal agent pull <agent> --harness codex --scope user  # ~/.codex/agents/{name}.toml
+caracal doctor patch --harness codex                     # telemetry hooks
+```
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile (TOML) | `.codex/agents/{name}.toml` | `~/.codex/agents/{name}.toml` |
+| MCP config | `.codex/config.toml` | `~/.codex/config.toml` |
+| Skills | `.agents/skills/{name}/SKILL.md` | `~/.agents/skills/{name}/SKILL.md` |
+| Hook config | `.codex/hooks.json` | `~/.codex/hooks.json` |
+| Hook scripts | `.codex/hooks/` | - |
+| Guidance files (scan-only) | `AGENTS.md`, `AGENTS.override.md` | `~/.codex/AGENTS.md` |
+
+## Event map
+
+Codex uses the canonical event names for its supported subset:
+
+`SessionStart` · `UserPromptSubmit` · `PreToolUse` · `PostToolUse` · `Stop`
+
+## TOML merge behavior
+
+Because Codex configuration is TOML, pulls replace Caracal-managed tables idempotently while leaving unrelated tables untouched. Malformed existing TOML is never overwritten - the pull exits with conflict code 6 instead.
+
+## Session telemetry
+
+Codex sessions are discovered by the `codex` adapter and delivered through the shared exporter: durable outbox (`~/.caracal/telemetry_buffer.db`), contiguous acknowledgement, checkpoint recovery, and final hash audit.
+
+```bash
+caracal reconcile --harness codex
+```

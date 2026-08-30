@@ -1,0 +1,65 @@
+---
+title: "Claude Code"
+description: "File paths, hooks, skills, and session telemetry for the Claude Code harness"
+---
+
+Caracal installs agent profiles, skills, and hooks for Claude Code, and collects its session telemetry - including subagent sessions.
+
+## Capabilities
+
+| Capability | Support |
+| --- | --- |
+| MCP servers | ✓ (registered via Claude Code's own MCP mechanism during pull setup) |
+| Skills | ✓ `.claude/skills/{name}/SKILL.md` |
+| Hooks | ✓ command hooks in `settings.json`, full event vocabulary |
+| Prompts | – |
+| Scopes | `project` (default), `user` |
+| Session parser | `claude-code`, with subagent support |
+
+## Setup
+
+```bash
+caracal agent pull <agent> --harness claude-code            # project scope (default)
+caracal agent pull <agent> --harness claude-code --scope user
+caracal doctor patch --harness claude-code                  # telemetry hooks only
+```
+
+Claude Code–specific pull options:
+
+```bash
+--model claude-sonnet-4        # sub-agent model
+--tools Read,Write,Bash        # tool allowlist for the generated sub-agent
+```
+
+## Config paths
+
+| Purpose | Project scope | User scope |
+| --- | --- | --- |
+| Agent profile | `.claude/agents/{name}.md` | `~/.claude/agents/{name}.md` |
+| Skills | `.claude/skills/{name}/SKILL.md` | `~/.claude/skills/{name}/SKILL.md` |
+| Hook config | `.claude/settings.json` | `~/.claude/settings.json` |
+| Hook scripts | `.claude/hooks/` | - |
+| Guidance files (scan-only) | `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` | `~/.claude/CLAUDE.md` |
+
+Agent profiles are Markdown with YAML frontmatter.
+
+## Events
+
+Claude Code uses the canonical event names directly and is the only harness with `SubagentStop` and `Notification`:
+
+`SessionStart` · `UserPromptSubmit` · `PreToolUse` · `PostToolUse` · `Stop` · `SubagentStop` · `Notification`
+
+Caracal-managed hook entries carry the `_caracal` metadata marker, so repeated `doctor patch` / `pull` runs update only Caracal's entries and preserve yours.
+
+## Session telemetry
+
+Hooks wake the shared Python exporter, which reads Claude Code's JSONL transcripts past the acknowledged checkpoint, spools to `~/.caracal/telemetry_buffer.db`, and delivers with contiguous acknowledgement. Subagent session records include a parent session ID, so delegated work is linked to its parent trace.
+
+```bash
+caracal reconcile --harness claude-code    # backfill
+```
+
+## Notes
+
+- Pull runs Claude Code's required MCP registration commands rather than editing an MCP config file directly.
+- Scope matters for teams: project-scoped agents (`.claude/agents/`) ship with the repo; user scope is personal.
