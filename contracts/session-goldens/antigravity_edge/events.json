@@ -1,0 +1,45 @@
+{
+  "harness": "antigravity",
+  "events": [
+    {
+      "timestamp": "2026-02-02 16:00:00",
+      "event_name": "hook_userpromptsubmit",
+      "body": "fix it",
+      "attributes": {
+        "tool_input": "fix it"
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-02-02 16:00:01",
+      "event_name": "hook_posttooluse",
+      "body": "list_dir",
+      "attributes": {
+        "tool_name": "list_dir",
+        "tool_input": "{\"path\": \".\"}",
+        "tool_response": "perm denied",
+        "tool_status": "error"
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-02-02 16:00:03",
+      "event_name": "hook_assistant_response",
+      "body": "cannot list",
+      "attributes": {
+        "tool_response": "cannot list"
+      },
+      "service_name": "antigravity"
+    },
+    {
+      "timestamp": "2026-02-02 16:00:04",
+      "event_name": "hook_posttooluse",
+      "body": "GREP_SEARCH",
+      "attributes": {
+        "tool_name": "GREP_SEARCH",
+        "tool_response": "orphan result"
+      },
+      "service_name": "antigravity"
+    }
+  ]
+}
