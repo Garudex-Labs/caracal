@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# ── Go build outputs (binaries built at the repo root) ──
+/caracal
+/caracal-server
+# tools/* helpers (normally `go run ./tools/<name>`; `go build` drops them here)
+/checklicenses
+/checkopentofu
+/checkvulns
+/gennotices
+/genvex
+/refreshlitellm
+/refreshmodels
+/release
+/spdxcopyright
+coverage.out
+# Cross-compiled binaries (e.g. GOOS=windows) carry an extension.
+*.exe
+
+# ── Node / TypeScript ────────────────────────────────────
+node_modules/
+*.tsbuildinfo
+/apps/web/dist/
+/apps/auth/dist/
+web/.tanstack/
+
+# ── Test artifacts ───────────────────────────────────────
+test-results/
+playwright-report/
+
+# ── Environment / secrets ────────────────────────────────
+.env
+*.pem
+
+# ── IDE / editor ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# ── OS ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── AI agent / coding tool configs ───────────────────────
+.claude/
+CLAUDE.md
+.kiro/
+.cursor/
+.cursorignore
+.cursorindexingignore
+.gemini/
+GEMINI.md
+.opencode/
+.github/copilot-instructions.md
+.github/hooks/
+.copilot/
+.worktrees/
+.caracal/
+.pi/
+.pi-lens/
+.mcp.json
+.playwright-mcp/
+.playwright-cli/
+
+# ── OpenTofu ─────────────────────────────────────────────
+**/.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.backup
+
+# ── Private packages (symlinked for local Docker builds) ─
+caracal-insights/

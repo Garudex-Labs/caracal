@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - errorlint
+    - gocritic
+    - revive
+  settings:
+    errcheck:
+      exclude-functions:
+        # Cleanup-path removals: the original error already propagates.
+        - os.Remove
+        - os.RemoveAll
+        # bufio errors are sticky and surface at the checked Flush.
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+    staticcheck:
+      # ST1005 is off: user-facing API and CLI messages are deliberately
+      # complete sentences; that text is part of the wire contract.
+      checks: ["all", "-ST1005"]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
