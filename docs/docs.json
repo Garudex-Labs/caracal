@@ -1,0 +1,162 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Caracal",
+  "description": "Agent registry and observability platform for AI coding agents",
+  "colors": {
+    "primary": "#2563EB",
+    "light": "#60A5FA",
+    "dark": "#1D4ED8"
+  },
+  "logo": {
+    "light": "/logo-light.svg",
+    "dark": "/logo.svg"
+  },
+  "favicon": "/logo.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "index",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/agents",
+              "concepts/registry",
+              "concepts/harnesses",
+              "concepts/telemetry"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/instrument",
+              "guides/install-agents",
+              "guides/build-agents",
+              "guides/publish-components",
+              "guides/inspect-sessions",
+              "guides/debug-failures",
+              "guides/backfill-sessions"
+            ]
+          },
+          {
+            "group": "Harnesses",
+            "pages": [
+              "harnesses/index",
+              "harnesses/claude-code",
+              "harnesses/kiro",
+              "harnesses/cursor",
+              "harnesses/copilot",
+              "harnesses/codex",
+              "harnesses/opencode",
+              "harnesses/goose",
+              "harnesses/antigravity",
+              "harnesses/pi"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "security/model",
+              "security/release-verification"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/index",
+              "cli/auth",
+              "cli/config",
+              "cli/sync",
+              "cli/scan",
+              "cli/reconcile",
+              "cli/agent",
+              "cli/registry",
+              "cli/ops",
+              "cli/doctor",
+              "cli/self",
+              "cli/api"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API & Reference",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api/index",
+              "api/endpoints",
+              "api/session-ingest"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/environment-variables",
+              "reference/config-files",
+              "reference/hooks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Self-Hosting",
+        "groups": [
+          {
+            "group": "Deploy",
+            "pages": [
+              "self-hosting/index",
+              "self-hosting/requirements",
+              "self-hosting/single-node",
+              "self-hosting/docker-compose",
+              "self-hosting/production",
+              "self-hosting/aws",
+              "self-hosting/gcp",
+              "self-hosting/azure",
+              "self-hosting/kubernetes"
+            ]
+          },
+          {
+            "group": "Configure",
+            "pages": [
+              "self-hosting/configuration",
+              "self-hosting/authentication",
+              "self-hosting/sso",
+              "self-hosting/scim",
+              "self-hosting/databases"
+            ]
+          },
+          {
+            "group": "Operate",
+            "pages": [
+              "self-hosting/backup-restore",
+              "self-hosting/upgrades",
+              "self-hosting/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Garudex-Labs/caracal"
+    }
+  }
+}
