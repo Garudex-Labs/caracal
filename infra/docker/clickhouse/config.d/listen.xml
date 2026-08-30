@@ -1,0 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<clickhouse>
+    <listen_host>0.0.0.0</listen_host>
+</clickhouse>
