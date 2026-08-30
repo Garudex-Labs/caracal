@@ -1,0 +1,49 @@
+---
+title: "Requirements"
+description: "Hardware, software, network, and TLS requirements for the Caracal stack"
+---
+
+## Hardware
+
+| Profile | CPU | Memory | Disk | For |
+| --- | --- | --- | --- | --- |
+| Developer | 2 vCPU | 4 GB | 20 GB | One engineer, local machine |
+| Small team (≤ 10) | 2 vCPU | 6 GB | 50 GB | Moderate telemetry |
+| Team (10–50) | 4 vCPU | 12 GB | 200 GB + fast SSD | Typical production |
+| Large team (50+) | 8+ vCPU | 32 GB | 500 GB + fast SSD | High volume; consider externalizing ClickHouse |
+
+Default Docker memory limits: API 512 MB, worker 512 MB, web 256 MB, **ClickHouse 1 GB**, Redis 256 MB, Grafana 512 MB. ClickHouse is the memory-hungry service - raise it to 2–4 GB in `infra/docker/docker-compose.yml` for a long-running team server.
+
+**Disk** growth is dominated by ClickHouse and depends on session count, transcript record size, and `DATA_RETENTION_DAYS`. Transcript sizes vary widely per harness; measure a representative workload and plan 2–3× headroom. PostgreSQL stays under ~500 MB for most deployments (registry metadata and accounts only).
+
+## Software
+
+| Software | Version | Notes |
+| --- | --- | --- |
+| Docker | ≥ 24.0 | Compose v2 (`docker compose`, not `docker-compose`) |
+| Host OS | Any modern Linux/macOS | Windows via WSL2 works |
+
+<Note>
+Homebrew's Docker formula is outdated and may ship an old Compose. Use Docker Desktop or your distro's upstream packages; verify with `docker version` and `docker compose version`.
+</Note>
+
+Developer machines need only the CLI: the standalone binary has no dependencies; the Python package needs Python 3.11+.
+
+## Network
+
+- **Outbound HTTPS**: image downloads plus any enabled integrations (OAuth, webhooks, external git repos, insight model providers).
+- **Inbound**: the server package routes UI, API, and telemetry through nginx on port `8080`.
+- **Host bindings**: new server-package installs bind every published port to `127.0.0.1`. Set `CARACAL_BIND_ADDRESS` to a non-loopback address only as a deliberate exposure decision.
+- **Secret access**: server-package setup records the operator's group as `CARACAL_SECRET_GID`; only that group is granted to containers that read their service-specific secret files.
+
+## TLS
+
+Loopback access can use HTTP. Every remote deployment must terminate TLS 1.2+ in front of the loopback nginx listener - Caddy, nginx, an enterprise LB, or a cloud ingress:
+
+```caddyfile
+caracal.your-company.internal {
+  reverse_proxy localhost:8080
+}
+```
+
+Trust boundaries and residual network risks: [Security model](/security/model).

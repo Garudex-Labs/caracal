@@ -1,0 +1,114 @@
+---
+title: "Production deployment with OpenTofu"
+description: "Highly available AWS or GCP deployments: architecture, day-2 operations, and costs"
+---
+
+Caracal ships OpenTofu modules for AWS, GCP, and Azure that provision equivalent, highly available architectures from managed services. Use them for SLA-bound deployments and teams over ~50 users. End state: autoscaling compute, managed databases with failover, encrypted secrets, centralized logging, automated backups, HTTPS on your domain - one `tofu apply`.
+
+## Architectures
+
+| Component | AWS | GCP | Azure |
+| --- | --- | --- | --- |
+| Stateless compute (api, web, worker) | ECS Fargate | Cloud Run v2 | Container Apps (VNet-integrated) |
+| Migrations | ECS init task | Cloud Run Job | Container Apps job |
+| PostgreSQL | RDS Postgres 16, Multi-AZ | Cloud SQL (HA available) | Flexible Server (zone-redundant in prod) |
+| Redis | ElastiCache 2-node with failover | Memorystore | Azure Cache for Redis (TLS-only) |
+| ClickHouse | EC2 + EBS gp3 (or ClickHouse Cloud) | GCE + Persistent Disk (or ClickHouse Cloud) | VM + Premium SSD (or ClickHouse Cloud) |
+| Load balancer | ALB with ACM certificates | Global HTTPS LB with managed SSL | Container Apps ingress |
+| Secrets | SSM Parameter Store (KMS) | Secret Manager | Key Vault (generated credentials) |
+| Logging | CloudWatch | Cloud Logging | Log Analytics |
+| Backups | S3 + RDS snapshots with lifecycle | Versioned GCS bucket | Flexible Server backups |
+| Shell access to data host | SSH | IAP tunnel (no public SSH) | SSH (module-generated key) |
+
+Full walkthroughs: [AWS](/self-hosting/aws) · [GCP](/self-hosting/gcp) · [Azure](/self-hosting/azure).
+
+## Quick starts
+
+<Tabs>
+<Tab title="AWS">
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal/infra/opentofu/aws
+cp terraform.tfvars.example terraform.tfvars
+# edit: region, environment, domain_name (optional), alb_ingress_cidrs
+
+tofu init
+tofu plan -out tf.plan
+tofu apply tf.plan
+
+tofu output app_url
+curl -fsS "$(tofu output -raw app_url)/readyz"
+```
+
+Apply takes 20–30 minutes (RDS Multi-AZ dominates). Baseline: **~$255/mo** in us-east-1; `environment = "staging"` roughly halves it (single-AZ RDS, one Redis node, no deletion protection).
+
+</Tab>
+<Tab title="GCP">
+
+```bash
+cd caracal/infra/opentofu/gcp
+gcloud services enable \
+  run.googleapis.com sqladmin.googleapis.com redis.googleapis.com \
+  compute.googleapis.com secretmanager.googleapis.com \
+  dns.googleapis.com vpcaccess.googleapis.com servicenetworking.googleapis.com
+
+cp terraform.tfvars.example terraform.tfvars
+# edit: project_id, region, domain_name (optional)
+
+tofu init
+tofu plan -out tf.plan
+tofu apply tf.plan
+
+gcloud run jobs execute caracal-prod-init --region=us-central1   # run migrations
+tofu output app_url
+```
+
+Baseline: **~$180/mo** in us-central1.
+
+</Tab>
+</Tabs>
+
+## Day-2 operations
+
+**Upgrade** - bump the image and apply; the init task re-runs migrations, compute rolls with zero downtime:
+
+```hcl
+# terraform.tfvars
+image_tag = "v1.5.0"
+```
+
+**Roll back** - set `image_tag` to the previous version and apply. Data is unaffected; if the failed version ran a destructive migration (called out in the CHANGELOG), restore the pre-upgrade database backup.
+
+**Scale** - adjust and apply:
+
+```hcl
+api_desired_count  = 4
+api_autoscale_max  = 20
+db_instance_class  = "db.m6g.large"       # AWS  |  postgres_tier = "db-custom-4-16384" (GCP)
+data_instance_type = "m6i.xlarge"         # AWS  |  data_machine_type = "e2-standard-4" (GCP)
+```
+
+**ClickHouse Cloud** - the self-hosted ClickHouse is a single instance; for real HA:
+
+```hcl
+clickhouse_mode           = "cloud"
+clickhouse_cloud_url      = "https://abc123.us-east-1.aws.clickhouse.cloud:8443"
+clickhouse_cloud_password = "..."
+```
+
+The data host is skipped entirely; you then host Grafana yourself.
+
+**Tear down** - `tofu destroy`. Production databases carry deletion protection; disable it manually first if you mean it.
+
+## Hardening checklist
+
+- Remote OpenTofu state (S3 + DynamoDB / GCS)
+- Restrict LB ingress to known CIDRs; attach a WAF
+- Cloud security services (GuardDuty + Config / Security Command Center)
+- Alerts on database CPU/memory and 5xx rates
+- Redis transit encryption
+- [SSO](/self-hosting/sso) configured
+- ClickHouse Cloud for HA
+- Test [backup and restore](/self-hosting/backup-restore) end to end
+- Replace the GitHub tarball pull in the data-host bootstrap with an artifact you control
