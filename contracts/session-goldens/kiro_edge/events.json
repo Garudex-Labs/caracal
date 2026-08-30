@@ -1,0 +1,27 @@
+{
+  "harness": "kiro",
+  "events": [
+    {
+      "timestamp": "2025-05-31 17:44:04.000",
+      "event_name": "hook_userpromptsubmit",
+      "body": "kiro prompt\nline2",
+      "attributes": {
+        "tool_input": "kiro prompt\nline2"
+      },
+      "service_name": "kiro"
+    },
+    {
+      "timestamp": "2025-05-31 17:44:04.000",
+      "event_name": "hook_posttooluse",
+      "body": "fs_read",
+      "attributes": {
+        "tool_name": "fs_read",
+        "tool_input": "{\"path\": \"/x\", \"n\": 3}",
+        "tool_use_id": "k1",
+        "tool_response": "[error] denied\nextra",
+        "tool_status": "error"
+      },
+      "service_name": "kiro"
+    }
+  ]
+}
