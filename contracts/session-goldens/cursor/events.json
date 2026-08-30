@@ -1,0 +1,55 @@
+{
+  "harness": "cursor",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "141"
+      },
+      "service_name": "cursor"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "hook_assistant_response",
+      "body": "Renaming.",
+      "attributes": {
+        "tool_response": "Renaming.",
+        "input_tokens": "90",
+        "output_tokens": "12",
+        "model": "gpt-4.1"
+      },
+      "service_name": "cursor"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "hook_posttooluse",
+      "body": "edit_file",
+      "attributes": {
+        "tool_name": "edit_file",
+        "tool_input": "{\"path\": \"src/main.py\"}",
+        "tool_use_id": "call_1",
+        "tool_response": "done"
+      },
+      "service_name": "cursor"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "system",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "41"
+      },
+      "service_name": "cursor"
+    }
+  ]
+}
