@@ -1,0 +1,71 @@
+{
+  "harness": "goose",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "170"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01",
+      "event_name": "hook_userpromptsubmit",
+      "body": "read the changelog",
+      "attributes": {
+        "tool_input": "read the changelog"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02",
+      "event_name": "hook_assistant_thinking",
+      "body": "find the file",
+      "attributes": {
+        "tool_response": "find the file"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02",
+      "event_name": "hook_posttooluse",
+      "body": "read_file",
+      "attributes": {
+        "tool_name": "read_file",
+        "tool_input": "{\"path\": \"CHANGELOG.md\"}",
+        "tool_use_id": "tool-1",
+        "tool_response": "# Changelog"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02",
+      "event_name": "hook_token_usage",
+      "body": "",
+      "attributes": {
+        "input_tokens": "12",
+        "output_tokens": "4",
+        "model": "claude-sonnet-4"
+      },
+      "service_name": "goose"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:04",
+      "event_name": "hook_stop",
+      "body": "",
+      "attributes": {
+        "input_tokens": "12",
+        "output_tokens": "4",
+        "total_tokens": "16",
+        "cost": "0.01"
+      },
+      "service_name": "goose"
+    }
+  ]
+}
