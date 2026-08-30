@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: Quick Harness Request
+description: Request support for an AI harness
+title: "Add harness support: "
+labels: ["enhancement", "harness-support"]
+
+body:
+  - type: input
+    id: harness_name
+    attributes:
+      label: Harness name
+      placeholder: GitHub Copilot
+    validations:
+      required: true
+
+  - type: input
+    id: official_docs
+    attributes:
+      label: Official documentation
+      placeholder: https://docs.github.com/en/copilot
+    validations:
+      required: true
+
+  - type: input
+    id: official_source
+    attributes:
+      label: Official site or source repository
+      description: Link to the official website or source repository.
+      placeholder: https://github.com/features/copilot
+    validations:
+      required: true

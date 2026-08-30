@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: Feature Request
+description: Suggest an improvement or new capability
+title: "[FEATURE] "
+labels: ["Needs Triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For early ideas or feedback, consider starting a discussion in
+        [GitHub Discussions](https://github.com/Garudex-Labs/caracal/discussions).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem would this feature solve? Describe the use case or limitation.
+      placeholder: |
+        What are you trying to do?
+        What is difficult or missing today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behaviour or capability you would like to see.
+      placeholder: |
+        I would like Caracal to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds, existing features, or other approaches have you considered?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, use cases, screenshots, links, or other relevant details.
