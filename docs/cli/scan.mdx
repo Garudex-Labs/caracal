@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "caracal scan"
+description: "Read-only discovery of MCP servers, skills, hooks, and agents across harnesses"
+---
+
+Discovers what's installed across your harness configs. `scan` is **read-only**: no files are written, no servers are contacted, nothing is registered.
+
+## Synopsis
+
+```bash
+caracal scan                       # auto-detect and scan every installed harness
+caracal scan --harness claude-code # scope to one harness
+```
+
+Valid harnesses: `claude-code`, `kiro`, `cursor`, `copilot`, `copilot-cli`, `codex`, `opencode`, `goose`, `antigravity`, `pi`.
+
+## What it reports
+
+For each detected harness:
+
+- MCP servers with their **direct** commands or URLs, exactly as configured
+- Installed skills and agents
+- Installed session telemetry hooks (Caracal-managed and otherwise)
+
+```
+Claude Code (~/.claude/settings.json)
+  filesystem        npx @modelcontextprotocol/server-filesystem   not wrapped
+  github            npx @modelcontextprotocol/server-github       not wrapped
+
+Kiro (.kiro/settings/mcp.json)
+  mcp-obsidian      mcp-obsidian                                  not wrapped
+
+2 harness(s) found, 3 MCP server(s) total, 0 wrapped.
+```
+
+Each harness page lists the exact config locations scanned - see [Harnesses](/harnesses).
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | At least one harness config found |
+| 1 | Server unreachable / auth failed |
+| 3 | No harness configs found |
+
+## What to run next
+
+```bash
+caracal doctor patch --all-harnesses    # instrument what scan found
+caracal sync --dry-run                  # compare installed pins with the registry
+```

@@ -1,0 +1,74 @@
+---
+title: "caracal self"
+description: "Upgrade, downgrade, roll back, and inspect the installed CLI"
+---
+
+Inspects or changes the installed CLI version. JSON `upgrade`, `downgrade`, and `rollback` require `--force` and never prompt.
+
+| Command | Purpose |
+| --- | --- |
+| `status` | Current version, install method, update availability |
+| `upgrade` | Install the latest or a specified newer release |
+| `downgrade` | List releases or install an older release |
+| `rollback` | Restore the binary saved before the last version change |
+
+## status
+
+```bash
+caracal self status --output json
+```
+
+```json
+{
+  "current_version": "2.4.0",
+  "install_method": "uv_tool",
+  "path": "/home/user/.local/bin/caracal",
+  "writable": true,
+  "managed_by": "uv",
+  "github_available": true,
+  "latest_version": "2.5.0",
+  "update_available": true
+}
+```
+
+An unreachable GitHub is still a successful local status (`github_available: false`, null latest/update fields).
+
+## upgrade
+
+```bash
+caracal self upgrade                              # latest stable
+caracal self upgrade --version 2.5.0 --force --output json
+caracal self upgrade --pre                        # include prereleases
+```
+
+Already at the target → status `up_to_date`, nothing installed. Targets older than the current version are rejected (use `downgrade`). Homebrew and system-package installs must upgrade through their package manager.
+
+## downgrade
+
+```bash
+caracal self downgrade --list --output json       # available releases
+caracal self downgrade --version 2.4.0 --force
+```
+
+`--list` and `--version` are mutually exclusive. The target must be older than current and at least the version floor. Releases before 1.10.4 get their legacy auto-update setting disabled (`automatic_updates_disabled` in the result).
+
+## rollback
+
+```bash
+caracal self rollback --force --output json
+```
+
+Standalone-binary installs only, using `~/.caracal/bin/caracal.prev`. Takes the same version-change lock as upgrade/downgrade and replaces the binary atomically. Package-managed installs roll back via their package manager.
+
+## Installation safety
+
+Version changes: acquire a process lock (no overlapping changes) → use the detected install method → verify standalone downloads against the published SHA-256 checksum → replace atomically, retaining the previous binary → execute the result and verify it reports the requested version. JSON mode refuses standalone installs when a release has no published checksum; human mode may explicitly confirm one.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 5 | Rollback backup not found |
+| 6 | Package-managed install, or another version change holds the lock |
+| 7 | Invalid version, direction, conflicting mode, or missing `--force` in JSON mode |
+| 9 | GitHub, download, installer, checksum, verification, or filesystem failure |

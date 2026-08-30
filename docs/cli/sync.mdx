@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "caracal use / sync / pull"
+description: "Select the organization/project context, synchronize local installs, and pull agents or components"
+---
+
+The client workflow is: authenticate once, choose a context, then keep the
+machine synchronized. Organization and project management (create, members,
+roles) lives in the web UI.
+
+## use
+
+```bash
+caracal use                      # show the persisted context (no network)
+caracal use --list               # organizations and accessible projects
+caracal use acme                 # select an organization
+caracal use acme/payments        # select an organization and project
+```
+
+Selection validates access against the server before persisting
+`default_org`/`default_project`; a denied or unknown target changes
+nothing locally. Switching organizations clears a project selected in
+another one — the JSON result carries `default_project_cleared`.
+
+## sync
+
+```bash
+caracal sync --dry-run --output json    # plan only
+caracal sync                            # apply pending updates
+caracal sync --harness kiro --report    # one harness; file findings to the web inbox
+```
+
+Sync verifies the stored context against the server (a revoked selection
+fails with a remediation pointing back at `caracal use`), compares every
+lockfile entry against the registry, and applies updates through the same
+pull/install paths used manually. The JSON result reports `planned`,
+`applied`, and `failed` per item; failed items are retried on the next run.
+
+## pull
+
+```bash
+caracal pull richard/reviewer --harness kiro --no-prompt   # agent (detected)
+caracal pull acme/github-mcp --type mcp --harness kiro   # explicit type
+```
+
+Top-level `pull` resolves the target across agents and component families
+(`agent`, `mcp`, `skill`, `hook`, `prompt`) and dispatches to the same
+implementation as `caracal agent pull` or `caracal registry <type> install`.
+Pass `--type` to skip detection. Agents pull their whole dependency tree;
+a single component installs alone.
+
+## Exit codes
+
+Standard [CLI exit codes](/cli#exit-codes).
