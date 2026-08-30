@@ -1,0 +1,83 @@
+{
+  "harness": "claude-code",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "148"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_assistant_thinking",
+      "body": "look at the router first",
+      "attributes": {
+        "tool_response": "look at the router first"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_assistant_response",
+      "body": "Reading the router.",
+      "attributes": {
+        "tool_response": "Reading the router.",
+        "input_tokens": "1200",
+        "output_tokens": "64",
+        "cache_read_tokens": "800",
+        "model": "claude-sonnet-4",
+        "stop_reason": "tool_use"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_posttooluse",
+      "body": "Read",
+      "attributes": {
+        "tool_name": "Read",
+        "tool_input": "{\"file_path\": \"api/routes/health.py\"}",
+        "tool_use_id": "toolu_01",
+        "tool_response": "router = APIRouter()"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:03.000",
+      "event_name": "hook_sessionstart",
+      "body": "SessionStart hook completed",
+      "attributes": {},
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:04.000",
+      "event_name": "attachment",
+      "body": "api/routes/health.py",
+      "attributes": {
+        "attachment_type": "file",
+        "attachment_name": "api/routes/health.py"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:04.000",
+      "event_name": "meta",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "51"
+      },
+      "service_name": "claude-code"
+    }
+  ]
+}
