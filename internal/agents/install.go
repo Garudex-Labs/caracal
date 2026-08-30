@@ -1,0 +1,235 @@
+// SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
+package agents
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/garudex-labs/caracal/internal/harnessgen"
+	"github.com/garudex-labs/caracal/internal/registry"
+)
+
+// errInstallStatus carries a non-404/500 install failure.
+type errInstall struct {
+	status int
+	detail string
+}
+
+func (e *errInstall) Error() string { return e.detail }
+
+// familyInstallColumns lists what the generator needs per family, all
+// latest-version delegates unless a pinned version overlays them.
+func familyInstallColumns(name string) string {
+	base := `l.id::text AS id, l.name, l.slug, l.namespace, v.status, v.description`
+	switch name {
+	case "mcp":
+		return base + `, v.transport, v.url, v.command, v.args, v.framework, v.docker_image,
+			v.environment_variables, v.auto_approve, v.setup_instructions, v.headers`
+	case "skill":
+		return base + `, v.slash_command, v.task_type, v.git_url, v.git_ref, v.skill_path,
+			v.skill_md_content, v.script_content, v.script_filename`
+	case "hook":
+		return base + `, v.event, v.handler_type, v.handler_config, v.script_filename, v.script_content`
+	case "prompt":
+		return base + `, v.template`
+	default: // sandbox
+		return base + `, v.version, v.runtime_type, v.image, v.resource_limits, v.network_policy,
+			v.entrypoint, v.runtime_config, v.sandbox_path`
+	}
+}
+
+// installListings loads one family's listings for the install, enforcing
+// caller visibility and the agent audience's publish scope.
+func (s *Store) installListings(ctx context.Context, familyName string, ids []string, viewer *registry.Viewer, targetProjectID string) (map[string]harnessgen.Listing, error) {
+	if len(ids) == 0 {
+		return map[string]harnessgen.Listing{}, nil
+	}
+	f := registry.Families[familyName+"s"]
+	args := []any{}
+	visibility := registry.ScopeSQL("l", "l.submitted_by", viewer, &args)
+	scope := "l.is_private = FALSE"
+	if targetProjectID != "" {
+		args = append(args, targetProjectID)
+		scope = fmt.Sprintf("(l.is_private = FALSE OR (l.is_private = TRUE AND l.project_id = $%d))", len(args))
+	}
+	args = append(args, ids)
+	sql := fmt.Sprintf(`SELECT %s FROM %s l LEFT JOIN %s v ON l.latest_version_id = v.id
+		WHERE %s AND %s AND l.id = ANY($%d)`,
+		familyInstallColumns(familyName), f.ListingTable, f.VersionTable, visibility, scope, len(args))
+	rows, err := s.DB.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	collected := registry.CollectRows(rows)
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := map[string]harnessgen.Listing{}
+	for _, row := range collected {
+		out[rowStr(row, "id", "")] = harnessgen.Listing(row)
+	}
+	return out, nil
+}
+
+// InstallInputs assembles everything a generation run needs for one agent
+// and version: the effective version row, its components, and the loaded
+// listings with sandbox version pinning applied.
+type InstallInputs struct {
+	VersionRow map[string]any
+	Links      []map[string]any
+	Families   map[string]map[string]harnessgen.Listing
+	NameMap    map[string]string
+}
+
+func (s *Store) InstallInputs(ctx context.Context, agentRow map[string]any, viewer *registry.Viewer, requestedVersion string) (*InstallInputs, error) {
+	agentID := rowStr(agentRow, "id", "")
+	var versionRow map[string]any
+	if requestedVersion != "" {
+		rows, err := s.DB.Query(ctx, `SELECT v.id::text AS id, v.version, v.description, v.prompt,
+			v.model_name, v.models_by_harness, v.external_mcps, v.required_capabilities
+			FROM agent_versions v WHERE v.agent_id = $1 AND v.version = $2 AND v.status = 'approved'`,
+			agentID, requestedVersion)
+		if err != nil {
+			return nil, err
+		}
+		collected := registry.CollectRows(rows)
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if len(collected) == 0 {
+			return nil, &errInstall{404, fmt.Sprintf("Version '%s' not found or not approved for this agent", requestedVersion)}
+		}
+		versionRow = collected[0]
+	} else {
+		latestID := rowStr(agentRow, "latest_version_id", "")
+		if latestID == "" {
+			return nil, &errInstall{400, "Agent has no published version available for install"}
+		}
+		rows, err := s.DB.Query(ctx, `SELECT v.id::text AS id, v.version, v.description, v.prompt,
+			v.model_name, v.models_by_harness, v.external_mcps, v.required_capabilities
+			FROM agent_versions v WHERE v.id = $1`, latestID)
+		if err != nil {
+			return nil, err
+		}
+		collected := registry.CollectRows(rows)
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if len(collected) == 0 {
+			return nil, &errInstall{400, "Agent has no published version available for install"}
+		}
+		versionRow = collected[0]
+	}
+
+	links, err := s.Components(ctx, rowStr(versionRow, "id", ""))
+	if err != nil {
+		return nil, err
+	}
+	targetProjectID := ""
+	if rowBool(agentRow, "is_private") {
+		if projectID := rowNStr(agentRow, "project_id"); projectID != nil {
+			targetProjectID = *projectID
+		}
+	}
+	byType := map[string][]string{}
+	for _, link := range links {
+		t := rowStr(link, "component_type", "")
+		byType[t] = append(byType[t], rowStr(link, "component_id", ""))
+	}
+	families := map[string]map[string]harnessgen.Listing{}
+	for _, name := range []string{"mcp", "skill", "hook", "prompt", "sandbox"} {
+		listings, err := s.installListings(ctx, name, byType[name], viewer, targetProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if len(listings) != len(byType[name]) {
+			return nil, &errInstall{404, "Agent contains a component unavailable to this agent target"}
+		}
+		families[name] = listings
+	}
+
+	// Sandbox pins: overlay a specific released version when requested.
+	for _, link := range links {
+		if rowStr(link, "component_type", "") != "sandbox" {
+			continue
+		}
+		id := rowStr(link, "component_id", "")
+		listing := families["sandbox"][id]
+		pinned := rowStr(link, "resolved_version", "")
+		current, _ := listing["version"].(string)
+		if pinned == "" || pinned == "latest" || pinned == current {
+			continue
+		}
+		rows, err := s.DB.Query(ctx, `SELECT version, description, runtime_type, image,
+			resource_limits, network_policy, entrypoint, runtime_config, sandbox_path
+			FROM sandbox_versions WHERE listing_id = $1 AND version = $2`, id, pinned)
+		if err != nil {
+			return nil, err
+		}
+		collected := registry.CollectRows(rows)
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if len(collected) == 0 {
+			return nil, &errInstall{404, fmt.Sprintf("Sandbox %s version '%s' not found",
+				listing["name"], pinned)}
+		}
+		for k, v := range collected[0] {
+			listing[k] = v
+		}
+	}
+
+	nameMap := map[string]string{}
+	for _, listings := range families {
+		for id, listing := range listings {
+			if n, ok := listing["name"].(string); ok {
+				nameMap[id] = n
+			}
+		}
+	}
+	return &InstallInputs{VersionRow: versionRow, Links: links, Families: families, NameMap: nameMap}, nil
+}
+
+// RecordDownload inserts a deduplicated download row; a first-time download
+// refreshes the latest version's aggregate count.
+func (s *Store) RecordDownload(ctx context.Context, agentID string, viewer *registry.Viewer, harnessName string) error {
+	tag, err := s.Exec(ctx, `INSERT INTO agent_download_records (id, agent_id, user_id, source, harness, installed_at)
+		VALUES (gen_random_uuid(), $1, $2, 'api', $3, now())
+		ON CONFLICT (agent_id, user_id) DO NOTHING`, agentID, viewer.ID, harnessName)
+	if err != nil {
+		return err
+	}
+	if tag == 0 {
+		return nil
+	}
+	_, err = s.Exec(ctx, `UPDATE agent_versions SET download_count =
+		(SELECT count(*) FROM agent_download_records WHERE agent_id = $1)
+		WHERE id = (SELECT latest_version_id FROM agents WHERE id = $1)`, agentID)
+	return err
+}
+
+// execer is the write-capable side of a pgx pool.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// Exec runs a statement returning the affected-row count.
+func (s *Store) Exec(ctx context.Context, sql string, args ...any) (int64, error) {
+	db, ok := s.DB.(execer)
+	if !ok {
+		return 0, fmt.Errorf("store connection is read-only")
+	}
+	tag, err := db.Exec(ctx, sql, args...)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
