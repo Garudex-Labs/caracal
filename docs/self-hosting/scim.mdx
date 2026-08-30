@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "SCIM provisioning"
+description: "Automated user lifecycle sync from your IdP over SCIM 2.0"
+---
+
+SCIM 2.0 keeps the Caracal user directory synchronized with your IdP: users are created before their first login, updated on IdP changes, and deactivated when removed. Configure [SSO](/self-hosting/sso) first - SCIM-provisioned users authenticate through the IdP.
+
+## SAML vs SCIM
+
+| | SAML/OIDC | SCIM |
+| --- | --- | --- |
+| Purpose | Authentication at login | User lifecycle provisioning |
+| Direction | User-initiated (browser) | IdP-initiated (server-to-server) |
+| Creates users | Only on first login (JIT) | Proactively, on IdP changes |
+| Deactivates users | No | Yes (`active: false` or DELETE) |
+
+Without SCIM, deprovisioned users retain access until an admin removes them manually - that's the main reason to enable it.
+
+## Create a bearer token
+
+SCIM requests authenticate with a dedicated bearer token; only its SHA-256 hash is stored.
+
+```bash
+# Create the token in the web UI (Admin → SCIM) or via the API:
+caracal api POST /api/v1/operator/scim-tokens --from-file token.json --output json
+# or: POST /api/v1/operator/scim-tokens
+```
+
+The plaintext token is returned **once** - save it immediately. List and revoke tokens in the web UI (**Admin → SCIM**). Verify:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer $SCIM_TOKEN" \
+  https://caracal.example.com/api/v1/scim/Users        # 200 = valid
+```
+
+## IdP configuration
+
+**Okta** - SAML app → **Provisioning → Configure API Integration**: base URL `https://caracal.example.com/api/v1/scim`, unique identifier `userName`, HTTP-header auth with the token. Enable Create/Update/Deactivate under **To App**, then assign users or groups.
+
+**Azure AD (Entra ID)** - Enterprise app → **Provisioning → Automatic**: SCIM URL `https://caracal.example.com/api/v1/scim`, secret token, test connection. Map `userName`→email, `name.givenName`, `name.familyName`, `active`. Scope to assigned users; cycles run ~every 40 minutes.
+
+**Google Workspace** - no native outbound SCIM. Use a directory-sync bridge, or a scheduled script against the Google Directory API that reconciles with `GET/POST/PUT /api/v1/scim/Users`.
+
+## SCIM API
+
+All endpoints require `Authorization: Bearer <scim-token>` and speak `application/scim+json` per RFC 7644.
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| `GET` | `/api/v1/scim/Users` | List; `startIndex` (1-based), `count` (max 500), `filter` on `userName` with `eq`, `ne`, `sw`, `co` |
+| `POST` | `/api/v1/scim/Users` | Create; `409` if the email already exists (emails are normalized to lowercase) |
+| `GET` | `/api/v1/scim/Users/{id}` | Fetch by Caracal UUID |
+| `PUT` | `/api/v1/scim/Users/{id}` | Full replacement; `"active": false` deactivates - clears the password hash and sets auth provider to `deactivated`, blocking all login |
+| `PATCH` | `/api/v1/scim/Users/{id}` | SCIM PatchOp (preferred by Okta/Azure): `replace`/`add` on `displayName`, `name.*`, `userName`, `emails`, `active`; `remove` returns 400 |
+| `DELETE` | `/api/v1/scim/Users/{id}` | Permanent, irreversible - prefer deactivation |
+
+Unauthenticated discovery endpoints for IdP setup: `/api/v1/scim/ServiceProviderConfig`, `/api/v1/scim/Schemas`, `/api/v1/scim/ResourceTypes`.
+
+```bash
+curl -X POST -H "Authorization: Bearer $SCIM_TOKEN" -H "Content-Type: application/scim+json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    "userName": "jared@example.com",
+    "name": {"givenName": "Jared", "familyName": "Dunn"},
+    "emails": [{"value": "jared@example.com", "primary": true, "type": "work"}],
+    "active": true
+  }' \
+  https://caracal.example.com/api/v1/scim/Users
+```
+
+## Troubleshooting
+
+| Symptom | Causes |
+| --- | --- |
+| `401` on everything | Header not forwarded (check reverse proxy), token hash mismatch (regenerate), token revoked, or wrong base URL (must be `/api/v1/scim`) |
+| `409` on create | User already exists (SCIM, JIT, or manual) - look it up with a `userName eq` filter; IdP retries after timeouts also surface as safe-to-ignore 409s |
+| `404` on `{id}` routes | Not a valid UUID, or the user was deleted |
+
+All SCIM operations land in the audit log (web UI **Admin → Audit log**, filter by `scim.user.create` etc.).
