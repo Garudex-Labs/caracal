@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze
+    # Code scanning upload is repository-specific; fork PRs to the canonical
+    # repository still run because pull_request jobs execute in its context.
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, go, javascript-typescript]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # Autobuild compiles Go with the toolchain on PATH, so it must match go.mod.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version-file: go.mod
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        with:
+          languages: ${{ matrix.language }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        with:
+          category: "/language:${{ matrix.language }}"

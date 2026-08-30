@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: License & vulnerability gate
+    # Requires the dependency graph, which forks may not have enabled; fork PRs
+    # to the canonical repository still run in its context.
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+        with:
+          fail-on-severity: high
+          deny-licenses: SSPL-1.0, BUSL-1.1, Elastic-2.0
+          base-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head-ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          comment-summary-in-pr: ${{ github.event_name == 'pull_request' && 'always' || 'never' }}
+          license-check: true
+          vulnerability-check: true

@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/Caracal
+            git fetch origin main
+            git reset --hard origin/main
+
+            cd infra/docker
+            docker compose -f docker-compose.yml -f docker-compose.production.yml up -d --build --remove-orphans
+
+            # Phase 1: Wait for the server container to answer its liveness
+            # probe through the compose network (nginx may cache a stale
+            # upstream IP from the old container).
+            echo "Waiting for server container to start..."
+            for i in $(seq 1 60); do
+              if docker compose exec -T caracal-lb wget -q -O /dev/null http://caracal-server:8080/healthz 2>/dev/null; then
+                echo "Server process is alive"
+                break
+              fi
+              echo "Waiting for server process... ($i/60)"
+              sleep 5
+            done
+
+            # Nginx caches upstream container IPs - after rebuild the API
+            # gets a new IP but nginx still routes to the old one.
+            docker compose -f docker-compose.yml -f docker-compose.production.yml restart caracal-lb
+            sleep 3
+
+            # Phase 2: Verify health through nginx (the path clients use)
+            for i in $(seq 1 30); do
+              if curl -sf https://localhost/health -k > /dev/null 2>&1; then
+                echo "API is healthy (full stack verified)"
+                exit 0
+              fi
+              echo "Waiting for health check... ($i/30)"
+              sleep 5
+            done
+
+            echo "API failed health check"
+            docker compose logs caracal-server caracal-init caracal-lb caracal-db caracal-clickhouse --tail 20
+            exit 1
