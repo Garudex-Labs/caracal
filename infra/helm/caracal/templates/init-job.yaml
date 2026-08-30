@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "caracal.fullname" . }}-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "caracal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+    spec:
+      serviceAccountName: {{ include "caracal.serviceAccountName" . }}
+      restartPolicy: OnFailure
+      {{- include "caracal.podSecurityContext" . | nindent 6 }}
+      initContainers:
+        {{- include "caracal.initWaitPostgres" . | nindent 8 }}
+        {{- include "caracal.initWaitClickhouse" . | nindent 8 }}
+        {{- include "caracal.initWaitRedis" . | nindent 8 }}
+      containers:
+        - name: init
+          image: {{ include "caracal.image" (dict "global" .Values.global "image" .Values.api.image "appVersion" .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          {{- include "caracal.securityContext" . | nindent 10 }}
+          args: ["init"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "caracal.configMapName" . }}
+            - secretRef:
+                name: {{ include "caracal.secretName" . }}
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

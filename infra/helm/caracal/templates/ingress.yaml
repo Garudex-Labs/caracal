@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "caracal.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+  annotations:
+    {{- if eq .Values.ingress.className "nginx" }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- end }}
+    {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.certManager.enabled }}
+    kubernetes.io/tls-acme: "true"
+    {{- if eq (lower .Values.ingress.tls.certManager.issuerKind) "clusterissuer" }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.certManager.issuerName | quote }}
+    {{- else }}
+    cert-manager.io/issuer: {{ .Values.ingress.tls.certManager.issuerName | quote }}
+    {{- end }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "caracal.fullname" .)) | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api/auth/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "caracal.fullname" . }}-auth
+                port:
+                  number: 8001
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "caracal.fullname" . }}-api
+                port:
+                  number: 8080
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "caracal.fullname" . }}-api
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "caracal.fullname" . }}-web
+                port:
+                  number: 8000
+{{- end }}
