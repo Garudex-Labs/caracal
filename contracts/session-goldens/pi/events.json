@@ -1,0 +1,93 @@
+{
+  "harness": "pi",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "110"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01",
+      "event_name": "hook_sessionstart",
+      "body": "Thinking level: high",
+      "attributes": {
+        "thinking_level": "high"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02",
+      "event_name": "hook_userpromptsubmit",
+      "body": "run the tests",
+      "attributes": {
+        "tool_input": "run the tests"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:03",
+      "event_name": "hook_assistant_thinking",
+      "body": "pytest is configured",
+      "attributes": {
+        "tool_response": "pytest is configured"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:03",
+      "event_name": "hook_assistant_response",
+      "body": "Running pytest.",
+      "attributes": {
+        "tool_response": "Running pytest.",
+        "input_tokens": "400",
+        "output_tokens": "32",
+        "cache_read_tokens": "120",
+        "model": "claude-sonnet-4",
+        "provider": "anthropic",
+        "stop_reason": "toolCall",
+        "cost_usd": "0.0031"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:03",
+      "event_name": "hook_posttooluse",
+      "body": "bash",
+      "attributes": {
+        "tool_name": "bash",
+        "tool_input": "{\"command\": \"pytest -q\"}",
+        "tool_use_id": "tc_1",
+        "tool_response": "12 passed"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:05",
+      "event_name": "hook_posttooluse",
+      "body": "bash",
+      "attributes": {
+        "tool_name": "bash",
+        "tool_input": "git status",
+        "tool_response": ""
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:06",
+      "event_name": "hook_assistant_response",
+      "body": "tests pass",
+      "attributes": {
+        "tool_response": "tests pass"
+      },
+      "service_name": "pi"
+    }
+  ]
+}
