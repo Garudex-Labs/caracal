@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Troubleshooting"
+description: "Common failure modes across install, Docker, auth, telemetry, and the web UI"
+---
+
+If nothing here matches, open a [GitHub Discussion](https://github.com/Garudex-Labs/caracal/discussions) with `caracal auth status` output and relevant `docker compose logs`.
+
+## CLI and connectivity
+
+**"Connection failed. Is the server running?"**
+
+```bash
+docker compose -f infra/docker/docker-compose.yml ps     # API status
+curl http://localhost/health
+caracal config show                                # is server_url right?
+caracal config set server_url http://localhost && caracal auth login
+```
+
+**"System already initialized" on login** - the server has users, so bootstrap is disabled. Log in with credentials instead of expecting the bootstrap flow.
+
+## Docker
+
+**`port is already allocated`** - remap host ports: `POSTGRES_HOST_PORT=5433 REDIS_HOST_PORT=6380 docker compose … up -d`. Every port is remappable ([reference](/reference/environment-variables#docker-host-ports)).
+
+**Service stuck in `starting`** - the API waits on Postgres, ClickHouse, and Redis health. Check each service's logs. Frequent causes: ClickHouse still running initial `CREATE TABLE`s, or a `CLICKHOUSE_PASSWORD` mismatch between the container and the API's URL.
+
+**Restart loop** - check `docker compose logs -f <service>`. Usual suspects: memory limit too tight (raise it in the Compose file), corrupt volume (restore from backup), or a config error introduced during upgrade (roll back).
+
+## Auth
+
+**Admin forgot password** - request a reset, then read the code from the API log:
+
+```bash
+docker logs caracal-api 2>&1 | grep "PASSWORD RESET CODE"
+```
+
+**OAuth `redirect_uri_mismatch`** - register `{FRONTEND_URL}/api/v1/auth/oauth/callback` in the IdP; scheme and host must match exactly.
+
+**Everyone logged out after a restart** - the `apidata` volume was recreated, so JWT signing keys are new. Restore `apidata` from backup, or accept the mass re-login. This is why `apidata` is a critical backup target.
+
+## Telemetry
+
+**Dashboard is empty** - walk the pipeline in order:
+
+```bash
+caracal ops telemetry status      # 1. anything pending/arriving?
+caracal doctor --output json      # 2. hooks installed?
+curl http://localhost/health      # 3. API reachable from the harness environment?
+caracal reconcile --dry-run       # 4. recoverable local sessions?
+```
+
+Missing hooks → `caracal doctor patch --harness <name>`. A growing `~/.caracal/telemetry_buffer.db` means delivery is pending, not lost.
+
+**ClickHouse not receiving data** - check the URL the API actually uses:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml exec caracal-api printenv CLICKHOUSE_URL
+```
+
+Source-Compose default: `clickhouse://default:clickhouse@caracal-clickhouse:8123/caracal`; mismatches usually follow a password change without a URL update. Server-package installs use `CLICKHOUSE_URL_FILE` - verify mounts without printing secrets (`test -r /run/secrets/clickhouse_url`). Verify ClickHouse itself:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml exec caracal-clickhouse \
+  clickhouse-client --query "SELECT count() FROM caracal.session_events"
+```
+
+## Web UI
+
+**Blank page** - the web container is still building or failed; check `docker compose logs -f caracal-web`.
+
+**Login bounces straight back to login** - the browser isn't keeping the session. Usually: `FRONTEND_URL` doesn't match the URL you're actually visiting, `CORS_ALLOWED_ORIGINS` is missing your origin, or you're on plain HTTP behind a proxy issuing secure cookies - terminate TLS at the proxy and keep `FRONTEND_URL=https://…`.
+
+## Escalation paths
+
+- Diagnostics bundle for maintainers: `caracal doctor support bundle` (redacted - see [caracal doctor](/cli/doctor#doctor-support-bundle))
+- Server health: web UI **Admin → Status**, or `caracal api GET /api/v1/operator/status`
+- Questions → [Discussions](https://github.com/Garudex-Labs/caracal/discussions) · confirmed bugs → [Issues](https://github.com/Garudex-Labs/caracal/issues)
