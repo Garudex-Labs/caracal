@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+project_id  = "my-gcp-project"
+region      = "us-central1"
+environment = "prod"
+image_tag   = "latest"
+
+# Optional: custom domain
+# domain_name           = "caracal.example.com"
+# dns_managed_zone_name = "example-com"
+
+# Optional deployment
