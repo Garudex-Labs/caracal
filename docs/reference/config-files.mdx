@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Local files and formats"
+description: "Everything under ~/.caracal/ - schemas, permissions, and the harness files Caracal writes"
+---
+
+The CLI and exporters keep all client-side state under `~/.caracal/`. Files are created with mode `0600` (owner-only) - they include your access token, so don't loosen permissions. Harness-side paths are documented per harness under [Harnesses](/harnesses).
+
+## `~/.caracal/` layout
+
+| File / directory | Purpose |
+| --- | --- |
+| `config.json` | CLI config: server URL, session token, access token, user identity, timeout |
+| `aliases.json` | `@alias` → reference shortcuts |
+| `lockfile.json` | Installed agents and components per registry and harness, with exact versions |
+| `last_results.json` | Latest typed list output, enabling row-number references |
+| `telemetry_buffer.db` | Durable SQLite outbox for the shared Python exporter |
+| `telemetry_buffer.rejected.jsonl` | Quarantine for permanently rejected payloads |
+| `opencode_session_outbox/` | Per-session durable OpenCode plugin batches + acknowledged state |
+| `pi_session_outbox/` | Durable pending Pi extension batches |
+| `sync_state.json` | Acknowledged byte/line cursors for file-backed exporters |
+| `sessions/goose/` | Append-only JSONL mirrors of Goose SQLite sessions |
+| `bin/` | Standalone CLI binary and its `caracal.prev` rollback copy |
+| `backups/` | Managed PostgreSQL backups from the operator script (`ops.sh upgrade`/`backup`) |
+| `keys/` | Server-side JWT signing keys (operators only; `JWT_KEY_DIR`) |
+| `logs/dev.log` | Local development log (`caracal ops logs`) |
+
+## `config.json`
+
+```json
+{
+  "server_url": "https://caracal.your-company.internal",
+  "access_token": "ey...",
+  "session_token": "better-auth-session...",
+  "user_id": "f9f3...",
+  "user_name": "Richard",
+  "username": "richard",
+  "timeout": 30,
+  "update_check": true,
+  "update_check_interval": 86400,
+  "update_check_repo": ""
+}
+```
+
+Auth and identity fields are managed by [`caracal auth`](/cli/auth); [`caracal config set`](/cli/config) accepts only `server_url`, `timeout`, `update_check`, `update_check_interval`, and `update_check_repo`. [Environment variables](/reference/environment-variables) override persisted values per invocation.
+
+## `aliases.json`
+
+```json
+{
+  "my-mcp": "498c17ac-1234-4567-89ab-cdef01234567",
+  "reviewer": "richard/reviewer"
+}
+```
+
+Use anywhere a compatible reference is accepted, prefixed with `@`.
+
+## `last_results.json`
+
+```json
+{
+  "item_type": "skill",
+  "ids": ["498c17ac-1234-4567-89ab-cdef01234567"],
+  "names": { "reviewer": "498c17ac-1234-4567-89ab-cdef01234567" }
+}
+```
+
+Each list invocation replaces this cache (including empty results). Row-number references are valid only for the component type of the latest list, and only in human mode.
+
+## Durable outbox semantics
+
+Exporters persist every observed batch **before** network delivery - `telemetry_buffer.db` for Python exporters; per-session files for the OpenCode and Pi TypeScript runtimes. All follow the same protocol: pending data survives restarts and failures, and the source cursor advances only when the server's contiguous checkpoint covers the batch. Nothing unacknowledged is ever evicted at capacity (256 MiB cap → explicit error).
+
+`sync_state.json` is a cache of acknowledged positions, **not** the authority for delivered history. If missing or stale, recovery restores positions from the authenticated server checkpoint. Inspect delivery health with:
+
+```bash
+caracal ops telemetry status
+```
+
+## Write-safety guarantees
+
+`doctor patch`, `doctor cleanup`, and `agent pull` write every managed config file atomically and preserve unrelated entries. Preview any change with `--dry-run --output json`. Pull reports every created or merged file in its result. Full protocol details: [Session telemetry](/concepts/telemetry).
