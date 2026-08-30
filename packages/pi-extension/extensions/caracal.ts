@@ -1,0 +1,1033 @@
+// SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Caracal session telemetry extension for Pi.
+ *
+ * Reads the session JSONL file incrementally on lifecycle events and POSTs
+ * raw lines to the Caracal ingest API. Zero runtime dependencies - uses
+ * only node:* built-ins.
+ *
+ * Design principles:
+ * - Fail-open: never throw, never crash pi
+ * - 5s timeout on all HTTP calls
+ * - Generation counter for async safety
+ * - Durable batches before network delivery
+ * - Cursor advancement only after contiguous server acknowledgement
+ * - Chunk at 500 lines per POST to avoid 413
+ */
+
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as http from "node:http";
+import * as https from "node:https";
+import * as os from "node:os";
+import * as path from "node:path";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface CaracalConfig {
+  server_url: string;
+  access_token: string;
+  default_org: string;
+  default_project: string;
+  user_id?: string;
+  agent_id?: string;
+  agent_version?: string;
+}
+
+export interface PendingBatch {
+  session_id: string;
+  destination: string;
+  organization: string;
+  project: string;
+  user_id?: string;
+  payload: Record<string, unknown>;
+  end_line: number;
+  end_offset: number;
+  final: boolean;
+}
+
+interface CursorEntry {
+  offset: number;
+  line_count: number;
+  finalized?: boolean;
+  last_pushed_at?: number;
+  local_valid?: boolean;
+}
+
+interface LayerFileEntry {
+  path: string;
+  hash: string;
+  size: number;
+  source: string;
+  content?: string;
+}
+
+interface LayerSnapshot {
+  hash: string;
+  harnesses: Record<string, LayerFileEntry[]>;
+  lockfile_hash: string;
+  pinned_versions: Record<string, unknown>;
+  drift: Record<string, unknown>;
+}
+
+interface CaracalState {
+  config: CaracalConfig | null;
+  sessionFile: string | null;
+  sessionId: string;
+  byteOffset: number;
+  lineCount: number;
+  generation: number;
+  layerHash: string | null;
+  layerSnapshot: LayerSnapshot | null;
+}
+
+/** Shapes read from ~/.caracal/lockfile.json - external JSON, so every field stays unknown. */
+type LockfileAgentEntry = { id?: unknown; name?: unknown; version?: unknown };
+type LockfileHarnessSection = { agents?: LockfileAgentEntry[]; standalone?: Record<string, unknown>[] };
+type RegistryLockfile = { harnesses?: Record<string, LockfileHarnessSection> } & Record<string, unknown>;
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const CARACAL_DIR = path.join(os.homedir(), ".caracal");
+const CONFIG_PATH = path.join(CARACAL_DIR, "config.json");
+const SYNC_STATE_PATH = path.join(CARACAL_DIR, "sync_state.json");
+const LAYER_SNAPSHOT_PATH = path.join(CARACAL_DIR, "layer_snapshot.json");
+const LOCKFILE_PATH = path.join(CARACAL_DIR, "lockfile.json");
+const OUTBOX_DIR = path.join(CARACAL_DIR, "pi_session_outbox");
+const TIMEOUT_MS = 5_000;
+const MAX_LINES_PER_CHUNK = 500;
+const RECOVERY_MAX_SESSIONS = 5;
+const RECOVERY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const MAX_LAYER_FILE_SIZE = 512 * 1024;
+const MAX_OUTBOX_BYTES = 256 * 1024 * 1024;
+
+export function acknowledgementCovers(acknowledgement: unknown, pending: PendingBatch): boolean {
+  if (!acknowledgement || typeof acknowledgement !== "object") return false;
+  const acknowledgedLine = (acknowledgement as Record<string, unknown>).acknowledged_line;
+  return Number.isInteger(acknowledgedLine) && Number(acknowledgedLine) >= pending.end_line;
+}
+
+// ─── Extension Entry ─────────────────────────────────────────────────────────
+
+export default function (pi: ExtensionAPI) {
+  let state: CaracalState | null = null;
+
+  pi.on("session_start", async (event, ctx) => {
+    state = initState(ctx);
+
+    if (state.config && state.layerSnapshot) {
+      uploadLayerSnapshot(state.config, state.layerSnapshot)
+        .then((ok) => {
+          if (!ok && ctx.hasUI) ctx.ui.notify("Layer snapshot upload failed", "warning");
+        })
+        .catch((err) => {
+          if (ctx.hasUI) ctx.ui.notify(`Layer snapshot upload failed: ${err.message}`, "warning");
+        });
+    }
+
+    // On fresh startup, attempt crash recovery (fire-and-forget)
+    if (event.reason === "startup" && state.config) {
+      recoverStaleSessions(state, ctx).catch(() => {});
+    }
+
+    if (state.config && ctx.hasUI) {
+      const theme = ctx.ui.theme;
+      ctx.ui.setStatus("caracal", theme.fg("dim", "● caracal"));
+    }
+  });
+
+  pi.on("agent_end", async (_event, _ctx) => {
+    if (!state?.config || !state.sessionFile) return;
+    await pushNewLines(state, { final: false });
+  });
+
+  pi.on("session_shutdown", async (_event, _ctx) => {
+    if (!state?.config || !state.sessionFile) return;
+    await pushNewLines(state, { final: true });
+    state = null;
+  });
+
+  // ─── /obs-sync command ─────────────────────────────────────────────────
+
+  pi.registerCommand("agent", {
+    description: "Manage and swap active Caracal agents",
+    handler: async (args, ctx) => {
+      const agentId = args.trim();
+      const PI_HOME = path.join(os.homedir(), ".pi", "agent");
+      const AGENTS_DIR = path.join(PI_HOME, "agents");
+
+      function backupDefault() {
+        if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true });
+        const defaultDir = path.join(AGENTS_DIR, "default");
+        if (fs.existsSync(defaultDir)) return; // already backed up
+
+        fs.mkdirSync(defaultDir, { recursive: true });
+
+        const filesToCopy = [
+          { name: "AGENTS.md", isDir: false },
+          { name: "SYSTEM.md", isDir: false },
+          { name: "mcp.json", isDir: false },
+          { name: "skills", isDir: true },
+          { name: "sandboxes", isDir: true }
+        ];
+
+        for (const f of filesToCopy) {
+          const src = path.join(PI_HOME, f.name);
+          const dest = path.join(defaultDir, f.name);
+          if (fs.existsSync(src)) {
+            fs.cpSync(src, dest, { recursive: true });
+          }
+        }
+      }
+
+      function applyProfile(name: string) {
+        const profileDir = path.join(AGENTS_DIR, name);
+        if (!fs.existsSync(profileDir)) throw new Error(`Profile ${name} not found`);
+
+        const activeItems = ["AGENTS.md", "SYSTEM.md", "mcp.json", "skills", "sandboxes"];
+        for (const f of activeItems) {
+          const target = path.join(PI_HOME, f);
+          if (fs.existsSync(target)) {
+            fs.rmSync(target, { recursive: true, force: true });
+          }
+        }
+
+        for (const f of activeItems) {
+          const src = path.join(profileDir, f);
+          const dest = path.join(PI_HOME, f);
+          if (fs.existsSync(src)) {
+            fs.cpSync(src, dest, { recursive: true });
+          }
+        }
+      }
+
+      if (!fs.existsSync(AGENTS_DIR)) {
+        fs.mkdirSync(AGENTS_DIR, { recursive: true });
+      }
+
+      // Automatically populate AGENTS_DIR from normal .pi/agent files if it's currently holding an active agent but no profile exists for it
+      // but primarily we rely on caracal agent pull populating agents/.
+      backupDefault();
+
+      let choice = agentId;
+
+      if (!choice) {
+        const profiles = fs.readdirSync(AGENTS_DIR).filter(d => fs.statSync(path.join(AGENTS_DIR, d)).isDirectory());
+        if (profiles.length === 0) {
+          ctx.ui.notify("No agents installed yet. Use the Caracal skill or 'caracal agent pull <agent> --harness pi' to install one.", "info");
+          return;
+        }
+
+        const selected = await ctx.ui.select("Select agent to swap to:", profiles);
+        if (!selected) return;
+        choice = selected;
+      }
+
+      try {
+        applyProfile(choice);
+
+        if (state?.config) {
+          const binding = resolvePiAgentBinding(choice);
+          state.config.agent_id = choice === "default" ? undefined : binding.id;
+          state.config.agent_version = choice === "default" ? undefined : binding.version;
+          try {
+            const configRaw = fs.readFileSync(CONFIG_PATH, "utf-8");
+            const configJson = JSON.parse(configRaw) as Record<string, unknown>;
+            if (choice === "default") {
+              delete configJson.active_agent;
+            } else {
+              configJson.active_agent = {
+                id: binding.id,
+                name: binding.name,
+                ...(binding.version ? { version: binding.version } : {}),
+              };
+            }
+            fs.writeFileSync(CONFIG_PATH, JSON.stringify(configJson, null, 2));
+          } catch {
+            // Recording the active agent in config.json is best-effort.
+          }
+
+          state.layerSnapshot = buildPiLayerSnapshot(true);
+          state.layerHash = state.layerSnapshot.hash;
+          if (!(await uploadLayerSnapshot(state.config, state.layerSnapshot))) {
+            ctx.ui.notify("Layer snapshot upload failed", "warning");
+          }
+        }
+
+        const ok = await ctx.ui.confirm("Agent Swapped", `Swapped to ${choice}. Reload session now?`);
+        if (ok) {
+          await ctx.reload();
+        }
+      } catch (error) {
+        ctx.ui.notify(`Error swapping agent: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("obs-sync", {
+    description: "Caracal telemetry sync status",
+    handler: async (args, ctx) => {
+      const sub = args.trim();
+      if (sub === "flush") {
+        if (!state?.config || !state.sessionFile) {
+          ctx.ui.notify("No active session or config", "warning");
+          return;
+        }
+        await pushNewLines(state, { final: false });
+        ctx.ui.notify(`Flushed (${state.lineCount} lines total)`, "info");
+      } else if (sub === "config") {
+        ctx.ui.notify(
+          `Config: ${CONFIG_PATH}\nServer: ${state?.config?.server_url ?? "not configured"}`,
+          "info",
+        );
+      } else {
+        const synced = state?.lineCount ?? 0;
+        const server = state?.config?.server_url ?? "not configured";
+        ctx.ui.notify(`Caracal: ${synced} lines pushed\nServer: ${server}`, "info");
+      }
+    },
+  });
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  function initState(ctx: ExtensionContext): CaracalState {
+    const config = loadConfig();
+    const sessionFile = ctx.sessionManager.getSessionFile() ?? null;
+    const sessionId = ctx.sessionManager.getSessionId();
+
+    let byteOffset = 0;
+    let lineCount = 0;
+
+    if (sessionId) {
+      const cursor = readCursor(sessionId);
+      byteOffset = cursor.offset;
+      lineCount = cursor.line_count;
+    }
+
+    const layerSnapshot = buildPiLayerSnapshot(true);
+    const layerHash = layerSnapshot.hash;
+
+    return { config, sessionFile, sessionId, byteOffset, lineCount, generation: 0, layerHash, layerSnapshot };
+  }
+
+  function loadConfig(): CaracalConfig | null {
+    try {
+      if (!fs.existsSync(CONFIG_PATH)) return null;
+      const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      const accessToken = data.access_token;
+      if (typeof data.server_url !== "string" || typeof accessToken !== "string" || !accessToken ||
+          typeof data.default_org !== "string" || !data.default_org ||
+          typeof data.default_project !== "string" || !data.default_project) return null;
+      const config: CaracalConfig = {
+        server_url: data.server_url,
+        access_token: accessToken,
+        default_org: data.default_org,
+        default_project: data.default_project,
+        user_id: typeof data.user_id === "string" && data.user_id ? data.user_id : undefined,
+      };
+      const activeAgent = data.active_agent as { id?: unknown; name?: unknown; version?: unknown } | undefined;
+      if (activeAgent?.id) {
+        const binding = resolvePiAgentBinding(String(activeAgent.id), activeAgent.name, activeAgent.version);
+        config.agent_id = binding.id;
+        if (binding.version) config.agent_version = binding.version;
+      }
+      return config;
+    } catch {
+      return null;
+    }
+  }
+
+  function currentRegistryLockfile(): RegistryLockfile | null {
+    try {
+      const config = loadConfig();
+      if (!config || !fs.existsSync(LOCKFILE_PATH)) return null;
+      const url = new URL(config.server_url);
+      url.hash = "";
+      url.search = "";
+      url.pathname = url.pathname.replace(/\/$/, "");
+      const key = url.toString().replace(/\/$/, "");
+      const data = JSON.parse(fs.readFileSync(LOCKFILE_PATH, "utf-8")) as {
+        registries?: Record<string, RegistryLockfile>;
+      };
+      return data.registries?.[key] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolvePiAgentBinding(agent: string, rawName?: unknown, rawVersion?: unknown): { id: string; name: string; version?: string } {
+    const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : agent;
+    const entry = findPiLockfileAgent(agent, name);
+    return {
+      id: typeof entry?.id === "string" && entry.id.trim() ? entry.id : agent,
+      name: typeof entry?.name === "string" && entry.name.trim() ? entry.name : name,
+      version: normalizeAgentVersion(entry?.version) ?? normalizeAgentVersion(rawVersion),
+    };
+  }
+
+  function findPiLockfileAgent(agent: string, name: string): LockfileAgentEntry | null {
+    try {
+      const agents = currentRegistryLockfile()?.harnesses?.pi?.agents;
+      if (!Array.isArray(agents)) return null;
+      const keys = new Set([agent, name, safeAgentName(agent), safeAgentName(name)].filter(Boolean));
+      return agents.find((item) => keys.has(String(item?.id ?? "")))
+        ?? agents.find((item) => keys.has(String(item?.name ?? "")) || keys.has(safeAgentName(String(item?.name ?? ""))))
+        ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeAgentVersion(version: unknown): string | undefined {
+    if (typeof version !== "string") return undefined;
+    const trimmed = version.trim();
+    return trimmed && trimmed !== "latest" ? trimmed : undefined;
+  }
+
+  function safeAgentName(name: string): string {
+    return name.replace(/[^a-zA-Z0-9_-]/g, "-");
+  }
+
+  function buildPiLayerSnapshot(includeContent: boolean): LayerSnapshot {
+    const piHome = path.join(os.homedir(), ".pi", "agent");
+    const files = discoverPiLayerFiles(piHome);
+    const manifest: LayerFileEntry[] = [];
+
+    for (const file of files) {
+      try {
+        const rel = path.relative(piHome, file).split(path.sep).join("/");
+        const content = fs.readFileSync(file);
+        const entry: LayerFileEntry = {
+          path: `user:${rel}`,
+          hash: `sha256-${sha256(content)}`,
+          size: content.length,
+          source: "user",
+        };
+        if (includeContent) {
+          entry.content = content.toString("utf-8");
+        }
+        manifest.push(entry);
+      } catch {
+        continue;
+      }
+    }
+
+    manifest.sort((a, b) => a.path.localeCompare(b.path));
+    const hashEntries = manifest.map((entry) => [`pi/${entry.path}`, entry.hash] as [string, string]);
+    const layerHash = hashEntries.length === 0 ? "0".repeat(16) : sha256(Buffer.from(pyJsonPairs(hashEntries))).slice(0, 16);
+
+    return {
+      hash: layerHash,
+      harnesses: { pi: manifest },
+      lockfile_hash: computeLockfileHash(),
+      pinned_versions: readPinnedVersions(),
+      drift: { is_canonical: true, drifted_files: [] },
+    };
+  }
+
+  function discoverPiLayerFiles(root: string): string[] {
+    if (!fs.existsSync(root)) return [];
+    let rootReal: string;
+    try {
+      rootReal = fs.realpathSync(root);
+    } catch {
+      return [];
+    }
+    const found: string[] = [];
+    const skipDirs = new Set([".git", "node_modules", "sessions"]);
+
+    function walk(dir: string): void {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory() && skipDirs.has(entry.name)) continue;
+        const abs = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(abs);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+
+        const rel = path.relative(root, abs).split(path.sep).join("/");
+        if (!isPiLayerFile(rel)) continue;
+
+        try {
+          const stat = fs.statSync(abs);
+          if (stat.size > MAX_LAYER_FILE_SIZE) continue;
+          const real = fs.realpathSync(abs);
+          if (real !== rootReal && !real.startsWith(`${rootReal}${path.sep}`)) continue;
+          found.push(abs);
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    try {
+      walk(root);
+    } catch {
+      return [];
+    }
+
+    return found.sort().slice(0, 200);
+  }
+
+  function isPiLayerFile(rel: string): boolean {
+    return ["AGENTS.md", "SYSTEM.md", "APPEND_SYSTEM.md", "mcp.json", "settings.json"].includes(rel)
+      || /^skills\/[^/]+\/SKILL\.md$/.test(rel)
+      || rel.startsWith("sandboxes/")
+      || /^agents\/[^/]+\/(AGENTS\.md|SYSTEM\.md|APPEND_SYSTEM\.md|mcp\.json)$/.test(rel)
+      || /^agents\/[^/]+\/skills\/[^/]+\/SKILL\.md$/.test(rel)
+      || /^agents\/[^/]+\/sandboxes\//.test(rel);
+  }
+
+  function sha256(content: Buffer): string {
+    return crypto.createHash("sha256").update(content).digest("hex");
+  }
+
+  function pyJsonPairs(entries: [string, string][]): string {
+    return `[${entries.map(([left, right]) => `[${JSON.stringify(left)}, ${JSON.stringify(right)}]`).join(", ")}]`;
+  }
+
+  function computeLockfileHash(): string {
+    const registry = currentRegistryLockfile();
+    return registry ? sha256(Buffer.from(JSON.stringify(registry))).slice(0, 16) : "0".repeat(16);
+  }
+
+  function readPinnedVersions(): Record<string, unknown> {
+    try {
+      const registry = currentRegistryLockfile();
+      if (!registry) return { agents: [], standalone: [] };
+      const agents: Record<string, unknown>[] = [];
+      const standalone: Record<string, unknown>[] = [];
+      for (const [harness, section] of Object.entries(registry.harnesses ?? {})) {
+        for (const agent of section.agents ?? []) {
+          agents.push({ ...agent, harness });
+        }
+        for (const item of section.standalone ?? []) {
+          standalone.push({ ...item, harness });
+        }
+      }
+      return { agents, standalone };
+    } catch {
+      return { agents: [], standalone: [] };
+    }
+  }
+
+  function needsLayerUpload(hash: string): boolean {
+    try {
+      if (!fs.existsSync(LAYER_SNAPSHOT_PATH)) return true;
+      const data = JSON.parse(fs.readFileSync(LAYER_SNAPSHOT_PATH, "utf-8")) as { hash?: unknown };
+      return data.hash !== hash;
+    } catch {
+      return true;
+    }
+  }
+
+  function saveLayerSnapshot(snapshot: LayerSnapshot): void {
+    try {
+      const serialized = JSON.stringify(snapshot, null, 2);
+      if (serialized.length > 5 * 1024 * 1024) return;
+      fs.mkdirSync(CARACAL_DIR, { recursive: true });
+      fs.writeFileSync(LAYER_SNAPSHOT_PATH, `${serialized}\n`);
+    } catch {
+      return;
+    }
+  }
+
+  async function uploadLayerSnapshot(config: CaracalConfig, snapshot: LayerSnapshot): Promise<boolean> {
+    if (!needsLayerUpload(snapshot.hash)) return true;
+    const result = await postJsonWithTimeout(config, "/api/v1/layer-snapshots", JSON.stringify(snapshot));
+    if (result?.hash !== snapshot.hash) return false;
+    saveLayerSnapshot(snapshot);
+    return true;
+  }
+
+  function readCursor(sessionId: string): CursorEntry {
+    try {
+      if (!fs.existsSync(SYNC_STATE_PATH)) return { offset: 0, line_count: 0, local_valid: false };
+      const data = JSON.parse(fs.readFileSync(SYNC_STATE_PATH, "utf-8")) as Record<string, CursorEntry | undefined>;
+      const entry = data[sessionId];
+      if (!entry || !Number.isInteger(entry.offset) || !Number.isInteger(entry.line_count)
+        || entry.offset < 0 || entry.line_count < 0) {
+        return { offset: 0, line_count: 0, local_valid: false };
+      }
+      return { ...entry, local_valid: true };
+    } catch {
+      return { offset: 0, line_count: 0, local_valid: false };
+    }
+  }
+
+  function writeCursor(sessionId: string, offset: number, lineCount: number, finalized = false): boolean {
+    try {
+      fs.mkdirSync(CARACAL_DIR, { recursive: true });
+      let data: Record<string, CursorEntry> = {};
+      if (fs.existsSync(SYNC_STATE_PATH)) {
+        data = JSON.parse(fs.readFileSync(SYNC_STATE_PATH, "utf-8"));
+      }
+      data[sessionId] = { offset, line_count: lineCount, finalized, last_pushed_at: Date.now() };
+      const temporary = `${SYNC_STATE_PATH}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify(data, null, 2), { mode: 0o600 });
+      fs.renameSync(temporary, SYNC_STATE_PATH);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function pendingPath(sessionId: string): string {
+    return path.join(OUTBOX_DIR, `${sha256(Buffer.from(sessionId))}.json`);
+  }
+
+  function readPending(sessionId: string): PendingBatch | null {
+    const file = pendingPath(sessionId);
+    if (!fs.existsSync(file)) return null;
+    const pending = JSON.parse(fs.readFileSync(file, "utf-8")) as PendingBatch | null;
+    if (pending?.session_id !== sessionId || !pending?.payload) {
+      throw new Error(`invalid Pi outbox entry: ${file}`);
+    }
+    return pending;
+  }
+
+  function outboxBytes(exclude: string): number {
+    if (!fs.existsSync(OUTBOX_DIR)) return 0;
+    let total = 0;
+    for (const name of fs.readdirSync(OUTBOX_DIR)) {
+      const file = path.join(OUTBOX_DIR, name);
+      if (file === exclude || !name.endsWith(".json")) continue;
+      try { total += fs.statSync(file).size; } catch { }
+    }
+    return total;
+  }
+
+  function writePending(pending: PendingBatch): boolean {
+    try {
+      fs.mkdirSync(OUTBOX_DIR, { recursive: true });
+      const file = pendingPath(pending.session_id);
+      const serialized = JSON.stringify(pending);
+      if (outboxBytes(file) + Buffer.byteLength(serialized) > MAX_OUTBOX_BYTES) return false;
+      const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(temporary, serialized, { mode: 0o600 });
+      fs.renameSync(temporary, file);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function removePending(sessionId: string): void {
+    try { fs.unlinkSync(pendingPath(sessionId)); } catch { }
+  }
+
+  async function deliverPending(
+    config: CaracalConfig,
+    pending: PendingBatch,
+  ): Promise<"delivered" | "repair" | false> {
+    if (pending.destination.replace(/\/$/, "") !== config.server_url.replace(/\/$/, "")) return false;
+    if (pending.user_id && pending.user_id !== config.user_id) return false;
+    if (pending.organization !== config.default_org || pending.project !== config.default_project) return false;
+
+    const acknowledgement = await postJsonWithTimeout(
+      config,
+      "/api/v1/ingest/session",
+      JSON.stringify(pending.payload),
+      TIMEOUT_MS,
+    );
+    if (acknowledgement && Number.isInteger(acknowledgement.repair_from_line)) {
+      const repairFromLine = Number(acknowledgement.repair_from_line);
+      const acknowledgedOffset = Number(acknowledgement.acknowledged_offset || 0);
+      if (!writeCursor(pending.session_id, acknowledgedOffset, repairFromLine, false)) return false;
+      removePending(pending.session_id);
+      return "repair";
+    }
+    if (!acknowledgementCovers(acknowledgement, pending)) return false;
+    if (!writeCursor(pending.session_id, pending.end_offset, pending.end_line + 1, pending.final)) return false;
+    removePending(pending.session_id);
+    return "delivered";
+  }
+
+  function hashSessionFile(sessionFile: string): { hash: string; lineCount: number } {
+    const content = fs.readFileSync(sessionFile);
+    const hasher = crypto.createHash("sha256");
+    let lineCount = 0;
+    let start = 0;
+    for (let index = 0; index < content.length; index++) {
+      if (content[index] !== 10) continue;
+      const line = content.subarray(start, index).toString("utf-8").replace(/\r$/, "");
+      if (line.trim()) {
+        hasher.update(crypto.createHash("sha256").update(line, "utf-8").digest("hex"));
+        hasher.update("\n");
+        lineCount++;
+      }
+      start = index + 1;
+    }
+    return { hash: hasher.digest("hex"), lineCount };
+  }
+
+  function checkpointByteOffset(sessionFile: string, lineCount: number, serverOffset: number): number | null {
+    try {
+      const content = fs.readFileSync(sessionFile);
+      if (serverOffset > 0) {
+        return serverOffset <= content.length && content[serverOffset - 1] === 10 ? serverOffset : null;
+      }
+      if (lineCount === 0) return 0;
+      let seen = 0;
+      let start = 0;
+      for (let index = 0; index < content.length; index++) {
+        if (content[index] !== 10) continue;
+        if (content.subarray(start, index).toString("utf-8").trim()) {
+          seen++;
+          if (seen === lineCount) return index + 1;
+        }
+        start = index + 1;
+      }
+    } catch { }
+    return null;
+  }
+
+  async function recoverCursorFromServer(
+    config: CaracalConfig,
+    sessionId: string,
+    sessionFile: string,
+  ): Promise<CursorEntry | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const url = new URL("/api/v1/ingest/session/checkpoint", config.server_url);
+      url.searchParams.set("session_id", sessionId);
+      url.searchParams.set("harness", "pi");
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${config.access_token}`,
+          "X-Caracal-Org": config.default_org,
+          "X-Caracal-Project": config.default_project,
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const checkpoint = (await response.json()) as Record<string, unknown> | null;
+      if (!checkpoint || !Number.isInteger(checkpoint.acknowledged_line)) return null;
+      const lineCount = Number(checkpoint.acknowledged_line) + 1;
+      const byteOffset = checkpointByteOffset(
+        sessionFile,
+        lineCount,
+        Number(checkpoint.acknowledged_offset || 0),
+      );
+      if (byteOffset === null) return null;
+      if (!writeCursor(sessionId, byteOffset, lineCount, false)) return null;
+      return readCursor(sessionId);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function pushNewLines(
+    s: CaracalState,
+    opts: { final: boolean; repairAttempted?: boolean },
+  ): Promise<void> {
+    if (!s.config || !s.sessionFile) return;
+
+    const gen = ++s.generation;
+
+    try {
+      let cursor = readCursor(s.sessionId);
+      const storedPending = readPending(s.sessionId);
+      if (storedPending) {
+        const result = await deliverPending(s.config, storedPending);
+        if (!result) return;
+        if (s.generation !== gen) return;
+        cursor = readCursor(s.sessionId);
+      }
+      if (!cursor.local_valid) {
+        cursor = await recoverCursorFromServer(s.config, s.sessionId, s.sessionFile) ?? cursor;
+        if (s.generation !== gen) return;
+      }
+      s.byteOffset = cursor.offset;
+      s.lineCount = cursor.line_count;
+
+      const stat = fs.statSync(s.sessionFile);
+      const audit = opts.final ? hashSessionFile(s.sessionFile) : null;
+      const newBytes = stat.size - s.byteOffset;
+      if (newBytes < 0) return;
+
+      let lines: string[] = [];
+      let endByteOffsets: number[] = [];
+      let consumedBytes = 0;
+
+      if (newBytes > 0) {
+        const buffer = Buffer.alloc(newBytes);
+        const fd = fs.openSync(s.sessionFile, "r");
+        try {
+          fs.readSync(fd, buffer, 0, newBytes, s.byteOffset);
+        } finally {
+          fs.closeSync(fd);
+        }
+
+        if (s.generation !== gen) return;
+        const rawLines = buffer.toString("utf-8").split("\n");
+        for (let i = 0; i < rawLines.length - 1; i++) {
+          const line = rawLines[i]!;
+          consumedBytes += Buffer.byteLength(line, "utf-8") + 1;
+          if (line.trim()) {
+            lines.push(line);
+            endByteOffsets.push(s.byteOffset + consumedBytes);
+          }
+        }
+        if (endByteOffsets.length > 0) {
+          endByteOffsets[endByteOffsets.length - 1] = s.byteOffset + consumedBytes;
+        }
+      }
+
+      if (lines.length === 0) {
+        if (consumedBytes > 0) {
+          s.byteOffset += consumedBytes;
+          if (!writeCursor(s.sessionId, s.byteOffset, s.lineCount, false)) return;
+        }
+        if (!opts.final) return;
+
+        const payload: Record<string, unknown> = {
+          session_id: s.sessionId,
+          harness: "pi",
+          agent_id: s.config.agent_id ?? null,
+          agent_version: s.config.agent_version ?? null,
+          layer_hash: s.layerHash,
+          lines: [],
+          end_byte_offsets: [],
+          start_offset: s.lineCount,
+          hook_event: "SessionShutdown",
+          final: true,
+          total_line_count: s.lineCount,
+          total_offset: s.byteOffset,
+          session_hash: audit?.hash,
+          hashed_line_count: audit?.lineCount,
+        };
+        const pending: PendingBatch = {
+          session_id: s.sessionId,
+          destination: s.config.server_url,
+          organization: s.config.default_org,
+          project: s.config.default_project,
+          user_id: s.config.user_id,
+          payload,
+          end_line: s.lineCount - 1,
+          end_offset: s.byteOffset,
+          final: true,
+        };
+        if (!writePending(pending)) return;
+        const result = await deliverPending(s.config, pending);
+        if (result === "repair" && !opts.repairAttempted) {
+          await pushNewLines(s, { final: true, repairAttempted: true });
+        }
+        return;
+      }
+
+      const initialLineCount = s.lineCount;
+      const finalOffset = s.byteOffset + consumedBytes;
+      for (let offset = 0; offset < lines.length; offset += MAX_LINES_PER_CHUNK) {
+        if (s.generation !== gen) return;
+        const chunk = lines.slice(offset, offset + MAX_LINES_PER_CHUNK);
+        const chunkEndOffsets = endByteOffsets.slice(offset, offset + MAX_LINES_PER_CHUNK);
+        const isLastChunk = offset + MAX_LINES_PER_CHUNK >= lines.length;
+        const endLine = initialLineCount + offset + chunk.length - 1;
+        const endOffset = chunkEndOffsets[chunkEndOffsets.length - 1]!;
+        const payload: Record<string, unknown> = {
+          session_id: s.sessionId,
+          harness: "pi",
+          agent_id: s.config.agent_id ?? null,
+          agent_version: s.config.agent_version ?? null,
+          layer_hash: s.layerHash,
+          lines: chunk,
+          end_byte_offsets: chunkEndOffsets,
+          start_offset: initialLineCount + offset,
+          hook_event: opts.final && isLastChunk ? "SessionShutdown" : "AgentEnd",
+          final: opts.final && isLastChunk,
+          ...(opts.final && isLastChunk
+            ? {
+                total_line_count: initialLineCount + lines.length,
+                total_offset: finalOffset,
+                session_hash: audit?.hash,
+                hashed_line_count: audit?.lineCount,
+              }
+            : {}),
+        };
+        const pending: PendingBatch = {
+          session_id: s.sessionId,
+          destination: s.config.server_url,
+          organization: s.config.default_org,
+          project: s.config.default_project,
+          user_id: s.config.user_id,
+          payload,
+          end_line: endLine,
+          end_offset: endOffset,
+          final: opts.final && isLastChunk,
+        };
+        if (!writePending(pending)) return;
+        const result = await deliverPending(s.config, pending);
+        if (!result) return;
+        if (result === "repair") {
+          if (!opts.repairAttempted) {
+            await pushNewLines(s, { final: opts.final, repairAttempted: true });
+          }
+          return;
+        }
+        if (s.generation !== gen) return;
+        s.byteOffset = endOffset;
+        s.lineCount = endLine + 1;
+      }
+    } catch {
+      // Fail-open
+    }
+  }
+
+  function postJsonWithTimeout(
+    config: CaracalConfig,
+    urlPath: string,
+    body: string,
+    timeoutMs = TIMEOUT_MS * 2,
+  ): Promise<Record<string, unknown> | null> {
+    return new Promise((resolve) => {
+      try {
+        const url = new URL(urlPath, config.server_url);
+        const mod = url.protocol === "https:" ? https : http;
+        const timer = setTimeout(() => {
+          req.destroy();
+          resolve(null);
+        }, timeoutMs);
+
+        const req = mod.request(
+          url,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${config.access_token}`,
+              "X-Caracal-Org": config.default_org,
+              "X-Caracal-Project": config.default_project,
+              "Content-Length": String(Buffer.byteLength(body)),
+            },
+          },
+          (res) => {
+            clearTimeout(timer);
+            const chunks: Buffer[] = [];
+            res.on("data", (c) => chunks.push(c));
+            res.on("end", () => {
+              const status = res.statusCode ?? 0;
+              if (status >= 200 && status < 300) {
+                try {
+                  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+                  resolve(typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null);
+                } catch {
+                  resolve(null);
+                }
+              } else {
+                resolve(null);
+              }
+            });
+          },
+        );
+
+        req.on("error", () => {
+          clearTimeout(timer);
+          resolve(null);
+        });
+
+        req.write(body);
+        req.end();
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+
+  async function drainStoredOutbox(config: CaracalConfig): Promise<void> {
+    if (!fs.existsSync(OUTBOX_DIR)) return;
+    for (const name of fs.readdirSync(OUTBOX_DIR)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const pending = JSON.parse(fs.readFileSync(path.join(OUTBOX_DIR, name), "utf-8")) as PendingBatch | null;
+        if (!pending?.session_id || !pending?.payload) continue;
+        await deliverPending(config, pending);
+      } catch {
+        // Keep corrupt or unreachable entries for manual recovery.
+      }
+    }
+  }
+
+  async function recoverStaleSessions(s: CaracalState, ctx: ExtensionContext): Promise<void> {
+    try {
+      if (!s.config) return;
+      await drainStoredOutbox(s.config);
+      if (!fs.existsSync(SYNC_STATE_PATH)) return;
+      const data: Record<string, CursorEntry> = JSON.parse(
+        fs.readFileSync(SYNC_STATE_PATH, "utf-8"),
+      );
+
+      // getSessionDir is not part of the published extension API surface; probe for it.
+      const sessionsDir = (ctx.sessionManager as { getSessionDir?: () => string }).getSessionDir?.()
+        ?? path.join(os.homedir(), ".pi", "agent", "sessions");
+      const projectKey = ctx.cwd.replace(/\//g, "-");
+      const fullDir = path.join(sessionsDir, `-${projectKey}-`);
+      let recovered = 0;
+      const now = Date.now();
+
+      for (const [sessionId, storedEntry] of Object.entries(data)) {
+        if (sessionId === s.sessionId || recovered >= RECOVERY_MAX_SESSIONS) continue;
+        const entry = storedEntry;
+        if (entry.finalized) continue;
+        if (!fs.existsSync(fullDir)) continue;
+
+        const files = fs.readdirSync(fullDir).filter((f) => f.includes(sessionId));
+        if (files.length === 0) continue;
+        const filePath = path.join(fullDir, files[0]!);
+        if (!fs.existsSync(filePath)) continue;
+        const fileStat = fs.statSync(filePath);
+        if (now - fileStat.mtimeMs > RECOVERY_MAX_AGE_MS) continue;
+
+        const recoveryState: CaracalState = {
+          ...s,
+          sessionFile: filePath,
+          sessionId,
+          byteOffset: entry.offset,
+          lineCount: entry.line_count,
+          generation: 0,
+        };
+        await pushNewLines(recoveryState, { final: true });
+        if (readCursor(sessionId).finalized) recovered++;
+      }
+
+      pruneSyncState();
+    } catch {
+      // Fail-open
+    }
+  }
+
+  function pruneSyncState(): void {
+    try {
+      if (!fs.existsSync(SYNC_STATE_PATH)) return;
+      const data: Record<string, CursorEntry> = JSON.parse(
+        fs.readFileSync(SYNC_STATE_PATH, "utf-8"),
+      );
+      const entries = Object.entries(data);
+      if (entries.length <= 50) return;
+
+      const required = entries.filter(([, value]) => !value.finalized);
+      const recentFinalized = entries
+        .filter(([, value]) => value.finalized)
+        .sort((a, b) => (b[1].last_pushed_at ?? 0) - (a[1].last_pushed_at ?? 0))
+        .slice(0, Math.max(0, 50 - required.length));
+      const pruned: Record<string, CursorEntry> = {};
+      for (const [key, value] of [...required, ...recentFinalized]) {
+        pruned[key] = value;
+      }
+      const temporary = `${SYNC_STATE_PATH}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify(pruned, null, 2), { mode: 0o600 });
+      fs.renameSync(temporary, SYNC_STATE_PATH);
+    } catch {
+      // Fail-open
+    }
+  }
+}

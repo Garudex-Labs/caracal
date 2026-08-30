@@ -1,0 +1,41 @@
+{
+  "name": "caracal-pi",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Caracal session telemetry for Pi - zero-dependency extension that pushes session traces to your Caracal server",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "caracal",
+    "telemetry",
+    "tracing"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/pi-extension"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/caracal.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types tests/acknowledged-delivery.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "extensions/",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@types/node": "^26.4.0",
+    "typescript": "^7.0.2"
+  }
+}
