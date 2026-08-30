@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "REST endpoint reference"
+description: "Every /api/v1 route, grouped by domain"
+---
+
+All endpoints require `Authorization: Bearer <token>` unless noted. Conventions, auth, and rate limits: [API authentication](/api).
+
+## Auth
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/auth/whoami` | Current user |
+| `PUT` | `/auth/profile/username` | Update the current user's username |
+| `PUT` | `/auth/profile/avatar` | Upload the current user's avatar |
+| `DELETE` | `/auth/profile/avatar` | Remove the current user's avatar |
+
+Device authorization, browser sessions, password reset, SSO, passkeys, and JWKS public-key distribution are served by the Better Auth identity service under `/api/auth`.
+
+## Registry
+
+Uniform per type - substitute `{type}` with `mcps`, `agents`, `skills`, `hooks`, `prompts`, or `sandboxes`. `{id}` accepts a UUID or name.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/{type}` | Submit / create |
+| `GET` | `/{type}` | List approved items |
+| `GET` | `/{type}/{id}` | Details |
+| `POST` | `/{type}/{id}/install` | Generate a harness config snippet |
+| `DELETE` | `/{type}/{id}` | Delete |
+| `GET` | `/{type}/{id}/metrics` | Usage metrics |
+| `POST` | `/agents/{id}/pull` | Resolve an agent and generate its full harness installation |
+| `POST` | `/scan` | Bulk-register items from a harness config scan |
+
+Additional route groups cover component sources, component versions, agent versions, bulk submission (`/bulk`), and registry-backed harness model data (`/registry-models`).
+
+## Review
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/review` | List pending submissions |
+| `GET` | `/review/{id}` | Submission details (includes MCP analysis) |
+| `POST` | `/review/{id}/approve` | Approve |
+| `POST` | `/review/{id}/reject` | Reject with reason |
+
+## Telemetry and sessions
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/ingest/session` | Idempotently ingest session source records; returns the contiguous acknowledgement - see [Session ingest](/api/session-ingest) |
+| `GET` | `/ingest/session/checkpoint` | The caller's contiguous line/byte checkpoint for a harness session |
+| `POST` | `/telemetry/hooks` | Ingest lifecycle hook events |
+| `GET` | `/telemetry/status` | Data-flow status |
+| `GET` | `/sessions` | Session summaries (powers `caracal ops traces`) |
+| `GET` | `/sessions/{session_id}` | Full session detail: turns, spans, events |
+
+## Alerts
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/alerts` | List alert rules |
+| `POST` | `/alerts` | Create alert rule |
+| `PATCH` | `/alerts/{id}` | Update alert rule |
+| `DELETE` | `/alerts/{id}` | Delete alert rule |
+| `GET` | `/alerts/{id}/history` | Firing history |
+
+## Insights and dashboard
+
+Insight report generation and retrieval (`/insights/…`) and dashboard aggregates (`/dashboard/…`) power `caracal ops insights` and the web UI. Reconciliation support routes live under `/reconcile`.
+
+## Operator and tenant administration
+
+Deployment operation uses `/operator/*` routes and requires an operator JWT context with the `operator` role. Organization and Project administration uses `/orgs/*` routes and is governed by Organization roles (`owner`, `admin`, `member`) and Project roles (`lead`, `user`).
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/operator/settings` | List dynamic settings (sensitive values redacted) |
+| `PUT` | `/operator/settings/{key}` | Set a dynamic setting |
+| `GET` | `/operator/users` | List deployment users |
+| `PUT` | `/operator/users/{id}/role` | Change deployment role |
+| `GET` | `/operator/audit-log` | Query deployment audit events |
+| `GET` | `/operator/security-events` | Query deployment security events |
+| `GET` | `/orgs` | List caller's Organizations |
+| `GET` | `/orgs/{org}/projects` | List accessible Projects in an Organization |
+
+Further operator sub-groups cover trace privacy, registered-Agent policy, retention, support bundles, logs, status, resources, AI engine configuration, migration jobs, restart controls, and tenant lifecycle.
+
+## GraphQL
+
+| Path | Description |
+| --- | --- |
+| `/api/v1/graphql` | Read-only queries + WebSocket subscriptions (`graphql-ws`) for live session updates |
+
+## Health
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Readiness (DB + ClickHouse checks) |
+| `GET` | `/healthz` | Liveness |

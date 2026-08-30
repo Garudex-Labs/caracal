@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Session ingest protocol"
+description: "The idempotent, checkpointed contract between exporters and the server"
+---
+
+Two endpoints implement session delivery. Every exporter - hooks, extensions, and `caracal reconcile` - speaks this protocol. The conceptual walkthrough is in [Session telemetry](/concepts/telemetry); this page specifies the contract.
+
+## Record identity
+
+A source record is identified by **project + user + harness + session ID + source line index**. This tuple makes storage effectively-once:
+
+- Retrying the same content at the same index is always safe - uploads converge on one record.
+- **Different** content at an already-acknowledged index is a conflict: the server returns `409` and never overwrites the canonical record.
+
+## `POST /api/v1/ingest/session`
+
+Ingests an ordered batch of source records for one session. The server validates batch size, per-line size, ordered byte offsets, finalization metadata, and authentication, then stores raw records in ClickHouse and classifies them with the harness's registered parser.
+
+Both ingest endpoints require `X-Caracal-Org` and `X-Caracal-Project`. The server resolves those lookup keys against the authenticated user, verifies that the project belongs to the organization represented by the request host, and stores the resolved project UUID. Missing scope returns `422`, a host/header mismatch returns `409`, and an unknown, foreign, or unauthorized project returns `404`.
+
+The response acknowledges the **highest contiguous** stored position:
+
+| Field | Meaning |
+| --- | --- |
+| `acknowledged_line` | Highest contiguous source index stored by the server |
+| `acknowledged_offset` | Corresponding source byte offset |
+
+Contiguity is the safety property: if the server has indexes 0 and 2 but not 1, the acknowledgement stays at 0, so a client can never advance past a gap.
+
+### Finalization and integrity audit
+
+A final request additionally carries `session_hash` (SHA-256 over the complete source) and `hashed_line_count`. The response includes:
+
+| Field | Meaning |
+| --- | --- |
+| `integrity_ok` | Whether stored records match the client's summary |
+| `server_hash` | The server's computed hash |
+| `repair_from_line` | Where to rewind and replay when the audit fails |
+
+A failed audit rewinds the durable checkpoint to the first affected range; the exporter replays that range through the same idempotent path. Hashing and manifest scans happen only on final/audit requests - never on incremental ingest.
+
+## `GET /api/v1/ingest/session/checkpoint`
+
+Returns the authenticated caller's contiguous line/byte checkpoint for a harness session. Exporters use it to recover after local state loss: resume from the server's position instead of replaying all acknowledged history. A checkpoint that doesn't match the local source (changed or truncated transcript) is reported as a mismatch, and the source is left untouched.
+
+## Client obligations
+
+An exporter implementing this contract must:
+
+1. Send only **complete** records (for JSONL: newline-terminated lines), in order, after the checkpoint.
+2. Persist each batch durably **before** the network attempt.
+3. Bind the pending batch to the organization/project active when it was recorded. Never replay it under a later project selection.
+4. Send the same `X-Caracal-Org` and `X-Caracal-Project` values on checkpoint recovery and batch delivery.
+5. Advance its local cursor only on contiguous acknowledgement covering the batch.
+6. Treat non-2xx responses per class: transient failures → keep the batch pending and retry later; `409` content conflicts and permanent rejections → quarantine and report, don't block later sessions.
+7. Send finalization metadata once the source is stable, and honor `repair_from_line`.
+
+Session records may carry attribution metadata when available: agent ID, agent version, layer hash, parent session ID (Claude Code subagents), and harness-specific durable metadata such as Kiro session credits.
+
+<Note>
+`POST /api/v1/telemetry/hooks` is a separate, simpler endpoint for lifecycle hook events. Session content flows exclusively through `/ingest/session`.
+</Note>

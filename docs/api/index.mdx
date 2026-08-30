@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "API authentication and conventions"
+description: "Bearer tokens, JWT lifecycle, request conventions, rate limits, and errors"
+---
+
+The Caracal server exposes a REST API at `/api/v1` and a read-only GraphQL endpoint with subscriptions at `/api/v1/graphql`. Everything the CLI and web UI do goes through this API.
+
+## Authentication
+
+All authenticated requests use a Bearer token:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://caracal.example.com/api/v1/auth/whoami
+```
+
+There is no API-key header - `Authorization: Bearer` is the only authenticated path.
+
+**Tokens are JWTs** signed with ES256 by default (RS256 configurable). Public keys are served from a JWKS endpoint, so external services can verify tokens without shared secrets. Obtain and manage tokens through:
+
+| Flow | How |
+| --- | --- |
+| CLI login | `caracal auth login` - credentials or browser SSO through the Better Auth device authorization flow |
+| Browser login | Better Auth sessions under `/api/auth`; the web app mints tenant JWTs as needed |
+| CLI/telemetry refresh | The CLI uses its saved Better Auth session token to mint a fresh tenant JWT before API calls |
+| Revoke | Revoke the Better Auth session from Settings → Security → Active sessions |
+
+Access JWTs are short-lived. Revoking a Better Auth session prevents that browser or CLI device from minting new tenant JWTs without affecting unrelated sessions.
+
+For CI, set `CARACAL_ACCESS_TOKEN` (or its `_FILE` form) and use the CLI, or send the token directly. See [Environment variables](/reference/environment-variables).
+
+## Authorization
+
+Caracal separates deployment authority from tenant authority. Deployment roles are `user`, `reviewer`, and `operator`; operator-scoped routes require an operator JWT context as well as the `operator` role. Tenant authority comes from Organization roles (`owner`, `admin`, `member`) and Project roles (`lead`, `user`) resolved on every request. See [Registry, identity, and review](/concepts/registry#roles).
+
+## Conventions
+
+- **Base path:** `/api/v1`. Content type `application/json` unless noted.
+- **Identifiers:** `{id}` path parameters accept a UUID or a name; canonical identity is `namespace/slug`.
+- **Errors** return a structured body with a request ID; the CLI surfaces these as categorized errors. Include the request ID when reporting issues.
+- **Request size** is capped by `MAX_REQUEST_SIZE_MB` (default 10 MB) on all endpoints.
+- **Rate limits** apply to auth endpoints: `RATE_LIMIT_AUTH` (default `10/minute`) generally and `RATE_LIMIT_AUTH_STRICT` (default `5/minute`) for login and password reset. Non-auth endpoints are not rate-limited by default - front the API with a gateway if you need more.
+- **Mutations are not automatically retried** by the CLI; follow the [idempotency contract](/cli/api#retry-and-idempotency-contract) in your own clients.
+
+## GraphQL
+
+`/api/v1/graphql` is a read-only telemetry layer with WebSocket subscriptions (`graphql-ws` protocol) for live session updates - this is what powers live trace views in the web UI.
+
+## Health
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Readiness - checks PostgreSQL and ClickHouse |
+| `GET /healthz` | Liveness - is the API process alive |
+
+## Explore the surface
+
+<CardGroup cols={2}>
+  <Card title="Endpoint reference" icon="list" href="/api/endpoints">
+    Every REST route grouped by domain.
+  </Card>
+  <Card title="Session ingest protocol" icon="upload" href="/api/session-ingest">
+    The idempotent, checkpointed contract used by telemetry exporters.
+  </Card>
+</CardGroup>
