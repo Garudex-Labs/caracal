@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Publish components"
+description: "Submit MCP servers, skills, hooks, prompts, and sandboxes to the registry"
+---
+
+Components are the building blocks agents are composed of. Any signed-in user can publish them; review controls what appears in the public listing, but your own submissions are usable by you immediately.
+
+All submissions follow the same shape:
+
+```bash
+caracal registry <type> submit [options]      # type: mcp | skill | hook | prompt | sandbox
+```
+
+Every type supports `--draft` (save without submitting), `--submit <id>` (submit a saved draft), and `--from-file` (JSON input for automation).
+
+## MCP servers
+
+The default flow is pasting the same JSON you already use in your harness:
+
+```bash
+caracal registry mcp submit
+```
+
+The command accepts harness configs (`{"mcpServers": {...}}`), bare configs (`{"command": "npx", "args": [...]}`), SSE/HTTP configs (`{"url": ..., "type": "sse"}`), and `server.json` manifests. It auto-detects required environment variables from `$VAR` patterns and `env` keys, previews the result, and prompts for name, description, and category.
+
+Non-interactive:
+
+```bash
+echo '{"command": "npx", "args": ["-y", "@example/mcp-server"]}' \
+  | caracal registry mcp submit -y -n my-server -c developer-tools --output json
+```
+
+Alternatively, let the server analyze a repository:
+
+```bash
+caracal registry mcp submit --git https://github.com/org/mcp-server
+```
+
+Git analysis shallow-clones the repo, detects the MCP framework (FastMCP, Python/TypeScript/Go SDKs), extracts the server name, description, and exposed tools via AST, and scans for required env vars. Reviewers see this analysis alongside your submission.
+
+Categories include `developer-tools`, `databases`, `search`, `ai-ml`, `version-control`, `security`, and others; transports are `stdio`, `sse`, and `streamable-http`.
+
+## Skills
+
+Point at a git repo (the server fetches `SKILL.md`) or provide the file directly:
+
+```bash
+caracal registry skill submit --git-url https://github.com/org/repo
+caracal registry skill submit --skill-md ./SKILL.md \
+  --name review --description "Review code" --task-type code-review
+```
+
+`--skill-md` auto-fills fields from the frontmatter. Task types: `code-review`, `code-generation`, `testing`, `documentation`, `debugging`, `refactoring`, `deployment`, `security-audit`, `performance`, `general`.
+
+## Hooks
+
+Inline script content or git-hosted scripts:
+
+```bash
+caracal registry hook submit --script ./protect-files.sh
+caracal registry hook submit --source-url https://github.com/org/hooks --source-path hooks/guard/
+```
+
+A hook declares its event (`PreToolUse`, `Stop`, ...), handler type, execution mode, and scope - validated server-side against the [hook specification](/reference/hooks).
+
+## Prompts
+
+```bash
+caracal registry prompt submit --from-file template.md   # non-JSON file = template content
+caracal registry prompt submit --from-file prompt.json   # full JSON submission
+```
+
+Templates use `{{variable}}` substitution. Verify rendering before you share:
+
+```bash
+caracal registry prompt render my-prompt --var lang=python --var task=refactor
+```
+
+## Sandboxes
+
+```bash
+caracal registry sandbox submit --from-file sandbox.json
+```
+
+A sandbox defines a Docker runtime (image, resource limits) for agent-generated code. Sandboxes have no standalone install - attach them to an agent (`caracal agent add sandbox <uuid>`) and they install with the agent pull.
+
+## Project visibility
+
+Add `--visibility public|project` to any submit. The owning Project comes from your active Organization/Project context (set with `caracal use`):
+
+```bash
+caracal registry skill submit --skill-md ./SKILL.md --visibility project
+```
+
+`project` items are visible only to the Project's members and authorized reviewers; `public` items are visible to everyone once approved. See [Projects and visibility](/concepts/registry#projects-and-visibility).
+
+## After submission
+
+| Action | Command |
+| --- | --- |
+| Track your submissions across statuses | `caracal registry <type> my` |
+| Edit a draft/pending/rejected submission | `caracal registry <type> edit <ref>` (acquires an edit lock) |
+| Update an approved listing | `caracal registry mcp edit <ref> --bump minor --changelog "..."` - publishes a new version |
+| Publish component versions explicitly | `caracal registry version publish` / `list` |
+| Archive / restore | `caracal registry <type> archive|unarchive <ref> --yes` |
+| Manage co-authors | `caracal registry <type> co-authors add|remove|list <ref>` |
+
+## Bulk submission
+
+Submit up to 200 mixed components from one JSON file:
+
+```bash
+caracal registry bulk submit --from-file components.json --dry-run --output json   # validate structure
+caracal registry bulk submit --from-file components.json --yes --output json      # execute
+```
+
+Each entry is `{"type": "skill", ...normal submission fields}`. Execution validates every entry before the first mutation, submits in order, skips conflicts, and returns per-entry IDs, canonical names, and review status. Re-run a partial batch only after inspecting the results - duplicate identities are skipped for types that reject them.
+
+Full command reference: [caracal registry](/cli/registry).

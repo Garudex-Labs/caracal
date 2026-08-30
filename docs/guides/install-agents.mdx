@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Install an agent"
+description: "Find a published agent and pull it into any supported harness"
+---
+
+`caracal agent pull` turns one registry agent definition into native config files for your harness. This guide covers finding agents, installing them safely, providing secrets, and tracking what's installed.
+
+## Find an agent
+
+```bash
+caracal agent list                       # approved, visible agents
+caracal agent list --search review       # filter by text
+caracal agent list --namespace richard     # one publisher
+caracal agent show richard/reviewer        # composition, components, versions
+```
+
+Agent references in every command accept canonical `namespace/slug`, UUIDs, unambiguous bare names, `@aliases`, and row numbers from your most recent `list` output.
+
+## Pull it
+
+```bash
+caracal agent pull richard/reviewer --harness claude-code
+```
+
+The `--harness` flag is required: `claude-code`, `kiro`, `cursor`, `copilot`, `copilot-cli`, `codex`, `opencode`, `goose`, `antigravity`, or `pi`.
+
+Pull then:
+
+1. Resolves the agent version and checks component conflicts against what you already have installed.
+2. Generates harness-native config on the server.
+3. Prompts for required MCP environment variables and headers (see below).
+4. Writes or merges files, installs bundled skills and session hooks, and runs any required harness MCP registration commands.
+5. Records the exact agent and component versions in a local lockfile.
+
+Useful variations:
+
+```bash
+# Preview everything without writing a byte
+caracal agent pull richard/reviewer --harness kiro --dry-run
+
+# Install into a specific project directory
+caracal agent pull richard/reviewer --harness cursor --dir ./my-project
+
+# Project-local vs user-global scope (harnesses that support both)
+caracal agent pull richard/reviewer --harness claude-code --scope project
+
+# Pin an exact version
+caracal agent pull richard/reviewer --harness pi --version 1.2.3
+
+# Choose the model (repeatable; `harness=model` form for multi-harness agents)
+caracal agent pull richard/reviewer --harness claude-code --model claude-sonnet-4
+
+# Claude Code tool allowlist
+caracal agent pull richard/reviewer --harness claude-code --tools Read,Write,Bash
+```
+
+## Secrets
+
+Agents that bundle MCP servers often need tokens or API keys. Pull discovers required environment variables and headers from the components:
+
+- **Interactive mode** prompts for missing values.
+- **Non-interactive mode** (`--no-prompt`) uses `--env NAME=VALUE` and `--header NAME=VALUE` assignments; unprovided values fall back to the generated config's placeholder behavior.
+
+```bash
+caracal agent pull richard/reviewer --harness kiro --no-prompt \
+  --env GITHUB_TOKEN="$GITHUB_TOKEN" --output json
+```
+
+Secret values go only into the installation request and the generated local config. They are never uploaded to the registry, echoed in results, or included in traces or error details. Prefer environment expansion over literal values so secrets stay out of shell history.
+
+## File safety guarantees
+
+- Generated paths are confined to the project directory; home paths are used only for explicit user-scope installs. Path traversal and symlink escapes are rejected.
+- JSON MCP and hook sections **merge** into existing objects; TOML managed tables are replaced idempotently while unrelated tables remain; generated text files are replaced atomically.
+- Existing config that can't be merged safely is **never overwritten** - the command exits with conflict code 6 and leaves it untouched.
+- Every created, updated, merged, or cloned file is reported in the result.
+
+## Scripting installs
+
+JSON mode requires `--no-prompt` and returns a machine-readable result:
+
+```bash
+caracal agent pull richard/reviewer --harness kiro --no-prompt --output json
+```
+
+```json
+{
+  "agent": {
+    "qualified_name": "richard/reviewer",
+    "version": "1.2.3",
+    "local_name": "reviewer"
+  },
+  "harness": "kiro",
+  "scope": "project",
+  "dry_run": false,
+  "files": [
+    { "path": "/work/project/.kiro/agents/reviewer.json", "status": "created" }
+  ],
+  "warnings": [],
+  "setup_commands": []
+}
+```
+
+## After installing
+
+```bash
+caracal scan             # see the agent in your harness inventory
+caracal sync --dry-run   # check for newer registry versions of your pins
+caracal doctor           # verify hooks and lockfile state
+```
+
+If only part of an agent installed, the harness likely lacks a capability the agent uses - pull warns about unsupported parts and fails only when a hard requirement can't be met. Check the [capability matrix](/concepts/harnesses).
+
+Full flag reference: [caracal agent](/cli/agent).

@@ -1,0 +1,89 @@
+---
+title: "Instrument your harnesses"
+description: "Discover what's installed and wire up session telemetry with scan and doctor"
+---
+
+Instrumentation gives Caracal visibility into your coding sessions. It consists of small, Caracal-managed hooks (or a plugin/extension, depending on the harness) that deliver session transcripts to your server. This guide covers discovery, installation, verification, and removal.
+
+<Info>
+Instrumentation never touches MCP configuration. Commands and remote URLs stay exactly as you configured them, and no telemetry environment variables are injected.
+</Info>
+
+## 1. Discover what you have
+
+```bash
+caracal scan
+```
+
+`scan` is strictly read-only. It walks every registered harness's config locations and reports detected MCP servers, skills, hooks, and agents - shown exactly as configured. Use it any time you want an inventory of a machine.
+
+## 2. Install telemetry hooks
+
+Instrument everything detected:
+
+```bash
+caracal doctor patch --all-harnesses
+```
+
+Or target specific harnesses:
+
+```bash
+caracal doctor patch --harness claude-code --harness kiro
+```
+
+Exactly one target mode is required - `--all-harnesses` or one or more `--harness` flags. Preview first if you want to see planned file changes:
+
+```bash
+caracal doctor patch --all-harnesses --dry-run --output json
+```
+
+What patch guarantees:
+
+- **Idempotent** - running it again converges to the same state.
+- **Surgical** - it tags its entries with a `_caracal` marker and only ever creates or updates Caracal-managed entries. User-authored hooks are preserved.
+- **Atomic** - each config file is written atomically. Malformed or unreadable existing files fail loudly instead of being replaced.
+
+Restart the harness after patching so the hook changes take effect.
+
+<Note>
+Per-harness mechanics differ: most harnesses get command hooks in their native hook config; OpenCode and Goose get a plugin; Pi gets a bundled TypeScript extension at `~/.pi/agent/extensions/caracal.ts`. See [Harnesses](/harnesses) for exact paths.
+</Note>
+
+## 3. Verify
+
+Run a short coding session in the instrumented harness, then check:
+
+```bash
+caracal doctor                      # overall health: auth, server, hooks, skill, lockfile
+caracal ops telemetry status        # pending batches, disk use, last acknowledgement
+caracal ops traces --limit 5        # the session should appear here
+```
+
+`doctor` diagnoses local authentication, server reachability, lockfile metadata, managed hooks across all harnesses, and the bundled Caracal skill. Unresolved issues exit non-zero; warnings alone don't. Apply fixable warnings without prompting:
+
+```bash
+caracal doctor --yes
+```
+
+If sessions ran before hooks were installed, backfill them - see [Backfill missed sessions](/guides/backfill-sessions).
+
+## 4. Remove instrumentation
+
+```bash
+caracal doctor cleanup --dry-run              # preview
+caracal doctor cleanup --harness goose --yes  # one harness
+caracal doctor cleanup --exclude kiro --yes   # everything except kiro
+```
+
+Cleanup removes only Caracal-managed hooks, plugins, extensions, and legacy telemetry settings. Your own hooks stay.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Harness not listed by `scan` | Is it installed with config in its standard location? |
+| Patch reports `changed: false` | Already instrumented - nothing to do |
+| Session missing from `/traces` | Harness restarted after patch? Session completed? Try `caracal reconcile` |
+| `doctor` reports unreachable server | `caracal auth status`, server URL in `~/.caracal/config.json`, network path |
+
+Full command reference: [caracal doctor](/cli/doctor), [caracal scan](/cli/scan).
