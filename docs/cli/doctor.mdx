@@ -1,0 +1,96 @@
+---
+title: "caracal doctor"
+description: "Diagnose local state, install or remove instrumentation, and generate support bundles"
+---
+
+Diagnoses local Caracal state, repairs Caracal-managed telemetry instrumentation, removes it, and produces redacted diagnostic bundles. All workflows support `--output table|json`; JSON mode never prompts.
+
+| Command | Purpose |
+| --- | --- |
+| `doctor` | Diagnose configuration, registry metadata, skills, and harness telemetry |
+| `doctor patch` | Install or update Caracal-managed instrumentation |
+| `doctor cleanup` | Remove Caracal-managed instrumentation |
+| `doctor support bundle` | Generate a redacted diagnostic archive |
+| `doctor support inspect` | Inspect an archive without extracting it |
+
+## doctor (diagnose)
+
+```bash
+caracal doctor --output json
+caracal doctor --yes            # also apply fixable warnings + canonical lockfile metadata
+```
+
+Checks: local authentication and server health, lockfile metadata against the active registry, managed hooks/plugins/extensions for all harnesses, UUID-attributed Kiro agent hooks, and the bundled Caracal skill.
+
+```json
+{
+  "healthy": false,
+  "issues": ["Cannot reach the configured server"],
+  "warnings": ["Cursor session push hooks are not installed"],
+  "lockfile_changes": [],
+  "skill_missing": [],
+  "fix_attempted": false,
+  "patch": null
+}
+```
+
+Human mode exits non-zero on unresolved issues; warnings alone succeed. JSON diagnosis exits zero when the checks themselves ran. `--yes` never changes installed version pins and only updates Caracal-managed entries.
+
+## doctor patch
+
+```bash
+caracal doctor patch --all-harnesses --dry-run --output json     # preview everything
+caracal doctor patch --harness claude-code --harness kiro        # selected harnesses
+```
+
+Exactly one target mode is required: `--all-harnesses` or one or more `--harness`. JSON returns one result per harness (`{"harness": "kiro", "changed": true}`).
+
+Guarantees: idempotent, preserves unrelated hooks and config, atomic writes, and invalid or unreadable harness files fail loudly rather than being replaced. Per-harness specifics (Pi extension install, Goose plugin, etc.) are on each [harness page](/harnesses). MCP commands and URLs are never wrapped or rewritten.
+
+## doctor cleanup
+
+```bash
+caracal doctor cleanup --dry-run --output json
+caracal doctor cleanup --harness goose --yes
+caracal doctor cleanup --exclude kiro --yes      # all harnesses except kiro
+```
+
+Removes only Caracal-managed hooks, plugins, extensions, and legacy telemetry settings - user-owned hooks remain. JSON cleanup requires `--yes` unless it's a dry run.
+
+## doctor support bundle
+
+```bash
+caracal doctor support bundle --output json
+caracal doctor support bundle --file /tmp/caracal-support.tar.gz \
+  --logs-since 2h --no-include-system --output json
+```
+
+| Option | Purpose |
+| --- | --- |
+| `--file`, `-f` | Archive path (default: timestamped file in the current directory) |
+| `--logs-since` | Duration up to 30 days: `30m`, `2h`, `1d12h` |
+| `--include-system` / `--no-include-system` | Local OS/CPU/memory/disk/container details |
+| `--force`, `--yes` | Overwrite an existing archive; accept the 100 MB size warning |
+
+**Collection.** Remote collectors (`POST /api/v1/support/collect`, requires an administrator) gather application and migration versions, database health, allowlisted configuration, aggregate table counts, error fingerprints, and recent redacted logs. Local collectors add allowlisted config and optional system metrics. Remote failures degrade to local-only collection with an explicit `remote_status` - never silently. If no collector produces data, the command exits 9 without creating an archive.
+
+**Privacy.** Bundles contain aggregate diagnostics - no customer database rows or trace payloads. Redaction covers passwords, tokens, API keys, private keys, authorization values, URL credentials, JWTs, AWS access keys, and high-entropy strings; host identity is hashed; every archived file gets a SHA-256 inventory entry; the archive is written atomically with mode `0600`. Still review before sharing - logs and deployment metadata can be operationally sensitive.
+
+## doctor support inspect
+
+```bash
+caracal doctor support inspect ./caracal-support.tar.gz --output json
+caracal doctor support inspect ./caracal-support.tar.gz --show health/postgres.json
+```
+
+Returns the manifest, safe file inventory, warnings, and optionally one file's content. Inspection never extracts: traversal paths, links, malformed or oversized manifests, and shown files over 1 MB are rejected; unsafe members are omitted and reported.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 3 | Authentication required for patching |
+| 5 | Bundle or requested member not found |
+| 6 | Output archive already exists |
+| 7 | Invalid harness selection, malformed harness file, invalid bundle, or missing confirmation |
+| 9 | Server, collector, or filesystem unavailable; no diagnostic data |

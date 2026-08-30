@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "CLI conventions"
+description: "Command map, output contracts, exit codes, references, and non-interactive use"
+---
+
+The `caracal` CLI is the primary interface for developers and operators. This page defines the conventions every command follows; each command group has its own reference page.
+
+## Command map
+
+| Command | Purpose |
+| --- | --- |
+| [`caracal auth`](/cli/auth) | Login, logout, identity, password, username |
+| [`caracal config`](/cli/config) | Local CLI configuration and aliases |
+| [`caracal use`](/cli/sync) | Select the organization/project context this machine syncs against |
+| [`caracal sync`](/cli/sync) | Bring local installs up to date with the registry |
+| [`caracal pull`](/cli/sync) | Materialize an agent or component into a harness |
+| [`caracal scan`](/cli/scan) | Read-only inventory of installed harness components |
+| [`caracal reconcile`](/cli/reconcile) | Backfill sessions missed by automatic delivery |
+| [`caracal agent`](/cli/agent) | Author, publish, version, and install agents (includes `pull`) |
+| [`caracal registry`](/cli/registry) | Publish and manage components; versions, models, recommendations, bulk |
+| [`caracal ops`](/cli/ops) | Traces, telemetry health, logs, insights |
+| [`caracal doctor`](/cli/doctor) | Diagnose and repair instrumentation; support bundles |
+| [`caracal self`](/cli/self) | Upgrade, downgrade, rollback the CLI |
+| [`caracal api`](/cli/api) | Authenticated JSON escape hatch for any endpoint |
+
+Organization and project management, submission review, the inbox, and server administration live in the web UI; deployment lifecycle belongs to the operator scripts.
+
+## Global options
+
+| Option | Short | Description |
+| --- | --- | --- |
+| `--version` | `-V` | Print CLI version and exit |
+| `--verbose` | `-v` | Verbose output |
+| `--debug` | | Debug-level logging |
+| `--help` | | Help for any command |
+
+## References
+
+Anywhere a command accepts an agent or component reference, these all work:
+
+| Form | Example | Notes |
+| --- | --- | --- |
+| Canonical identity | `richard/github-mcp` | Preferred; namespace is a username |
+| UUID | `498c17ac-…` | Stable machine key; use in scripts |
+| Bare name | `github-mcp` | Only when unambiguous across namespaces |
+| Alias | `@my-mcp` | Defined via `caracal config alias` |
+| Row number | `3` | From your latest `list` output, same component type, humans only |
+
+## Output contract
+
+Read commands accept `--output table` (default, TTY-friendly) or `--output json`.
+
+**JSON list envelope** - every dedicated list command returns:
+
+```json
+{ "items": [], "total": 0, "page": 1, "page_size": 0 }
+```
+
+Detail and mutation commands return the server object directly. JSON success output contains no prompts, banners, or spinners; JSON mode never prompts, so mutations require `--yes` (or `--no-prompt` for pull) and failures leave stdout empty with one categorized error object on stderr:
+
+```json
+{
+  "error": {
+    "category": "not_found",
+    "message": "The requested resource was not found.",
+    "operation": "Show agent",
+    "resource": "agent registry",
+    "remediation": "Check the identifier or list available agents.",
+    "request_id": "01J...",
+    "http_status": 404,
+    "exit_code": 5
+  }
+}
+```
+
+`caracal api` is the one exception: it preserves raw endpoint JSON.
+
+## Exit codes
+
+Consistent across all commands:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Unexpected or uncategorized failure |
+| 2 | Usage error |
+| 3 | Authentication required or failed |
+| 4 | Permission denied |
+| 5 | Resource not found |
+| 6 | Conflict with current state |
+| 7 | Validation failure |
+| 8 | Rate limit reached |
+| 9 | Network, service, or dependency unavailable |
+| 10 | CLI and server version mismatch |
+
+## Non-interactive and CI use
+
+Pair environment variables with `--output json` and explicit confirmation flags:
+
+```bash
+export CARACAL_SERVER_URL=https://caracal.your-company.internal
+export CARACAL_ACCESS_TOKEN=<token>       # or CARACAL_TOKEN
+
+caracal ops traces --limit 100 --output json | jq
+```
+
+Token and password variables support `_FILE` forms (`CARACAL_ACCESS_TOKEN_FILE=/run/secrets/token`); setting both a direct value and its file form is an error. Full list: [Environment variables](/reference/environment-variables).
+
+## Aliases
+
+```bash
+caracal config alias my-mcp 498c17ac-1234-4567-89ab-cdef01234567
+caracal registry mcp show @my-mcp
+```

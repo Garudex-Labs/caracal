@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "caracal ops"
+description: "Traces, telemetry health, live logs, and agent insight reports"
+---
+
+Observability and operations: current session telemetry, registry usage, logs, and agent insight reports. Finite commands return one JSON document; streaming commands emit JSON Lines.
+
+| Command | Purpose |
+| --- | --- |
+| `top` | Most-downloaded MCPs or agents |
+| `traces` | List sessions or fetch their turn/span detail |
+| `telemetry status` | Server event counts + local outbox health |
+| `logs` | Follow local or remote development logs |
+| `insights list` / `show` / `generate` | Agent insight reports |
+
+## top
+
+```bash
+caracal ops top --type mcp --output json
+caracal ops top --type agent
+```
+
+Returns the direct ranking array (currently server-limited to five MCPs / six agents).
+
+## traces
+
+Backed by the Sessions API (`GET /api/v1/sessions`, `GET /api/v1/sessions/{session_id}`):
+
+```bash
+caracal ops traces --limit 20 --output json         # session summaries
+caracal ops traces --platform kiro --days 7         # filter by harness and window
+caracal ops traces --turn --limit 5                 # prompts + tool calls per session
+caracal ops traces --span --limit 3                 # full assistant + tool-result detail
+```
+
+`--platform` accepts a registered harness; `--days` 1–365; `--limit` 1–200. Turn/span JSON wraps each session as `{ "summary": ..., "detail": { "events": [] } }`; detail failures are surfaced, never silently replaced with partial summaries.
+
+## telemetry status
+
+```bash
+caracal ops telemetry status --output json
+```
+
+```json
+{
+  "server": { "status": "ok", "tool_call_events": 8, "agent_interaction_events": 5 },
+  "outbox": { "available": true, "pending": 0, "failed": 0, "total": 0, "bytes": 0 }
+}
+```
+
+The server portion requires administrator access. A local outbox read failure appears as `available: false` with a safe error type.
+
+## logs
+
+```bash
+caracal ops logs --level WARNING --lines 50 --no-follow   # finite local tail
+caracal ops logs --level INFO                             # follow local logs
+caracal ops logs --remote --level WARNING                 # follow server logs (admin)
+```
+
+Levels: `TRACE`, `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. `--filter` does case-insensitive text filtering. JSON mode emits JSON Lines: local records as `{"event":"log","source":"local","level":...,"line":...}`, remote records wrapping the structured server event. Access tokens are never emitted, but log content itself can be sensitive.
+
+## insights
+
+Agent insight reports analyze real session usage per agent:
+
+```bash
+caracal ops insights list richard/reviewer
+caracal ops insights show richard/reviewer latest
+caracal ops insights show richard/reviewer latest --section suggestions
+caracal ops insights generate richard/reviewer --period 14
+caracal ops insights generate richard/reviewer --period 14 --wait --output json   # JSON Lines progress
+```
+
+Periods 1–365 days; `--version`/`--compare` take semantic versions. Sections: `at_a_glance`, `what_they_work_on`, `interaction_style`, `usage_patterns`, `what_works`, `friction_analysis`, `suggestions`, `usage_cost_analysis`, `version_comparison`, `regression_detection`, `on_the_horizon`, `fun_ending`.
+
+`--wait` streams `queued` → `progress` events until completion. Completed reports also notify your web inbox (`insight_ready`).
+
+## Exit codes
+
+Standard [CLI exit codes](/cli#exit-codes); notably `6` for ambiguous report or registry references and `9` when a server, provider, stream, outbox, or local log dependency is unavailable.
