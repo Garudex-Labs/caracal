@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caracal.fullname" . }}-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgresql
+  selector:
+    {{- include "caracal.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: db
+{{- end }}
