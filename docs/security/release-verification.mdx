@@ -1,0 +1,51 @@
+---
+title: "Verify a release"
+description: "Check artifact provenance and signed tags with Sigstore before running Caracal"
+---
+
+Release artifacts carry GitHub keyless Sigstore provenance attestations, and release tags (after the signing policy was introduced) are signed with gitsign. The two checks prove different things:
+
+- **Artifact verification** binds a downloaded file and its SHA-256 digest to the Caracal release workflow.
+- **Tag verification** binds a git tag to the same GitHub Actions workflow identity.
+
+Never treat a checksum alone as proof of origin, and note historical tags may be unsigned.
+
+## 1. Download
+
+```bash
+gh release download v1.0.0 --repo Garudex-Labs/caracal --dir caracal-release
+cd caracal-release
+```
+
+## 2. Check the bytes
+
+```bash
+sha256sum --check checksums.txt          # macOS: shasum -a 256 --check checksums.txt
+```
+
+## 3. Verify artifact provenance
+
+```bash
+gh attestation verify ./caracal-linux-x64 \
+  --repo Garudex-Labs/caracal \
+  --bundle ./build-provenance.intoto.jsonl \
+  --signer-workflow Garudex-Labs/caracal/.github/workflows/release.yml@refs/heads/main
+```
+
+Substitute the server archive or another CLI binary as needed. Success verifies the digest, the Sigstore certificate chain, the source repository, and the release-workflow identity. Keyless signing means there is **no long-lived release private key** anywhere to steal.
+
+## 4. Verify the tag
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git && cd caracal
+git fetch origin tag v1.0.0
+gitsign verify-tag v1.0.0 \
+  --certificate-identity https://github.com/Garudex-Labs/caracal/.github/workflows/release.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The expected certificate identity is the release workflow on `refs/heads/main`; the issuer is GitHub Actions. Verification includes transparency-log evidence.
+
+<Note>
+A signed tag does not replace artifact provenance. Verify both when it matters which commit produced exactly the bytes you downloaded. The CLI's own `caracal self upgrade` verifies published SHA-256 checksums automatically and refuses unchecksummed standalone installs in JSON mode.
+</Note>

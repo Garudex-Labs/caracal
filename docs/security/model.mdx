@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Security model"
+description: "Assets, trust boundaries, controls, and residual risks"
+---
+
+Caracal's security case: registry control, authentication credentials, agent configuration, and telemetry are protected against unauthorized disclosure or modification **when operators follow the documented deployment requirements**. This page summarizes what's protected, where the boundaries are, and what remains the operator's responsibility.
+
+## Assets
+
+- Credentials and keys: passwords, access/refresh tokens, OAuth secrets, git tokens, signing keys
+- Registry content: agents and their MCP, skill, hook, prompt, and sandbox configurations
+- Telemetry: session transcripts, traces, insights, audit events, user identity data
+- Supply chain: release artifacts, tags, and workflow identity
+- Administrative control: users, Organization and Project membership, deployment settings, review, trace privacy, retention, SSO
+
+## Trust boundaries
+
+1. **Client → frontend.** Untrusted browsers, CLIs, and hooks cross HTTPS into nginx and the API. Packaged listeners bind to loopback by default; remote access requires an operator-chosen TLS proxy or an explicit non-loopback bind.
+2. **API authn/authz.** Requests pass from unauthenticated parsing into JWT, password, SSO, deployment role, Organization/Project membership, review-scope, and ownership checks.
+3. **Registry execution inputs.** Submitted URLs, archives, MCP metadata, prompts, and harness configs cross into scanners and config generation.
+4. **Application → data services.** API and workers reach PostgreSQL, ClickHouse, and Redis over the container network; database ports bind to loopback by default.
+5. **Secret storage.** Operator-controlled secret files and JWT/SAML keys enter application memory only; file-backed secrets are never copied into PostgreSQL or Redis.
+6. **External services.** OAuth providers, source repos, webhooks, and model providers sit behind outbound HTTPS and SSRF policy.
+7. **Release supply chain.** Source and GitHub Actions identities flow into signed tags, artifacts, and provenance attestations.
+
+Administrators and host operators are trusted to protect the host, secret files, backups, and TLS termination. A host compromise, malicious admin, compromised IdP, or compromised release workflow is outside the application's own controls.
+
+## Key controls
+
+| Area | Controls |
+| --- | --- |
+| Identity | scrypt password hashing with per-user salts; ES256/RS256 asymmetric JWTs; short-lived access tokens; refresh revocation that **fails closed** on Redis outage; published JWKS |
+| Authorization | Tenant and operator auth contexts; deployment roles; Organization/Project membership permissions; ownership, co-author, review-scope, and Resource visibility checks |
+| Secrets | Bounded `NAME_FILE` inputs (direct + file together is an error); operator-owned secret files with group-scoped container access; externally-managed values immune to admin-API overwrite |
+| Input containment | Typed schemas, enums, allowlists, parameterized queries; SSRF guard on all outbound URLs; archive/path/XML/SVG/header/request-size validation; non-root, read-only containers with `no-new-privileges` |
+| Crypto agility | ES256 ↔ RS256 switching that retains old public keys for the transition window and rejects key-type confusion |
+| Detection & recovery | Audit and security events for privileged actions; health checks and diagnostics; documented backup/restore; private vulnerability reporting with response targets (see SECURITY.md) |
+
+Common weakness mitigations map cleanly: injection → typed schemas + parameterized SQL; broken access control → central role dependencies; SSRF → scheme/address validation; path traversal → resolved-path containment; credential disclosure → redaction, encrypted settings, support-bundle filtering; token forgery → asymmetric signatures, required key IDs, expiry, revocation; resource exhaustion → request/line/archive/timeout/rate limits; supply-chain substitution → locked dependencies, signed tags, provenance.
+
+## Residual risks - read before deploying
+
+- **Non-loopback plaintext mode** exposes credentials and telemetry to interception. Only for trusted private networks or behind an upstream TLS terminator.
+- **Loopback HTTP relies on the host boundary** - privileged local processes can observe traffic and files.
+- **File-backed secrets** are only as safe as host permissions, mounts, backups, and rotation.
+- **Trusted authorities can be abused**: a compromised admin, host, IdP, or release workflow exercises real authority.
+- **Third-party components** (MCP servers, hooks, skills, models, harnesses) process data outside Caracal's boundary - review and isolate them.
+- **Pre-policy releases** may lack signed tags; see [Release verification](/security/release-verification).
