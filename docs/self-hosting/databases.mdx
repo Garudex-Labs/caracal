@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Databases"
+description: "PostgreSQL and ClickHouse roles, migrations, retention, and capacity planning"
+---
+
+| Store | Role | Access pattern | Schema managed by |
+| --- | --- | --- | --- |
+| PostgreSQL 16 | Registry, users, config | Relational, transactional | Alembic migrations (`caracal-server/alembic/versions/`) |
+| ClickHouse | Telemetry and audit events | Columnar, high-write, time-series | Versioned SQL migrations (`caracal-server/clickhouse/migrations/`) |
+
+Redis is the third store - job queue, GraphQL pub/sub, settings cache, token revocation - but holds no durable data of consequence (in-flight jobs re-queue on worker restart).
+
+## PostgreSQL
+
+Holds users and RBAC, registry metadata for all six entity types, review state, alerts, API keys, and teams.
+
+**Migrations** are Alembic-managed and applied by the init service before API startup. Run it manually when needed:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml run --rm caracal-init
+```
+
+The admin migration API (`/api/v1/operator/migrate`, web UI **Admin → Migrate**) moves *data* between deployments - it never applies schema migrations.
+
+**Dev reset**: `docker compose down -v && docker compose up --build -d` (deletes all named volumes - dev only).
+
+## ClickHouse
+
+Core tables:
+
+| Table | Contents |
+| --- | --- |
+| `session_events` | Raw and parsed session records: token fields, tool fields, session metadata |
+| `session_stats_agg` | Pre-aggregated session summaries (powers lists and dashboards) |
+| `layer_snapshots` | Harness config snapshots for version-aware insights |
+| `audit_log` | Compliance audit events |
+| `security_events` | Login, auth, and admin security events |
+| `webhook_deliveries` | Alert webhook delivery attempts |
+
+**Engines matter.** `session_events`, `layer_snapshots`, and `session_stats_agg` are `ReplacingMergeTree` (idempotent writes). Session summaries are recomputed by the ingest service after each insert - there is no materialized view. The API's query layer handles the required `FINAL` reads - if you query ClickHouse directly, match the table engine.
+
+**Retention** is TTL-based via `DATA_RETENTION_DAYS` (default `90`; `0` disables; minimum non-zero `7`, enforced at startup). TTL runs asynchronously - disk is reclaimed on the next merge, not instantly.
+
+**Migrations** are versioned SQL files run by the init container *after* Alembic and *before* the API. Applied files are recorded in `clickhouse_schema_migrations`; anything unrecorded is applied in filename order. Never add ClickHouse DDL to startup code - add a migration file. Local run:
+
+```bash
+cd caracal-server && python -m services.clickhouse.migrations
+```
+
+**Capacity**: record size depends on harness transcript detail and tool output. Measure representative sessions, apply the retention window, and plan 2–3× headroom for merges.
+
+**External ClickHouse** for heavy workloads (ClickHouse Cloud or a dedicated host):
+
+```
+CLICKHOUSE_URL=clickhouse://user:pass@external-clickhouse.example.com:8123/caracal
+```
+
+## Backups
+
+- PostgreSQL: `pg_dump` from the running container.
+- ClickHouse: snapshot the `chdata` volume or use native `BACKUP`.
+- Always back up before upgrades; always pair `pgdata` with the JWT-key volume `apidata`.
+
+Full procedures: [Backup and restore](/self-hosting/backup-restore).
