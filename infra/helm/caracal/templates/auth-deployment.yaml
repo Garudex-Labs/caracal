@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "caracal.fullname" . }}-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth
+spec:
+  replicas: {{ .Values.auth.replicas }}
+  selector:
+    matchLabels:
+      {{- include "caracal.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: auth
+  template:
+    metadata:
+      labels:
+        {{- include "caracal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: auth
+    spec:
+      serviceAccountName: {{ include "caracal.serviceAccountName" . }}
+      {{- include "caracal.podSecurityContext" . | nindent 6 }}
+      initContainers:
+        {{- include "caracal.initWaitPostgres" . | nindent 8 }}
+      containers:
+        - name: auth
+          image: {{ include "caracal.image" (dict "global" .Values.global "image" .Values.auth.image "appVersion" .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.auth.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            # The identity image bakes its own unprivileged user.
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: AUTH_PORT
+              value: "8001"
+            # Token issuer and cookie origin; must match CARACAL_JWT_ISSUER.
+            - name: BETTER_AUTH_URL
+              value: {{ .Values.config.jwtIssuer | quote }}
+            - name: AUTH_TRUSTED_ORIGINS
+              value: {{ .Values.config.jwtIssuer | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "caracal.secretName" . }}
+          ports:
+            - containerPort: 8001
+              name: http
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8001
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.auth.resources | nindent 12 }}

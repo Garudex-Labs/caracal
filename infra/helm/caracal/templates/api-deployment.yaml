@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "caracal.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "caracal.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "caracal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: {{ include "caracal.serviceAccountName" . }}
+      {{- include "caracal.podSecurityContext" . | nindent 6 }}
+      initContainers:
+        {{- include "caracal.initWaitPostgres" . | nindent 8 }}
+        {{- include "caracal.initWaitClickhouse" . | nindent 8 }}
+        {{- include "caracal.initWaitRedis" . | nindent 8 }}
+        {{- include "caracal.initWaitInitJob" . | nindent 8 }}
+        # Fresh volumes are root-owned; seed the layout the server expects.
+        - name: prepare-data
+          image: busybox:latest
+          command: ['sh', '-c', 'mkdir -p /data/migration_artifacts /data/tmp && chown -R 65532:65532 /data']
+          volumeMounts:
+            - mountPath: /data
+              name: data
+      containers:
+        - name: server
+          image: {{ include "caracal.image" (dict "global" .Values.global "image" .Values.api.image "appVersion" .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          {{- include "caracal.securityContext" . | nindent 10 }}
+          env:
+            - name: CARACAL_GO_ADDR
+              value: ":8080"
+            - name: MIGRATION_ARTIFACT_ROOT
+              value: /data/migration_artifacts
+            - name: TMPDIR
+              value: /data/tmp
+          envFrom:
+            - configMapRef:
+                name: {{ include "caracal.configMapName" . }}
+            - secretRef:
+                name: {{ include "caracal.secretName" . }}
+          ports:
+            - containerPort: 8080
+              name: http
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /data
+              name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "caracal.fullname" . }}-data
