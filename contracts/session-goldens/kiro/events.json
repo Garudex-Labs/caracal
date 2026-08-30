@@ -1,0 +1,49 @@
+{
+  "harness": "kiro",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "133"
+      },
+      "service_name": "kiro"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "hook_assistant_response",
+      "body": "Listing them now.",
+      "attributes": {
+        "tool_response": "Listing them now."
+      },
+      "service_name": "kiro"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "hook_posttooluse",
+      "body": "fsRead",
+      "attributes": {
+        "tool_name": "fsRead",
+        "tool_input": "{\"path\": \"src\"}",
+        "tool_use_id": "tu_01",
+        "tool_response": "main.py\nutils.py"
+      },
+      "service_name": "kiro"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "kiro_credits",
+      "body": "1.2500 credits",
+      "attributes": {
+        "credits": "1.25",
+        "model": "Kiro Auto"
+      },
+      "service_name": "kiro"
+    }
+  ]
+}
