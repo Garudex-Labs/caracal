@@ -1,0 +1,52 @@
+---
+title: "caracal api"
+description: "Authenticated JSON escape hatch, plus the retry and idempotency contract"
+---
+
+Calls any authenticated JSON endpoint when no dedicated command exists. Prefer dedicated commands where available - they add validation, safe confirmation, and domain-specific output.
+
+## Usage
+
+```bash
+caracal api GET /api/v1/orgs --output json
+caracal api GET /api/v1/agents --param limit=10 --param page=2 --output json
+caracal api POST /api/v1/orgs --from-file org.json --output json
+cat org.json | caracal api POST /api/v1/orgs --output json
+```
+
+Rules:
+
+- Methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`.
+- Paths must be canonical relative `/api/v1/` paths. Full URLs, traversal segments, fragments, and inline query strings are rejected - use repeatable `--param KEY=VALUE`.
+- The configured bearer token is used automatically. Arbitrary authorization headers are not accepted, so credentials cannot be forwarded to another host.
+- `POST`/`PUT`/`PATCH`/`DELETE` accept one JSON object via `--from-file` or stdin (file wins). `GET` rejects bodies.
+- JSON output preserves the endpoint response **exactly**, including top-level arrays - the one exception to the standard list envelope.
+
+## Retry and idempotency contract
+
+This contract applies to every CLI command, including `caracal api`, because they share one authenticated client.
+
+**Automatic retries:** authenticated `GET` requests retry on HTTP 429, 503, and 504, honoring `Retry-After`. One token refresh is attempted after a 401. **Mutations are sent exactly once** - the server may have applied a change before a connection failed, so blind retry is unsafe.
+
+Recommended workflow for scripts and agents:
+
+1. Read current state; capture UUIDs, canonical names, versions, status.
+2. Send one mutation.
+3. On success, inspect the returned state; verify with the smallest read if needed.
+4. On validation/permission/conflict errors, fix the cause - don't retry unchanged.
+5. On timeout, connection failure, 503, or 504 **after a mutation was sent**, treat the result as unknown: read state before deciding to retry.
+
+Verification per mutation family:
+
+| Mutation | Verify before retrying |
+| --- | --- |
+| Create agent/component | List or show by `namespace/slug`; don't create again if it exists |
+| Publish/release version | Read version history and review status |
+| Visibility/role/settings update | Read the resource, compare the field |
+| Approve/reject | Read request status by UUID |
+| Archive/restore/revoke/delete | Show the resource, or confirm not-found where deletion is expected |
+| Install/pull | Inspect returned files; run `scan` for the harness |
+| Bulk submit | Review per-entry results; existing identities are reported as skipped |
+| Server upgrade/rollback/migration | Read service version, validation, and destination state |
+
+Conflicts (exit 6) are deterministic information, not transient failures: qualify ambiguous names, use `--update` only for intended in-place changes, use version publish for new versions, and never bypass edit locks or ownership conflicts.

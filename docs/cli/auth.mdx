@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "caracal auth"
+description: "Login, logout, identity, status, passwords, and namespace username"
+---
+
+Authentication and account management. Credentials are stored in `~/.caracal/config.json` (mode `0600`).
+
+| Command | Purpose |
+| --- | --- |
+| `auth login` | Authenticate with credentials or browser SSO |
+| `auth logout` | Revoke the remote session (best effort) and clear local credentials |
+| `auth whoami` | Show the authenticated user |
+| `auth status` | Server reachability, auth state, and local outbox health |
+| `auth change-password` | Change the current user's password |
+| `auth set-username` | Set or update your registry namespace username |
+
+## login
+
+```bash
+caracal auth login
+caracal auth login --server https://caracal.example.com --email richard
+caracal auth login --sso
+```
+
+Options: `--server`, `--email`, `--password`, `--name`, `--sso`, `--saml`, `--no-setup`, `--output`. Prefer `CARACAL_PASSWORD` / `CARACAL_PASSWORD_FILE` over `--password` so secrets stay out of shell history.
+
+Behavior worth knowing:
+
+- The server URL resolves automatically: `--server`, then `CARACAL_SERVER_URL`, then the config saved by a previous login, then a running local stack on `http://localhost`. Human login prompts only when none of those resolve (a blank answer means `http://localhost`); self-hosted and production deployments should set `CARACAL_SERVER_URL`.
+- **Fresh-server bootstrap:** on a brand-new server, supplying email, name, and password creates the first deployment operator (localhost only).
+- Successful human login synchronizes the bundled Caracal skills into detected harnesses, creates the initial layer snapshot, and runs doctor. `--no-setup` skips the snapshot and doctor; JSON mode skips all post-login steps.
+- **Skill integrity:** every CLI invocation hashes each installed Caracal-managed skill tree; a mismatched tree is replaced wholesale from the packaged bundle. Skill directories outside the bundled Caracal names are untouched.
+- Browser SSO in JSON mode emits a JSON Lines stream: first event carries the verification URL and user code, final event confirms authentication.
+
+```bash
+CARACAL_PASSWORD_FILE=/run/secrets/caracal-password \
+  caracal auth login --server https://caracal.example.com --email richard --output json
+```
+
+## logout
+
+```bash
+caracal auth logout
+```
+
+Always clears local tokens when the config is readable; remote revocation is best effort and reported separately in JSON. Harness hooks are not removed - use `caracal doctor cleanup` for that.
+
+## whoami / status
+
+```bash
+caracal auth whoami --output json    # direct server user object
+caracal auth status --output json    # server URL, auth state, health latency, outbox state
+```
+
+`status` exits 3 when unauthenticated and 9 when the configured server is unreachable.
+
+## change-password
+
+```bash
+CARACAL_CURRENT_PASSWORD_FILE=/run/secrets/current \
+CARACAL_NEW_PASSWORD_FILE=/run/secrets/new \
+  caracal auth change-password --output json
+```
+
+Human mode prompts for missing values; JSON mode requires both via `CARACAL_CURRENT_PASSWORD` / `CARACAL_NEW_PASSWORD` (or `_FILE` forms). Passwords require ≥ 12 characters with an uppercase letter, a number, and a special character.
+
+## set-username
+
+```bash
+caracal auth set-username richard
+```
+
+The username is your registry namespace (see [identity](/concepts/registry#canonical-identity-namespaceslug)). The server rejects changes that collide with another namespace or conflict with published registry ownership - usernames cannot change once the account owns a listing.
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `CARACAL_SERVER_URL` | Default server URL |
+| `CARACAL_ACCESS_TOKEN` | Pre-authenticate without login (CI) |
+| `CARACAL_PASSWORD` | Login password |
+| `CARACAL_CURRENT_PASSWORD` / `CARACAL_NEW_PASSWORD` | Non-interactive password changes |
+| `CARACAL_TIMEOUT` | HTTP timeout in seconds |
+
+All secrets support `_FILE` forms. Full list: [Environment variables](/reference/environment-variables).

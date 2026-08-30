@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 RAWx18 <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "caracal config"
+description: "Local CLI configuration and reference aliases"
+---
+
+Manages `~/.caracal/config.json` (settings) and `~/.caracal/aliases.json` (reference shortcuts). Both are written atomically with mode `0600`.
+
+| Command | Purpose |
+| --- | --- |
+| `config show` | Effective configuration, credentials redacted |
+| `config set` | Set a validated user-managed key |
+| `config path` | Print the config file path |
+| `config alias` | Set or remove an alias |
+| `config aliases` | List aliases |
+
+## show
+
+```bash
+caracal config show --output json
+```
+
+Never displays token values - only whether access, refresh, or hook credentials are configured. Includes environment overrides, since the command reports *effective* configuration.
+
+## set
+
+```bash
+caracal config set server_url https://caracal.example.com
+caracal config set timeout 60
+caracal config set update_check false
+```
+
+Accepted keys:
+
+| Key | Value |
+| --- | --- |
+| `server_url` | HTTP/HTTPS URL without embedded credentials |
+| `timeout` | Positive integer seconds |
+| `update_check` | Boolean (`true`/`false`/`yes`/`no`/`on`/`off`/`1`/`0`) |
+| `update_check_interval` | Integer seconds, minimum 60 |
+| `update_check_repo` | `owner/repository` or empty string |
+
+Authentication and identity fields are managed by [`caracal auth`](/cli/auth) and cannot be set here. Environment variables override persisted values for the current invocation - `config set` changes the file but does not beat an active override. JSON output distinguishes the persisted value from the effective value.
+
+## alias / aliases
+
+```bash
+caracal config alias reviewer richard/reviewer   # set
+caracal config alias reviewer                  # remove (idempotent)
+caracal config aliases --output json           # list ({items, total})
+```
+
+Alias names start with a letter; letters, numbers, dots, underscores, hyphens; ≤ 64 characters. Targets can be UUIDs, `namespace/slug` identities, or any reference the destination command accepts. Use with an `@` prefix: `caracal registry mcp show @reviewer`.
+
+## path
+
+```bash
+caracal config path            # bare absolute path (shell-composable)
+caracal config path --output json   # path + whether the file exists
+```
