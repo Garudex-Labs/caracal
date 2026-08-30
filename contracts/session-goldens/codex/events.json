@@ -1,0 +1,78 @@
+{
+  "harness": "codex",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "103"
+      },
+      "service_name": "codex"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_userpromptsubmit",
+      "body": "explain the retry policy",
+      "attributes": {
+        "tool_input": "explain the retry policy"
+      },
+      "service_name": "codex"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:02.000",
+      "event_name": "hook_assistant_response",
+      "body": "It retries three times.",
+      "attributes": {
+        "tool_response": "It retries three times."
+      },
+      "service_name": "codex"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:03.000",
+      "event_name": "hook_pretooluse",
+      "body": "shell",
+      "attributes": {
+        "tool_name": "shell",
+        "tool_input": "{\"cmd\":\"ls\"}",
+        "tool_use_id": "fc_1"
+      },
+      "service_name": "codex"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:04.000",
+      "event_name": "hook_posttooluse",
+      "body": "tool_result",
+      "attributes": {
+        "tool_name": "",
+        "tool_response": "README.md",
+        "tool_use_id": "fc_1",
+        "success": "true"
+      },
+      "service_name": "codex"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:05.000",
+      "event_name": "hook_token_usage",
+      "body": "token_count",
+      "attributes": {
+        "input_tokens": "220",
+        "output_tokens": "18",
+        "cache_read_tokens": "64",
+        "model": "gpt-5"
+      },
+      "service_name": "codex"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:06.000",
+      "event_name": "system",
+      "body": "task_complete",
+      "attributes": {},
+      "service_name": "codex"
+    }
+  ]
+}
