@@ -1,0 +1,65 @@
+---
+title: "Backfill missed sessions"
+description: "Recover sessions that hooks didn't deliver, safely and idempotently"
+---
+
+`caracal reconcile` pushes local session history that automatic delivery missed. Run it when:
+
+- Hooks were installed **after** sessions already happened
+- A machine was offline or the server was unreachable
+- Delivery was interrupted mid-session
+- You want to verify recent local history made it to the server
+
+Reconciliation is a recovery path over the **same** adapters, outbox, and acknowledgement protocol as live hooks - not a second ingestion system. Replays are idempotent: records are keyed by session and source position, so re-sending can never duplicate data.
+
+## Preview first
+
+```bash
+caracal reconcile --dry-run
+```
+
+The dry run scans the default seven-day window and reports sessions whose local source extends past the acknowledged cursor, plus sessions still needing final metadata. It sends nothing, drains nothing, and changes no cursor state.
+
+## Run it
+
+```bash
+caracal reconcile                          # all installed harnesses, last 7 days
+caracal reconcile --harness kiro           # one harness
+caracal reconcile --since 24               # last 24 hours
+```
+
+`--since` accepts 1–8,760 hours (default 168). A real run:
+
+1. Validates targets before touching the outbox.
+2. Retries pending outbox batches (oldest first).
+3. Recovers each session's server checkpoint.
+4. Sends only records **after** that checkpoint.
+5. Finalizes sessions that are fully uploaded but unfinished, triggering the server's integrity audit.
+
+JSON output distinguishes delivered, finalized, queued, rejected, skipped, and failed sources:
+
+```bash
+caracal reconcile --output json | jq
+```
+
+## Verify
+
+```bash
+caracal ops telemetry status     # pending should drain to zero
+caracal ops traces --limit 5     # backfilled sessions appear
+```
+
+## When reconcile reports problems
+
+| Report | Meaning | Action |
+| --- | --- | --- |
+| Session not discovered | Harness missing, source deleted, or modified outside `--since` | Widen `--since`, check the harness's session directory |
+| Checkpoint mismatch | Local transcript changed or truncated after acknowledgement | Source is left untouched; preserve it and `~/.caracal/` while investigating |
+| Record rejected | Server refused the payload permanently | Quarantined in `~/.caracal/telemetry_buffer.rejected.jsonl`; inspect the reason before retrying |
+| Records stay pending | Server unreachable or login doesn't match the pending records' destination/user | `caracal auth status`, then re-run |
+
+<Warning>
+Reconcile can only recover records that still exist locally. A transcript the harness deleted before any hook or extension spooled it is gone - this is why installing hooks early matters.
+</Warning>
+
+How delivery, checkpoints, and repair work under the hood: [Session telemetry](/concepts/telemetry). Full flag reference: [caracal reconcile](/cli/reconcile).

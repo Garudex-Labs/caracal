@@ -1,0 +1,60 @@
+---
+title: "Inspect MCP and tool activity"
+description: "Query what your agents actually did: tool calls, results, and attribution"
+---
+
+Once a harness is [instrumented](/guides/instrument), every session's tool and MCP activity becomes queryable - from the web UI at `/traces` or from the CLI. This page covers what data you get, how to query it, and the limits.
+
+<Info>
+Caracal identifies MCP and tool activity from the **session transcript** each harness records. It does not intercept, proxy, or modify MCP transport traffic.
+</Info>
+
+## What a session contains
+
+When the harness records the relevant detail, parsed session events include:
+
+- Tool or MCP name, input, and result
+- Event ordering within the session
+- Harness, user, agent, and model attribution
+- Token totals and timing derived from the session
+- Lifecycle events (session start/stop, prompt submissions) and subagent activity
+
+Coverage varies by harness: Caracal indexes only fields present in the transcript or native message API. Transport latency, monetary cost, and structured transport errors are not synthesized when the harness doesn't record them.
+
+## Query from the web UI
+
+Open `/traces`. Filter sessions by harness, agent, user, model, and time range. Expand a session to walk its parsed prompts, responses, tool calls, tool results, and lifecycle events in source order.
+
+## Query from the CLI
+
+```bash
+caracal ops traces --limit 20            # recent sessions
+caracal ops traces --turn --limit 10     # unfold sessions into per-turn events
+caracal ops top --type mcp               # most-called MCP servers
+caracal ops top --type agent             # most-used agents
+```
+
+Add `--output json` to feed the results into scripts:
+
+```bash
+caracal ops traces --limit 100 --output json | jq '.items[] | {session_id, harness, tool_calls}'
+```
+
+## Watch aggregate usage
+
+Session aggregates power team-level questions:
+
+| Question | Where |
+| --- | --- |
+| Which MCP servers get called most? | `caracal ops top --type mcp` or the dashboard |
+| Which agents does the team actually run? | `caracal ops top --type agent` |
+| How is a specific agent performing over time? | `caracal ops insights` - agent insight reports |
+| Is telemetry flowing at all? | `caracal ops telemetry status` |
+
+## Limits to keep in mind
+
+- **Harness-bound fidelity.** If a harness's transcript omits tool inputs or results, those fields are absent - not estimated.
+- **No transport data.** Latency and payloads of the MCP connection itself are invisible to transcript-based observability.
+- **Sessions must complete delivery.** A session mid-flight or one recorded before hooks were installed won't appear until the next hook wake-up or a [reconcile run](/guides/backfill-sessions).
+
+Next: [Debug agent failures](/guides/debug-failures) applies these queries to failure investigation.

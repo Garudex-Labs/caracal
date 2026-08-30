@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Build and publish an agent"
+description: "Author an agent as reviewable YAML, validate it, publish it, and ship new versions"
+---
+
+This guide walks the file-based authoring workflow: scaffold a local agent definition, compose it from registry components, validate, publish, and release versions. It's the recommended path for teams because the definition lives in your repo and changes flow through normal code review.
+
+<Tip>
+Agents are authored locally: `caracal agent init` scaffolds the YAML definition, `agent add` wires components, and `agent build`/`agent publish` validate and submit it. Everything below still applies to versioning and governance.
+</Tip>
+
+## 1. Scaffold
+
+```bash
+caracal agent init \
+  --dir ./reviewer \
+  --name reviewer \
+  --description 'Reviews changes' \
+  --prompt-file ./PROMPT.md \
+  --model claude-sonnet-4 \
+  --harness kiro
+```
+
+This writes `./reviewer/caracal-agent.yaml` atomically and refuses to overwrite an existing definition. Run it with no flags for interactive prompts.
+
+## 2. Compose from registry components
+
+Find components, then add them by UUID:
+
+```bash
+caracal registry skill list --search review --output json
+caracal agent add skill 22222222-2222-2222-2222-222222222222 --dir ./reviewer
+caracal agent add mcp   498c17ac-1234-4567-89ab-cdef01234567 --dir ./reviewer
+```
+
+Valid component types: `mcp`, `skill`, `hook`, `prompt`, `sandbox`. Adding a duplicate type+UUID pair fails with conflict code 6.
+
+If the component you need doesn't exist yet, publish it first - see [Publish components](/guides/publish-components).
+
+## 3. Validate
+
+```bash
+caracal agent build --dir ./reviewer
+```
+
+Build verifies every referenced component exists and is visible to the target owner (including private-component visibility), and validates the target scope. It's a pure dry-run: nothing is submitted. A failing composition exits with code 7 and lists the issues.
+
+## 4. Publish
+
+```bash
+caracal agent publish --dir ./reviewer                 # create and submit
+caracal agent publish --dir ./reviewer --draft         # save without submitting
+caracal agent publish --submit richard/reviewer          # submit a saved draft
+caracal agent publish --dir ./reviewer --update --bump minor   # update an existing agent
+```
+
+`--draft` and `--submit` are mutually exclusive. Once submitted, the agent enters the review queue; it appears in the public listing after approval, but **you can install your own agent immediately** regardless of review state (see [review lifecycle](/concepts/registry#publish--review--listing)).
+
+### Project-shared agents
+
+Share an agent with your active project's members instead of keeping it personal:
+
+```bash
+caracal agent build   --dir ./reviewer --visibility project
+caracal agent publish --dir ./reviewer --visibility project
+```
+
+`--visibility project` shares the agent with the members of your active Project (set with `caracal use`).
+
+## 5. Release new versions
+
+```bash
+caracal agent release richard/reviewer --bump patch --dir ./reviewer
+caracal agent versions richard/reviewer
+```
+
+`release` asks the server for a semantic-version suggestion, submits the complete YAML snapshot, and only updates the local YAML after the server accepts - a failed release leaves local state unchanged. Users with older pins see the update via `caracal sync --dry-run`.
+
+## Govern
+
+Co-author management, ownership transfer, and archiving live in the web UI on the agent's page.
+
+Full flag reference: [caracal agent](/cli/agent).

@@ -1,0 +1,56 @@
+---
+title: "Debug agent failures"
+description: "Investigate failed sessions with transcript evidence instead of guesswork"
+---
+
+Agent failures rarely produce one clean error code. Because Caracal preserves the full session transcript as ordered events, you can reconstruct exactly what the user asked, which tools ran, what came back, and where the run went wrong.
+
+## 1. Find the session
+
+Open `/traces` in the web UI, or:
+
+```bash
+caracal ops traces --limit 50
+```
+
+Filter by harness, agent, user, model, or time range and select the session matching the report.
+
+## 2. Walk the event sequence
+
+Expand the session (UI) or unfold it from the CLI:
+
+```bash
+caracal ops traces --turn --limit 10
+```
+
+Review prompts, assistant responses, tool calls, tool results, lifecycle events, and subagent activity in source order. You are looking for the first point where behavior diverged from intent.
+
+## 3. Match against common failure signatures
+
+| Session pattern | Likely cause |
+| --- | --- |
+| Same tool called repeatedly with identical arguments | Agent stuck in a retry loop, or not consuming the result |
+| Tool result records an error, assistant continues anyway | Prompt or recovery policy doesn't handle the failure |
+| Tool call with no matching result | Harness shutdown, interrupted process, or incomplete delivery |
+| Session stops immediately after a prompt | Hook, model, permission, or harness configuration issue |
+| Expected MCP call never appears | Model didn't select the tool - or the harness transcript omits that detail |
+
+## 4. Check the recorded tool detail
+
+When the harness records them, Caracal shows each tool call's name, input, result, and error indicators. If a field is missing, the harness didn't record it - Caracal never invents payload data. Cross-check the [harness page](/harnesses) for that tool's transcript fidelity.
+
+## 5. Recover incomplete sessions
+
+A "tool call with no result" or an abruptly-ending session sometimes just means delivery was cut short. If the local transcript still exists:
+
+```bash
+caracal reconcile
+```
+
+Reconciliation resumes from the acknowledged checkpoint and replays missing records idempotently, completing the picture. See [Backfill missed sessions](/guides/backfill-sessions).
+
+## 6. Feed findings back
+
+- Fix the agent's prompt, skills, or hooks and [release a new version](/guides/build-agents#5-release-new-versions) so the whole team gets the fix.
+- Rate the offending component (`caracal ops rate`) so recommendations and insight reports reflect real-world quality.
+- For recurring patterns across sessions, check `caracal ops insights` - insight reports surface systematic issues per agent.
