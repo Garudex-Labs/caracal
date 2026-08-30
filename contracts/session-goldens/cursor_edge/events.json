@@ -1,0 +1,36 @@
+{
+  "harness": "cursor",
+  "events": [
+    {
+      "timestamp": "2026-02-02 11:00:00",
+      "event_name": "hook_userpromptsubmit",
+      "body": "do the thing",
+      "attributes": {
+        "tool_input": "do the thing"
+      },
+      "service_name": "cursor"
+    },
+    {
+      "timestamp": "2026-02-02 11:00:01",
+      "event_name": "hook_assistant_response",
+      "body": "done",
+      "attributes": {
+        "tool_response": "done"
+      },
+      "service_name": "cursor"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "system",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "54"
+      },
+      "service_name": "cursor"
+    }
+  ]
+}
