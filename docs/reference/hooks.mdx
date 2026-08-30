@@ -1,0 +1,103 @@
+---
+title: "Hook specification"
+description: "Events, handler types, execution modes, scopes, and the managed-entry metadata marker"
+---
+
+One schema covers both things called "hook":
+
+1. **Registry hooks** - packaged, versioned hook definitions published with `caracal registry hook submit` and installed with `caracal registry hook install`.
+2. **Harness hooks** - entries Caracal writes into harness configs during `agent pull` and `doctor patch` (including telemetry hooks).
+
+Current spec version: **5**.
+
+## Events
+
+The canonical vocabulary. Each harness maps these to its native event names - see the per-harness event maps under [Harnesses](/harnesses).
+
+| Event | Fires when |
+| --- | --- |
+| `SessionStart` | A new harness session begins |
+| `UserPromptSubmit` | The user submits a prompt |
+| `PreToolUse` | Before a tool call |
+| `PostToolUse` | After a tool call, with its result |
+| `Stop` | The session (or turn, harness-dependent) ends |
+| `SubagentStop` | A subagent session ends (Claude Code, Cursor) |
+| `Notification` | The harness surfaces a notification (Claude Code) |
+
+## Handler types
+
+| Type | Payload |
+| --- | --- |
+| `command` | Shell command with templated arguments - the common case |
+| `http` | URL + method + headers + body |
+
+Plugin-style harnesses (OpenCode, Goose) and extension-style harnesses (Pi) implement hook behavior through their native mechanisms rather than these handler entries; the event vocabulary still applies.
+
+## Execution modes
+
+| Mode | Semantics |
+| --- | --- |
+| `async` | Fire and forget - the harness doesn't wait |
+| `sync` | The harness waits for the handler to return |
+| `blocking` | The handler can veto the event (e.g. block a tool call) |
+
+## Scopes
+
+| Scope | Applies to |
+| --- | --- |
+| `agent` | One agent only |
+| `session` | The duration of one session |
+| `global` | Everything |
+
+## The `_caracal` metadata marker
+
+Caracal tags every hook entry it manages so later runs of `doctor patch`, `doctor cleanup`, and `agent pull` can find and update **only** Caracal-managed entries without touching user-authored hooks:
+
+```json
+{
+  "_caracal": {
+    "version": "5",
+    "source": "caracal-pull",
+    "installed_at": "2026-04-21T14:30:55Z"
+  },
+  "PreToolUse": [ ... ]
+}
+```
+
+Pre-marker installs are detected with a fallback heuristic.
+
+## Registry hook submission payload
+
+```json
+{
+  "name": "pretooluse-logger",
+  "description": "Logs every tool call to a local file",
+  "event": "PreToolUse",
+  "handler_type": "command",
+  "command": "echo \"$TOOL_NAME $(date)\" >> ~/.caracal/tool-log.txt",
+  "execution_mode": "async",
+  "scope": "agent",
+  "harness": ["claude-code", "kiro"]
+}
+```
+
+Fields are validated server-side against the same constant lists the CLI ships, and a sync test keeps CLI and server in lockstep.
+
+## Example: generated Kiro telemetry hooks
+
+Kiro hooks are embedded per agent, with the agent UUID bound into the command for attribution:
+
+```json
+{
+  "hooks": {
+    "userPromptSubmit": [
+      { "command": "CARACAL_AGENT_ID=<agent-uuid> python -m caracal_cli.hooks.session_push --harness kiro" }
+    ],
+    "stop": [
+      { "command": "CARACAL_AGENT_ID=<agent-uuid> python -m caracal_cli.hooks.session_push --harness kiro" }
+    ]
+  }
+}
+```
+
+Generated hook commands are rewritten during pull to use the active Python interpreter. Telemetry hooks only read local sources and append to the durable outbox - network delivery is deferred so a slow server can never stall a harness turn.
