@@ -1,0 +1,47 @@
+<!-- SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Caracal</title>
+    <meta name="description" content="Agent registry with built-in observability" />
+    <link rel="icon" type="image/png" href="/caracal_sq.png" />
+    <link rel="alternate icon" href="/caracal_sq.png" />
+    <link rel="apple-touch-icon" href="/caracal_sq.png" />
+    <script>
+      try {
+        document.documentElement.className =
+          localStorage.getItem("caracal-theme") === "light" ? "light" : "dark";
+      } catch {
+        document.documentElement.className = "dark";
+      }
+    </script>
+    <style>
+      @font-face {
+        font-family: "Departure Mono";
+        src: url("/fonts/DepartureMono-Regular.woff2") format("woff2");
+        font-weight: 400;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Albert Sans";
+        src: url("/fonts/albert-sans-latin-variable.woff2") format("woff2");
+        font-weight: 300 700;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: url("/fonts/jetbrains-mono-latin-variable.woff2") format("woff2");
+        font-weight: 400 600;
+        font-display: swap;
+      }
+    </style>
+    <script src="https://d2mvefebd70kbz.cloudfront.net/scripts/019eba61-6a10-76d4-ae9e-a3623efa1378.js" async></script>
+  </head>
+  <body class="min-h-svh antialiased" style="font-family: 'Albert Sans', sans-serif;">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
