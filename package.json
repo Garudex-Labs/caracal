@@ -1,0 +1,21 @@
+{
+  "name": "caracal",
+  "private": true,
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "packageManager": "pnpm@10.34.4",
+  "scripts": {
+    "e2e": "pnpm --filter web e2e",
+    "e2e:list": "pnpm --filter web exec playwright test --list",
+    "test:registry-slug": "node --experimental-strip-types --test tests/test_registry_slug.mjs"
+  },
+  "pnpm": {
+    "overrides": {
+      "brace-expansion": "^5.0.8",
+      "dompurify": "^3.4.13",
+      "postcss": "^8.5.18",
+      "nanoid": "^3.3.17"
+    }
+  }
+}
