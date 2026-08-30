@@ -1,0 +1,252 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  caracal-init:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.server
+    image: ghcr.io/garudex-labs/caracal-server:latest
+    command: ["init"]
+    env_file:
+      - ../../.env
+    depends_on:
+      caracal-db:
+        condition: service_healthy
+      caracal-clickhouse:
+        condition: service_healthy
+      caracal-redis:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - caracal-net
+
+  caracal-auth:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.auth
+    image: ghcr.io/garudex-labs/caracal-auth:latest
+    environment:
+      - NODE_ENV=${AUTH_NODE_ENV:-production}
+      - AUTH_PORT=8001
+      - DATABASE_URL=${AUTH_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@caracal-db:5432/caracal}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost}
+      - AUTH_TRUSTED_ORIGINS=${AUTH_TRUSTED_ORIGINS:-http://localhost,http://localhost:8000}
+      - AUTH_INTERNAL_SECRET=${AUTH_INTERNAL_SECRET:?set AUTH_INTERNAL_SECRET in .env}
+      - AUTH_DEV_LOGIN=${AUTH_DEV_LOGIN:-0}
+      - CARACAL_OPERATOR_EMAILS=${CARACAL_OPERATOR_EMAILS:-rawx18.dev@gmail.com}
+      - AUTH_EMAIL_WEBHOOK_URL=${AUTH_EMAIL_WEBHOOK_URL:-}
+      - AUTH_SESSION_HISTORY_RETENTION_DAYS=${AUTH_SESSION_HISTORY_RETENTION_DAYS:-30}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+    depends_on:
+      caracal-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://localhost:8001/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - caracal-net
+
+  caracal-server:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.server
+    image: ghcr.io/garudex-labs/caracal-server:latest
+    environment:
+      - CARACAL_CLICKHOUSE_URL=${CLICKHOUSE_URL:-clickhouse://default:clickhouse@caracal-clickhouse:8123/caracal}
+      - CARACAL_REDIS_URL=${REDIS_URL:-redis://caracal-redis:6379}
+      - CARACAL_POSTGRES_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@caracal-db:5432/caracal
+      - CARACAL_JWKS_URL=http://caracal-auth:8001/api/auth/jwks
+      - CARACAL_JWT_ISSUER=${BETTER_AUTH_URL:-http://localhost}
+      - CARACAL_JWT_AUDIENCE=caracal-api
+      - CARACAL_AUTH_SERVICE_URL=http://caracal-auth:8001
+      - CARACAL_ENV=${AUTH_NODE_ENV:-production}
+      - AUTH_INTERNAL_SECRET=${AUTH_INTERNAL_SECRET:?set AUTH_INTERNAL_SECRET in .env}
+      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
+      - MIGRATION_ARTIFACT_ROOT=/data/migration_artifacts
+      - TMPDIR=/data/tmp
+    depends_on:
+      caracal-init:
+        condition: service_completed_successfully
+      caracal-clickhouse:
+        condition: service_healthy
+      caracal-redis:
+        condition: service_healthy
+      caracal-auth:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    volumes:
+      - mirrordata:/tmp/caracal_mirrors
+      - serverdata:/data
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    networks:
+      - caracal-net
+
+  caracal-db:
+    image: postgres:18
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_DB: caracal
+    command: >
+      postgres
+      -c max_connections=300
+      -c shared_buffers=128MB
+      -c work_mem=8MB
+      -c effective_cache_size=384MB
+      -c maintenance_work_mem=64MB
+      -c random_page_cost=1.1
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - caracal-net
+
+  caracal-clickhouse:
+    image: clickhouse/clickhouse-server:26.6
+    ports:
+      - "127.0.0.1:${CLICKHOUSE_HOST_PORT:-8123}:8123"
+    env_file:
+      - ../../.env
+    environment:
+      CLICKHOUSE_DB: caracal
+      MAX_SERVER_MEMORY_USAGE_RATIO: "0.8"
+    volumes:
+      - chdata:/var/lib/clickhouse
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - ./clickhouse/users.d:/etc/clickhouse-server/users.d
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --password ${CLICKHOUSE_PASSWORD:-clickhouse} --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: ${CLICKHOUSE_MEMORY_LIMIT:-2G}
+    networks:
+      - caracal-net
+
+  caracal-redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    command: redis-server --maxmemory 200mb --maxmemory-policy volatile-lru
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - caracal-net
+
+  caracal-web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+    image: ghcr.io/garudex-labs/caracal-web:latest
+    ports:
+      - "${WEB_HOST_PORT:-8000}:8000"
+    depends_on:
+      caracal-lb:
+        condition: service_started
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/log/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+    networks:
+      - caracal-net
+
+  caracal-lb:
+    image: nginx:alpine
+    ports:
+      - "${LB_HOST_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      caracal-server:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    networks:
+      - caracal-net
+
+
+volumes:
+  pgdata:
+  chdata:
+  redisdata:
+  mirrordata:
+  serverdata:
+
+networks:
+  caracal-net:
+    driver: bridge
