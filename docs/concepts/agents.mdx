@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Agents and components"
+description: "The five component types, how agents bundle them, and what installation writes"
+---
+
+The **agent** is Caracal's primary entity: a complete, installable AI agent definition published to the registry. An agent bundles up to five component types, each of which can also be published and installed independently.
+
+## Component types
+
+| Type | What it is | Installed as |
+| --- | --- | --- |
+| **MCP server** | A [Model Context Protocol](https://modelcontextprotocol.io/) server - the tools an agent can call | An entry in the harness's MCP config (`mcpServers`, `servers`, `extensions`, ... depending on harness) |
+| **Skill** | A portable instruction package the agent loads on demand | A `SKILL.md` directory in the harness's skills path |
+| **Hook** | A lifecycle callback that fires on session events (session start, tool use, stop, ...) | A command, HTTP, or plugin entry in the harness's hook config |
+| **Prompt** | A named, parameterized prompt template with variable substitution | A prompt file, on harnesses that support prompts |
+| **Sandbox** | A Docker execution environment for agent-generated code | Wiring for `caracal-sandbox-run` in the harness config |
+
+Anyone can publish any of these. Review controls what appears in the public listing, but your own submissions are usable by you immediately. See [Registry, identity, and review](/concepts/registry).
+
+## Anatomy of an agent
+
+An agent definition is a YAML document that references components by identity and declares harness requirements:
+
+```yaml
+# caracal-agent.yaml (scaffolded by `caracal agent init`)
+name: reviewer
+description: Reviews pull requests using GitHub context
+components:
+  mcp_servers:
+    - richard/github-mcp
+  skills:
+    - richard/code-review-skill
+  hooks:
+    - richard/pretooluse-logger
+  prompts: []
+  sandboxes: []
+```
+
+Two ways to author one:
+
+- **Authoring:** `caracal agent init` scaffolds the YAML definition; `agent add` wires components.
+- **File-based (recommended for teams):** `caracal agent init` scaffolds `caracal-agent.yaml`; `caracal agent add mcp <ref>` edits it; `caracal agent build` validates; `caracal agent publish` submits. The YAML lives in your repo and goes through normal code review.
+
+See [Build and publish an agent](/guides/build-agents).
+
+## What `agent pull` actually does
+
+```bash
+caracal agent pull richard/reviewer --harness kiro
+```
+
+1. Resolves the agent and all referenced components from the registry.
+2. Checks each component type against the target harness's **capability set** (`hooks`, `mcp_servers`, `skills`, `prompts`).
+3. Prompts for any environment variables the MCP servers declare as required (tokens, API keys). These are written into your local harness config - never uploaded to the server.
+4. Writes native config files for the harness: agent profile, MCP entries, skill directories, hook wiring.
+5. Installs session telemetry hooks for the harness.
+6. Records what it installed in a local lockfile so `caracal scan` and `caracal sync` can track versions.
+
+If the harness lacks a capability the agent uses, compatible parts install cleanly, unsupported parts produce warnings, and the command exits non-zero only when the agent *requires* something the harness cannot provide.
+
+<Note>
+Preview any install first with `--dry-run`. Pull reports every file it created or merged, and preserves entries it doesn't manage.
+</Note>
+
+## Versions and lifecycle
+
+- Agents and components are **versioned** (semver). `caracal agent release` publishes a new version; `caracal agent versions` lists them.
+- Installed versions are **local pins** recorded in the lockfile. `caracal sync --dry-run` compares your pins against the registry.
+- Agents can be **archived** (hidden from listings, still resolvable) and **unarchived**. Deletion is permanent.
+- Ownership is transferable (`caracal agent transfer-owner`), and agents support **co-authors** who can edit alongside the owner.
+
+## Independent component installs
+
+You don't need an agent to use a single component:
+
+```bash
+caracal registry mcp install richard/github-mcp --harness cursor
+caracal registry skill install richard/code-review-skill --harness claude-code
+```
+
+The same capability checks and native file generation apply. See [caracal registry](/cli/registry).

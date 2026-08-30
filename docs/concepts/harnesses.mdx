@@ -1,0 +1,79 @@
+---
+title: "Harnesses and capabilities"
+description: "The supported coding tools, the capability model, and how per-harness behavior works"
+---
+
+A **harness** is a supported AI coding tool. Caracal currently registers ten:
+
+Claude Code · Kiro · Cursor · Copilot · Copilot CLI · Codex CLI · OpenCode · Goose · Antigravity · Pi
+
+Everything harness-specific - file paths, config formats, event names, session sources - is defined once per harness in a shared registry used by both the CLI and the server. There are no special cases sprinkled through the product: if a harness supports an operation, its adapter implements it; if not, the operation is cleanly refused.
+
+## The capability model
+
+Support is **per capability**, not a single tier. Each harness declares a set from:
+
+| Capability | Meaning |
+| --- | --- |
+| `mcp_servers` | Caracal can write MCP server entries into the harness's config |
+| `skills` | Caracal can install `SKILL.md` packages the harness will load |
+| `hooks` | Caracal can wire lifecycle hooks (or a plugin/extension) into the harness |
+| `prompts` | Caracal can install prompt templates |
+
+Current matrix:
+
+| Harness | MCP servers | Skills | Hooks | Prompts |
+| --- | :-: | :-: | :-: | :-: |
+| Claude Code | ✓ | ✓ | ✓ | – |
+| Kiro | ✓ | – | ✓ | – |
+| Cursor | ✓ | – | ✓ | – |
+| Copilot | ✓ | ✓ | ✓ | ✓ |
+| Copilot CLI | ✓ | ✓ | ✓ | ✓ |
+| Codex CLI | ✓ | ✓ | ✓ | – |
+| OpenCode | ✓ | ✓ | ✓ | – |
+| Goose | ✓ | ✓ | ✓ | – |
+| Antigravity | ✓ | ✓ | ✓ | – |
+| Pi | ✓ | ✓ | ✓ | – |
+
+When you pull an agent into a harness, each component type is checked against this set. Supported parts install; unsupported parts warn; hard requirements the harness cannot meet fail the install. This is what makes one agent definition portable across ten tools.
+
+## Scopes
+
+Most harnesses distinguish **project** scope (files under the repository, shared with collaborators) from **user** scope (files under the home directory, personal). Installs accept `--scope project|user` where the harness supports both; each harness has a sensible default. Copilot and Copilot CLI are project-scoped only.
+
+## Session sources
+
+Every harness resolves a **session parser** on the server, so session telemetry and `caracal reconcile` work across all ten. Two source styles exist:
+
+- **Transcript-based** - the harness writes a JSONL transcript; hooks wake the exporter, which reads completed records. Most harnesses work this way.
+- **Extension-based** - OpenCode and Pi expose messages through native extension APIs. Their extensions convert messages into equivalent stable records, then follow the same delivery protocol.
+
+Copilot and Copilot CLI share one parser because they share a session format.
+
+## Hook mechanics per harness
+
+Hook installation adapts to what each harness natively supports:
+
+| Style | Harnesses | How it works |
+| --- | --- | --- |
+| JSON hook config | Claude Code, Kiro, Cursor, Codex CLI, Copilot, Copilot CLI, Antigravity | Caracal writes command entries into the harness's hook file, mapped to that harness's event names |
+| Plugin | OpenCode, Goose | Caracal installs a plugin file that subscribes to the harness's event bus |
+| Extension | Pi | Telemetry ships as a native extension (`caracal-pi` on npm) configured through Pi's settings |
+
+Caracal tags everything it writes with a `_caracal` metadata marker so later runs of `doctor patch`, `doctor cleanup`, and `agent pull` update only Caracal-managed entries and never touch user-authored ones. Event names are translated per harness from the canonical vocabulary (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, ...) - see the [hook specification](/reference/hooks).
+
+## Where to find per-harness detail
+
+Each harness has a dedicated page listing its exact file paths, event mapping, session source, and quirks:
+
+<CardGroup cols={3}>
+  <Card title="Claude Code" href="/harnesses/claude-code" />
+  <Card title="Kiro" href="/harnesses/kiro" />
+  <Card title="Cursor" href="/harnesses/cursor" />
+  <Card title="Copilot & Copilot CLI" href="/harnesses/copilot" />
+  <Card title="Codex CLI" href="/harnesses/codex" />
+  <Card title="OpenCode" href="/harnesses/opencode" />
+  <Card title="Goose" href="/harnesses/goose" />
+  <Card title="Antigravity" href="/harnesses/antigravity" />
+  <Card title="Pi" href="/harnesses/pi" />
+</CardGroup>
