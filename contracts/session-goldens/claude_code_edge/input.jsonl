@@ -1,0 +1,7 @@
+{"type": "user", "timestamp": "2026-02-02T10:00:00.000Z", "message": {"content": "plain string prompt"}}
+{"type": "assistant", "timestamp": "2026-02-02T10:00:01.000Z", "message": {"model": "m1", "stop_reason": "end_turn", "usage": {"input_tokens": 5, "output_tokens": 7, "cache_read_input_tokens": 0}, "content": [{"type": "tool_use", "id": "tu1", "name": "Bash", "input": {"cmd": "ls", "z": 1, "a": [1, {"k": "v"}]}}]}}
+{"type": "user", "timestamp": "2026-02-02T10:00:02.000Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "tu1", "content": [{"type": "text", "text": "file1\nfile2"}]}, {"type": "tool_result", "tool_use_id": "orphan", "content": "never merged"}]}}
+{"type": "meta", "data": "skipped"}
+{"type": "system", "timestamp": "2026-02-02T10:00:03.000Z", "content": "sys line"}
+{"type": "attachment", "timestamp": "2026-02-02T10:00:04.000Z", "attachment": {"type": "file", "name": "notes.txt"}}
+{"type": "assistant", "message": {"usage": {"input_tokens": 9}, "model": "m2", "content": [{"type": "thinking", "thinking": "hmm \u001b[31mred\u001b[0m done"}, {"type": "text", "text": "answer one"}, {"type": "text", "text": "answer two"}]}}

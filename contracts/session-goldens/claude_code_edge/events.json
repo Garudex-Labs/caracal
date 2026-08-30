@@ -1,0 +1,84 @@
+{
+  "harness": "claude-code",
+  "events": [
+    {
+      "timestamp": "2026-02-02 10:00:00.000",
+      "event_name": "hook_userpromptsubmit",
+      "body": "plain string prompt",
+      "attributes": {
+        "tool_input": "plain string prompt"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:01.000",
+      "event_name": "hook_posttooluse",
+      "body": "Bash",
+      "attributes": {
+        "tool_name": "Bash",
+        "tool_input": "{\"cmd\": \"ls\", \"z\": 1, \"a\": [1, {\"k\": \"v\"}]}",
+        "tool_use_id": "tu1",
+        "tool_response": "file1\nfile2"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:01.000",
+      "event_name": "hook_token_usage",
+      "body": "",
+      "attributes": {
+        "input_tokens": "5",
+        "output_tokens": "7",
+        "model": "m1",
+        "stop_reason": "end_turn"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:03.000",
+      "event_name": "hook_sessionstart",
+      "body": "sys line",
+      "attributes": {},
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:04.000",
+      "event_name": "attachment",
+      "body": "notes.txt",
+      "attributes": {
+        "attachment_type": "file",
+        "attachment_name": "notes.txt"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:04.000",
+      "event_name": "hook_assistant_thinking",
+      "body": "hmm red done",
+      "attributes": {
+        "tool_response": "hmm red done"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:04.000",
+      "event_name": "hook_assistant_response",
+      "body": "answer one",
+      "attributes": {
+        "tool_response": "answer one",
+        "input_tokens": "9",
+        "model": "m2"
+      },
+      "service_name": "claude-code"
+    },
+    {
+      "timestamp": "2026-02-02 10:00:04.000",
+      "event_name": "hook_assistant_response",
+      "body": "answer two",
+      "attributes": {
+        "tool_response": "answer two"
+      },
+      "service_name": "claude-code"
+    }
+  ]
+}
