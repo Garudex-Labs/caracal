@@ -1,0 +1,73 @@
+{
+  "harness": "pi",
+  "events": [
+    {
+      "timestamp": "2026-02-02 15:00:00",
+      "event_name": "hook_sessionstart",
+      "body": "Model: anthropic/op4",
+      "attributes": {
+        "provider": "anthropic",
+        "model": "op4"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-02-02 15:00:01",
+      "event_name": "hook_userpromptsubmit",
+      "body": "pi hello",
+      "attributes": {
+        "tool_input": "pi hello"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-02-02 15:00:02",
+      "event_name": "hook_posttooluse",
+      "body": "read",
+      "attributes": {
+        "tool_name": "read",
+        "tool_input": "{\"path\": \"/f\"}",
+        "tool_use_id": "p1",
+        "tool_response": "nope",
+        "is_error": "true"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-02-02 15:00:02",
+      "event_name": "hook_token_usage",
+      "body": "",
+      "attributes": {
+        "input_tokens": "3",
+        "output_tokens": "9",
+        "cache_read_tokens": "1",
+        "model": "op4",
+        "provider": "anthropic",
+        "stop_reason": "toolUse",
+        "cost_usd": "0.002"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-02-02 15:00:04",
+      "event_name": "hook_posttooluse",
+      "body": "bash",
+      "attributes": {
+        "tool_name": "bash",
+        "tool_input": "make",
+        "tool_response": "ok",
+        "exit_code": "0"
+      },
+      "service_name": "pi"
+    },
+    {
+      "timestamp": "2026-02-02 15:00:05",
+      "event_name": "hook_assistant_response",
+      "body": "note a\nnote b",
+      "attributes": {
+        "tool_response": "note a\nnote b"
+      },
+      "service_name": "pi"
+    }
+  ]
+}

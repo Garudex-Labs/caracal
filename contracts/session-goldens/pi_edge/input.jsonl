@@ -1,0 +1,6 @@
+{"type": "model_change", "timestamp": "2026-02-02T15:00:00Z", "provider": "anthropic", "modelId": "op4"}
+{"type": "message", "timestamp": "2026-02-02T15:00:01Z", "message": {"role": "user", "content": "pi hello"}}
+{"type": "message", "timestamp": "2026-02-02T15:00:02Z", "message": {"role": "assistant", "model": "op4", "provider": "anthropic", "stopReason": "toolUse", "usage": {"input": 3, "output": 9, "cacheRead": 1, "cost": {"total": 0.002}}, "content": [{"type": "toolCall", "id": "p1", "name": "read", "arguments": {"path": "/f"}}]}}
+{"type": "message", "timestamp": "2026-02-02T15:00:03Z", "message": {"role": "toolResult", "toolCallId": "p1", "toolName": "read", "isError": true, "content": [{"type": "text", "text": "nope"}]}}
+{"type": "message", "timestamp": "2026-02-02T15:00:04Z", "message": {"role": "bashExecution", "command": "make", "output": "ok", "exitCode": 0}}
+{"type": "custom_message", "timestamp": "2026-02-02T15:00:05Z", "content": [{"type": "text", "text": "note a"}, {"type": "text", "text": "note b"}]}
