@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "caracal-server"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["caracal-server:8080"]
+        labels:
+          service: "caracal-server"
