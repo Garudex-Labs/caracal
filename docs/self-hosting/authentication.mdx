@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Authentication"
+description: "Auth modes, bootstrap, JWT keys and rotation, roles, sessions, and password reset"
+---
+
+How the server authenticates users and signs tokens. SSO provider setup (OIDC, Google, GitHub, SAML) has its own page: [SSO](/self-hosting/sso).
+
+## Authentication modes
+
+The login page shows only the methods enabled for the deployment.
+
+| Method | Enabled by | Notes |
+| --- | --- | --- |
+| Email + password | Default | Bootstrap admins and locally managed users |
+| Self-registration | `auth.self_registration_enabled=true` (dynamic setting) | Creates `user`-role accounts only; default off |
+| OAuth / OIDC | `oauth.*` settings in **Admin → SSO** | Any OIDC-compliant IdP; API restart after changes |
+| Google / GitHub | First-class providers, separate from generic OIDC | Can coexist with OIDC on the login screen |
+| SAML | `saml.*` settings | JIT provisioning supported |
+
+**SSO-only mode**: set `deployment.sso_only=true` (**Admin → SSO → Access policy**) to block password login, password reset, and local bootstrap. Verify SSO with a real test user first.
+
+## Bootstrap: the first operator
+
+On a fresh server with no users, `/api/v1/auth/bootstrap` is available **from localhost only**. `caracal auth login` detects the empty user table and creates the first deployment operator interactively. Once one user exists, bootstrap is disabled. The first SSO user is **never** automatically an operator - bootstrap a local operator first, then promote.
+
+## JWT signing keys
+
+Tokens are JWTs signed with asymmetric keys - ES256 by default, RS256 supported - generated on first startup into `$JWT_KEY_DIR` (default `/data/keys`, persisted in the `apidata` volume). Public keys are published via JWKS.
+
+<Warning>
+**Back up `$JWT_KEY_DIR`.** Losing the keys invalidates issued access tokens, all users must log in again so their clients can mint new tenant JWTs, and there is no recovery path. Back up the `apidata` volume whenever you back up PostgreSQL.
+</Warning>
+
+**Rotation:**
+
+- Emergency same-algorithm rotation: stop the API, back up and remove `signing.pem`, restart. New keys are generated; all sessions must re-authenticate.
+- Algorithm change: switch `JWT_SIGNING_ALGORITHM` and restart. The old public key is archived and stays in JWKS so existing tokens verify until they expire; new tokens use the configured algorithm only. Mismatched token headers are rejected.
+- Encrypted signing keys: use `JWT_KEY_PASSWORD_FILE` and rotate the password and key together during a planned restart.
+
+**Revocation** state lives in Redis and fails closed: with Redis down, authentication fails rather than accepting a possibly-revoked token.
+
+## Roles
+
+Deployment roles govern instance-level access:
+
+| Role | Adds |
+| --- | --- |
+| `user` | Publish Resources, install Agents, view own data |
+| `reviewer` | Approve/reject registry submissions |
+| `operator` | Manage users, settings, retention, audit/security logs, diagnostics, and deployment operations |
+
+Organization roles (`owner`, `admin`, `member`) and Project roles (`lead`, `user`) are separate tenant grants. Operator status does not by itself make a user a member of every Organization.
+
+Change roles in the web UI (**Settings → Users**) or via `PUT /api/v1/operator/users/{id}/role`.
+
+## CLI and API tokens
+
+`caracal auth login` creates a Better Auth session for the CLI device and stores the session token locally. The CLI uses that session to mint short-lived tenant JWTs for API calls and telemetry delivery.
+
+The Security settings page lists these as active sessions, not API keys. Revoking a CLI session there prevents that machine from minting new tenant JWTs while leaving unrelated browser and CLI sessions active.
+
+## Rate limits
+
+`RATE_LIMIT_AUTH` (default `10/minute`) covers general auth endpoints; `RATE_LIMIT_AUTH_STRICT` (default `5/minute`) covers login, registration, and password reset. Tighten for public-facing deployments.
+
+## Password reset
+
+A reset request logs a 6-character code to the server console:
+
+```
+WARNING - PASSWORD RESET CODE for richard@example.com: A7X9B2 (expires in 15 minutes)
+```
+
+An operator reads the log and relays the code out-of-band - deliberately, so the default flow needs no email infrastructure. Operators can also reset directly in the web UI (**Settings → Users**).
+
+## Audit
+
+Every privileged action lands in the ClickHouse audit log - query and export it in the web UI (**Admin → Audit log**). Security events (failed logins, etc.) are visible under **Admin → Security events**.
