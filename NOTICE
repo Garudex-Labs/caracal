@@ -1,0 +1,35 @@
+Caracal
+Copyright 2026 Ryan Madhuwala
+
+Caracal's original source code and project materials are licensed under the
+Apache License, Version 2.0 (see the LICENSE.md file or
+https://www.apache.org/licenses/LICENSE-2.0).
+
+Third-party components bundled with or distributed alongside this product
+remain subject to their respective licenses and copyright terms, as identified
+below. Per-file license and copyright declarations are maintained in SPDX
+headers within individual files.
+
+================================================================================
+Third-party components
+================================================================================
+
+This product bundles the following fonts, which are distributed under the
+SIL Open Font License, Version 1.1 (full text: web/public/fonts/OFL.txt).
+Copyright remains with their respective authors:
+
+- Albert Sans
+  Copyright 2021 The Albert Sans Project Authors
+  https://github.com/usted/Albert-Sans
+
+- JetBrains Mono
+  Copyright 2020 The JetBrains Mono Project Authors
+  https://github.com/JetBrains/JetBrainsMono
+
+- Departure Mono
+  Copyright 2024 The Departure Mono Project Authors
+  https://github.com/rektdeckard/DepartureMono
+
+All other third-party dependencies are obtained from their respective package
+registries at build time and are not redistributed in this repository; their
+licenses are declared in the corresponding package manifests and lock files.
