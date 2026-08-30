@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# Build stage
+FROM golang:1.26-alpine AS builder
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY packages/harness-data/ packages/harness-data/
+COPY .release.toml ./
+
+# The canonical release version lives in .release.toml; stamp it into the binary.
+RUN version=$(sed -n 's/^version = "\(.*\)"/\1/p' .release.toml | head -n1) \
+    && CGO_ENABLED=0 go build -trimpath \
+       -ldflags="-s -w -X main.serverVersion=${version:-dev}" \
+       -o /out/caracal-server ./cmd/caracal-server
+
+# Seed the git-mirror cache and data directories (migration artifacts + temp
+# staging) so volumes mounted there inherit ownership writable by the nonroot
+# runtime user.
+RUN mkdir -p /out/caracal_mirrors /out/data/migration_artifacts /out/data/tmp
+
+# Runtime stage
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /out/caracal-server /caracal-server
+COPY --from=builder --chown=65532:65532 /out/caracal_mirrors /tmp/caracal_mirrors
+COPY --from=builder --chown=65532:65532 /out/data /data
+
+EXPOSE 8080
+ENTRYPOINT ["/caracal-server"]
