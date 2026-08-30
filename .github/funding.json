@@ -1,0 +1,80 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1",
+
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "Ryan Madhuwala",
+    "email": "rawx18.dev@gmail.com",
+    "description": "Creator of Caracal and CEO of Garudex Labs.",
+    "webpageUrl": {
+      "url": "https://www.linkedin.com/in/ryanmadhuwala"
+    }
+  },
+
+  "projects": [
+    {
+      "guid": "caracal",
+      "name": "Caracal",
+      "description": "Caracal is an open-source agent-centric registry and observability platform for AI coding agents. It bundles MCP servers, skills, hooks, prompts, and sandboxes into installable agents, and provides traces, metrics, and insight reports for the harnesses that run them.",
+      "webpageUrl": {
+        "url": "https://caracal.run"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/Garudex-Labs/caracal"
+      },
+      "licenses": [
+        "spdx:Apache-2.0"
+      ],
+      "tags": [
+        "observability",
+        "ai",
+        "ai-agents",
+        "registry",
+        "mcp",
+        "telemetry",
+        "developer-tools",
+        "open-source",
+        "infrastructure"
+      ]
+    }
+  ],
+
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/RAWx18",
+        "description": "Support ongoing development and sustainability of Caracal Open Source."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "github-sponsors-monthly",
+        "status": "active",
+        "name": "GitHub Sponsors",
+        "description": "Recurring sponsorship for sustained Caracal maintenance, releases, documentation, and infrastructure.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors"
+        ]
+      },
+      {
+        "guid": "github-sponsors-one-time",
+        "status": "active",
+        "name": "GitHub Sponsors One-Time",
+        "description": "One-time sponsorship for targeted Caracal development, issue triage, and community support.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": [
+          "github-sponsors"
+        ]
+      }
+    ]
+  }
+}
