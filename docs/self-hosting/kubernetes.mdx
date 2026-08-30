@@ -1,0 +1,83 @@
+---
+title: "Kubernetes with Helm"
+description: "Deploy Caracal with the official Helm chart, from evaluation to production"
+---
+
+The official chart is published as an OCI artifact:
+
+```
+oci://ghcr.io/garudex-labs/charts/caracal
+```
+
+<Warning>
+The chart's in-cluster PostgreSQL, ClickHouse, and Redis StatefulSets are for evaluation, development, and small-scale testing. For production, set `postgresql.enabled=false`, `clickhouse.enabled=false`, `redis.enabled=false` and point `*.externalUrl` at managed services (RDS/Cloud SQL, ClickHouse Cloud, ElastiCache/Memorystore).
+</Warning>
+
+## Prerequisites
+
+Kubernetes ≥ 1.27, Helm ≥ 3.8, `kubectl` access, an ingress controller (e.g. `ingress-nginx`), and a default `StorageClass` with dynamic provisioning.
+
+## Install
+
+```bash
+kubectl create namespace caracal
+helm install caracal oci://ghcr.io/garudex-labs/charts/caracal \
+  --version <version> --namespace caracal
+kubectl get pods -n caracal
+```
+
+OCI charts don't use `helm repo add` - reference the `oci://` URL directly. To test unreleased chart changes, install from a clone: `helm install caracal ./infra/helm/caracal -n caracal`.
+
+## Key values
+
+| Parameter | Description | Default |
+| --- | --- | --- |
+| `api.image.repository` / `api.image.tag` | API image (tag defaults to the chart app version) | `ghcr.io/garudex-labs/caracal-api` |
+| `api.replicas` / `api.workers` | API pods / uvicorn workers per pod | `1` / `2` |
+| `worker.replicas` | Background job worker pods | `1` |
+| `web.image.repository` / `web.replicas` | Web UI | `ghcr.io/garudex-labs/caracal-web` / `1` |
+| `postgresql.enabled` / `postgresql.externalUrl` | Embedded Postgres vs managed | `true` / `""` |
+| `postgresql.storage.size` | Postgres PVC | `10Gi` |
+| `clickhouse.enabled` / `clickhouse.externalUrl` | Embedded ClickHouse vs managed | `true` / `""` |
+| `clickhouse.storage.size` | ClickHouse PVC | `50Gi` |
+| `redis.enabled` / `redis.externalUrl` / `redis.storage.size` | Embedded Redis vs managed | `true` / `""` / `2Gi` |
+| `ingress.enabled` / `ingress.host` | Ingress resource | `true` / `caracal.example.com` |
+| `ingress.tls.enabled` / `ingress.tls.certManager.enabled` | TLS / cert-manager automation | `false` / `false` |
+| `secrets.existingSecret` / `secrets.secretKey` | Pre-existing Secret / override generated app secret | `""` |
+| `config.logLevel` | `DEBUG` \| `INFO` \| `WARN` \| `ERROR` | `INFO` |
+| `global.imageRegistry` / `global.imagePullSecrets` | Registry prefix / pull secrets | `""` / `[]` |
+
+Pass a values file (`-f custom-values.yaml`) or `--set` flags.
+
+## Access
+
+**Development:** `kubectl port-forward svc/caracal-web 8000:8000 -n caracal` → `http://localhost:8000`.
+
+**Production (ingress + cert-manager):**
+
+```bash
+helm upgrade --install caracal oci://ghcr.io/garudex-labs/charts/caracal \
+  --version <version> --namespace caracal \
+  --set ingress.enabled=true \
+  --set ingress.host=caracal.mycompany.com \
+  --set ingress.tls.enabled=true \
+  --set ingress.tls.secretName=caracal-tls \
+  --set ingress.tls.certManager.enabled=true \
+  --set ingress.tls.certManager.issuerName=letsencrypt-prod
+```
+
+## Operations
+
+```bash
+helm upgrade caracal oci://ghcr.io/garudex-labs/charts/caracal \
+  --version <version> -n caracal -f custom-values.yaml     # upgrade
+
+helm history caracal -n caracal                             # release history
+helm rollback caracal 1 -n caracal                          # rollback
+
+helm uninstall caracal -n caracal                           # uninstall
+```
+
+<Note>
+PVCs for PostgreSQL, ClickHouse, Redis, and API data are **retained** on uninstall to prevent data loss. Delete them explicitly with `kubectl delete pvc -l app.kubernetes.io/instance=caracal -n caracal`.
+</Note>
