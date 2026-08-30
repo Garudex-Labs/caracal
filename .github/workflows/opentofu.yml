@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenTofu - fmt + validate + tflint + env consistency for all modules.
+#
+# Runs on PRs and pushes to main that touch infra/opentofu/** or
+# .env.example. No cloud credentials needed.
+#
+# Modules covered:
+#   • infra/opentofu/aws  (ECS Fargate - full matrix)
+#   • infra/opentofu/gcp  (Cloud Run - full matrix)
+#   • infra/opentofu/aws-ec2 (single-instance - fmt+validate only)
+#
+# aws-ec2 is excluded from the matrix and consistency checks because it uses
+# different variable conventions (name vs name_prefix, no clickhouse_mode).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: OpenTofu
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/opentofu/**'
+      - '.github/workflows/opentofu.yml'
+      - '.env.example'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/opentofu/**'
+      - '.github/workflows/opentofu.yml'
+      - '.env.example'
+
+concurrency:
+  group: opentofu-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── fmt + validate (aws, gcp) ──────────────────────────────────────────────
+  fmt-validate:
+    name: "${{ matrix.module }} fmt+validate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [aws, gcp]
+        include:
+          - module: aws
+            working_dir: infra/opentofu/aws
+            has_bootstrap: true
+          - module: gcp
+            working_dir: infra/opentofu/gcp
+            has_bootstrap: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.11.5
+          tofu_wrapper: false
+
+      - name: tofu fmt (recursive)
+        working-directory: ${{ matrix.working_dir }}
+        run: tofu fmt -check -recursive -diff
+
+      - name: tofu init (root module, no backend)
+        working-directory: ${{ matrix.working_dir }}
+        run: tofu init -backend=false -input=false
+
+      - name: tofu validate (root module)
+        working-directory: ${{ matrix.working_dir }}
+        run: tofu validate -no-color
+
+      - name: tofu init (examples/minimal)
+        working-directory: ${{ matrix.working_dir }}/examples/minimal
+        run: tofu init -backend=false -input=false
+
+      - name: tofu validate (examples/minimal)
+        working-directory: ${{ matrix.working_dir }}/examples/minimal
+        run: tofu validate -no-color
+
+      - name: Check examples/byovpc exists
+        id: byovpc
+        run: test -f "${{ matrix.working_dir }}/examples/byovpc/main.tf" && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      - name: tofu init (examples/byovpc)
+        if: steps.byovpc.outputs.exists == 'true'
+        working-directory: ${{ matrix.working_dir }}/examples/byovpc
+        run: tofu init -backend=false -input=false
+
+      - name: tofu validate (examples/byovpc)
+        if: steps.byovpc.outputs.exists == 'true'
+        working-directory: ${{ matrix.working_dir }}/examples/byovpc
+        run: tofu validate -no-color
+
+      - name: tofu init (bootstrap)
+        if: matrix.has_bootstrap
+        working-directory: ${{ matrix.working_dir }}/bootstrap
+        run: tofu init -backend=false -input=false
+
+      - name: tofu validate (bootstrap)
+        if: matrix.has_bootstrap
+        working-directory: ${{ matrix.working_dir }}/bootstrap
+        run: tofu validate -no-color
+
+  # ── tflint (aws, gcp) ─────────────────────────────────────────────────────
+  tflint:
+    name: "${{ matrix.module }} tflint"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [aws, gcp]
+        include:
+          - module: aws
+            working_dir: infra/opentofu/aws
+          - module: gcp
+            working_dir: infra/opentofu/gcp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup tflint
+        uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6
+        with:
+          tflint_version: v0.55.0
+
+      - name: tflint init
+        working-directory: ${{ matrix.working_dir }}
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: tflint
+        working-directory: ${{ matrix.working_dir }}
+        run: tflint --recursive --format=compact
+
+  # ── aws-ec2 (lightweight, different conventions) ───────────────────────────
+  fmt-validate-ec2:
+    name: "aws-ec2 fmt+validate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.11.5
+          tofu_wrapper: false
+
+      - name: tofu fmt
+        working-directory: infra/opentofu/aws-ec2
+        run: tofu fmt -check -diff
+
+      - name: tofu init + validate
+        working-directory: infra/opentofu/aws-ec2
+        run: |
+          tofu init -backend=false -input=false
+          tofu validate -no-color
+
+  # ── OpenTofu <-> App env consistency ───────────────────────────────────────
+  consistency:
+    name: "opentofu-env consistency"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run consistency checks
+        run: go run ./tools/checkopentofu
