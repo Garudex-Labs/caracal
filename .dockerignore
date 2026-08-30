@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# Version control
+**/.git
+
+# Node.js artifacts
+**/node_modules
+
+# Go binaries built at the repo root (images build from source)
+caracal
+caracal-server
+gennotices
+release
+
+# Documentation assets (not needed in images)
+LICENSE.md
+NOTICE
+
+# Testing (not shipped in images)
+tests/
+
+# Development tooling
+.github/
+.vscode/
+.idea/
+*.code-workspace
+
+# Scripts and tools (not needed in containers)
+scripts/
+
+# Monitoring configs (volume-mounted at runtime, not baked in)
+infra/grafana/
+infra/helm/
+infra/opentofu/
+infra/docker/prometheus.yml
+
+# Docker sub-configs (not needed inside images)
+infra/docker/docker-compose*.yml
+infra/docker/clickhouse/
+infra/docker/nginx.conf
+infra/docker/nginx.dev.conf
+infra/docker/nginx.production.conf
+infra/docker/server-package/
+
+# Environment and logs
+.env
+.env.*
+!.env.example
+*.log
