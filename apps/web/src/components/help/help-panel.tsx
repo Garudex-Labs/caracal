@@ -1,0 +1,132 @@
+// SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { DocRenderer } from "./doc-renderer";
+import { loadDoc } from "@/lib/docs-loader";
+import { Loader2, X, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+interface HelpPanelProps {
+	/** Doc file path relative to docs/ */
+	file: string | null;
+	/** Optional anchor to scroll to */
+	anchor?: string;
+	/** Human-readable title */
+	title?: string;
+	onClose: () => void;
+}
+
+export function HelpPanel({ file, anchor, title, onClose }: HelpPanelProps) {
+	const [content, setContent] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
+	const scrollRef = useRef<HTMLDivElement>(null);
+
+	// Load doc content when file changes
+	useEffect(() => {
+		if (!file) {
+			setContent(null);
+			return;
+		}
+		setLoading(true);
+		setError(null);
+		loadDoc(file)
+			.then((md) => {
+				if (md) {
+					// Strip SPDX header comments
+					const cleaned = md.replace(/^<!--[\s\S]*?-->\s*\n*/m, "");
+					setContent(cleaned);
+				} else {
+					setError("Documentation not found.");
+					setContent(null);
+				}
+			})
+			.catch(() => {
+				setError("Failed to load documentation.");
+				setContent(null);
+			})
+			.finally(() => setLoading(false));
+	}, [file]);
+
+	// Scroll to anchor when content loads
+	useEffect(() => {
+		if (!anchor || !content || loading) return;
+		const timer = setTimeout(() => {
+			const el = scrollRef.current?.querySelector<HTMLElement>(`#${CSS.escape(anchor)}`);
+			if (el) {
+				el.scrollIntoView({ behavior: "smooth", block: "start" });
+				el.classList.add("bg-primary/10", "-mx-2", "px-2", "rounded");
+				setTimeout(() => el.classList.remove("bg-primary/10", "-mx-2", "px-2", "rounded"), 2000);
+			}
+		}, 150);
+		return () => clearTimeout(timer);
+	}, [anchor, content, loading]);
+
+	const handleKeyDown = useCallback(
+		(e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		},
+		[onClose],
+	);
+
+	const handlePointerDown = useCallback(
+		(e: PointerEvent) => {
+			const target = e.target;
+			if (!(target instanceof Node)) return;
+			const modal = document.querySelector('[role="dialog"]');
+			if (panelRef.current?.contains(target) || modal?.contains(target)) return;
+			onClose();
+		},
+		[onClose],
+	);
+
+	useEffect(() => {
+		if (!file) return;
+		document.addEventListener("keydown", handleKeyDown);
+		document.addEventListener("pointerdown", handlePointerDown, true);
+		return () => {
+			document.removeEventListener("keydown", handleKeyDown);
+			document.removeEventListener("pointerdown", handlePointerDown, true);
+		};
+	}, [file, handleKeyDown, handlePointerDown]);
+
+	if (!file) return null;
+
+	return (
+		<div data-help-panel="true" ref={panelRef} className="fixed right-0 top-0 w-[min(720px,calc(100vw-260px))] min-w-[560px] max-w-[100vw] border-l border-border bg-card flex flex-col h-[100dvh] z-[70] shadow-xl pointer-events-auto">
+			{/* Sticky header */}
+			<div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-card z-10 shrink-0">
+				<div className="flex items-center gap-2 min-w-0">
+					<BookOpen className="h-3.5 w-3.5 text-primary shrink-0" />
+					<h3 className="text-sm font-semibold truncate">
+						{title || file}
+					</h3>
+				</div>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-6 w-6 p-0 shrink-0"
+					onClick={onClose}
+					title="Close panel (Esc)"
+				>
+					<X className="h-4 w-4" />
+				</Button>
+			</div>
+
+			{/* Scrollable content */}
+			<div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+				{loading ? (
+					<div className="flex items-center justify-center py-12">
+						<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+					</div>
+				) : error ? (
+					<p className="text-sm text-muted-foreground">{error}</p>
+				) : content ? (
+					<DocRenderer content={content} basePath={file} />
+				) : null}
+			</div>
+		</div>
+	);
+}
