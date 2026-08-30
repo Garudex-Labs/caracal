@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Server configuration"
+description: "Boot-time env settings, file-backed secrets, and runtime dynamic settings"
+---
+
+Caracal splits configuration in two:
+
+- **Boot settings** live in `.env` (or the environment): database connections, `SECRET_KEY`, ports, rate limits, JWT key location. Full table: [Environment variables](/reference/environment-variables).
+- **Dynamic settings** live in the database and are edited at runtime via **Settings → Advanced** (instance scope) or the admin settings API - SSO configuration, review policy, deployment options, observability settings. Most take effect immediately; OIDC client changes require an API restart.
+
+## Required before production
+
+Source deployments must override these; the server-package installer generates them automatically:
+
+| Setting | Default | Why change |
+| --- | --- | --- |
+| `SECRET_KEY` (or `_FILE`) | `change-me-to-a-random-string` | Application encryption secret; ≥ 32 random characters |
+| `POSTGRES_PASSWORD` (or `_FILE`) | `postgres` | PostgreSQL credential |
+| `CLICKHOUSE_PASSWORD` (or generated hashed user config) | `clickhouse` | ClickHouse credential |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:8000` | Scope to your real frontend origin(s) |
+| `deployment.frontend_url` (dynamic) | `http://localhost:8000` | OAuth redirects and email links |
+
+The **Settings → General** instance page shows a warning banner while `SECRET_KEY` is insecure.
+
+## File-backed secrets
+
+Any supported credential `NAME` accepts `NAME_FILE=/path` instead of a direct value:
+
+```dotenv
+SECRET_KEY_FILE=/run/secrets/secret_key
+DATABASE_URL_FILE=/run/secrets/database_url
+JWT_KEY_PASSWORD_FILE=/run/secrets/jwt_key_password
+GIT_CLONE_TOKEN_FILE=/run/secrets/git_clone_token
+OAUTH_CLIENT_SECRET_FILE=/run/secrets/oauth_client_secret
+```
+
+Rules and behavior:
+
+- Files: UTF-8, ≤ 64 KiB, one trailing newline stripped. Setting both `NAME` and `NAME_FILE` is an error - precedence is never ambiguous.
+- Rotate by atomically replacing the file and restarting the affected API/worker processes.
+- File-backed dynamic settings are marked **externally managed**: never imported into PostgreSQL or Redis, and the admin API refuses to overwrite, delete, or revoke them.
+- Supported: `DATABASE_URL`, `CLICKHOUSE_URL`, `REDIS_URL`, `SECRET_KEY`, `OLD_SECRET_KEY`, `JWT_KEY_PASSWORD`, `GIT_CLONE_TOKEN`, all SSO secrets (OAuth/Google/GitHub client secrets, insights provider key, SAML certificates and key-encryption password), and CLI tokens (`CARACAL_ACCESS_TOKEN_FILE`, `CARACAL_TOKEN_FILE`).
+
+The server package writes generated credentials into an operator-owned `secrets/` directory (dirs `0750`, files `0640`), with `CARACAL_SECRET_GID` granting each container read access only to its service-specific files.
+
+## Database connections
+
+```dotenv
+# Source deployments (direct values):
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@caracal-db:5432/caracal
+CLICKHOUSE_URL=clickhouse://default:clickhouse@caracal-clickhouse:8123/caracal
+REDIS_URL=redis://caracal-redis:6379
+
+# Server-package installs (file references):
+DATABASE_URL_FILE=/run/secrets/database_url
+CLICKHOUSE_URL_FILE=/run/secrets/clickhouse_url
+REDIS_URL_FILE=/run/secrets/redis_url
+```
+
+Inside Compose, hostnames resolve on the private bridge (`caracal-db`); from the host, use `localhost:<port>`.
+
+## Frequently tuned settings
+
+| Concern | Setting | Notes |
+| --- | --- | --- |
+| Telemetry retention | `DATA_RETENTION_DAYS=90` | ClickHouse TTL; `0` disables; minimum non-zero 7. See [Databases](/self-hosting/databases) |
+| Auth rate limits | `RATE_LIMIT_AUTH=10/minute`, `RATE_LIMIT_AUTH_STRICT=5/minute` | Strict limit covers login and password reset |
+| JWT signing | `JWT_SIGNING_ALGORITHM=ES256`, `JWT_KEY_DIR=/data/keys` | **Back up the key directory.** See [Authentication](/self-hosting/authentication) |
+| Request size | `MAX_REQUEST_SIZE_MB=10` | Raise for very large telemetry batches |
+| Submission analysis | `ALLOW_INTERNAL_URLS`, `GIT_CLONE_TOKEN(_FILE)`, `GIT_CLONE_TOKEN_USER`, `GIT_CLONE_TIMEOUT` | `GIT_CLONE_TOKEN_USER`: `x-access-token` (GitHub), `oauth2`/`private-token` (GitLab) |
+| SSO | `oauth.*`, `saml.*`, `deployment.sso_only` (dynamic) | See [SSO](/self-hosting/sso) |
+| Self-registration | `auth.self_registration_enabled` (dynamic) | Default `false` |
+
+## Dynamic settings via API
+
+```bash
+caracal api GET /api/v1/operator/settings --output json    # list (sensitive values redacted)
+caracal api PUT /api/v1/operator/settings/auth.self_registration_enabled --from-file value.json
+```
+
+## Development-only login
+
+The identity service can expose a development login route for local work. It is double-gated server-side: the route exists only when the auth container runs with `NODE_ENV` other than `production` **and** `AUTH_DEV_LOGIN=1`. A production `NODE_ENV` disables it regardless of `AUTH_DEV_LOGIN`. Never set these variables in a real deployment.
