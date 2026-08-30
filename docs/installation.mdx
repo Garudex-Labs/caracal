@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+---
+title: "Installation"
+description: "Install the Caracal CLI and server, with every supported method"
+---
+
+Caracal has two installable parts:
+
+- **The CLI** (`caracal`) - installed on every developer machine. Handles login, scanning, agent installs, publishing, and telemetry delivery.
+- **The server** - deployed once per team as a Docker Compose stack (API, web UI, worker, PostgreSQL, ClickHouse, Redis, load balancer).
+
+## Install the CLI
+
+### Standalone binary (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | bash
+```
+
+Downloads the latest release binary for your platform and places it on your `PATH`. No Python required. Verify:
+
+```bash
+caracal --version
+```
+
+### Python package
+
+Requires Python 3.11 or newer.
+
+<CodeGroup>
+```bash uv
+uv tool install caracal-cli
+```
+
+```bash pipx
+pipx install caracal-cli
+```
+
+```bash pip
+pip install --user caracal-cli
+```
+</CodeGroup>
+
+### From source (contributors)
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal
+uv tool install --editable .
+```
+
+### What lands on your PATH
+
+| Entry point | Purpose |
+| --- | --- |
+| `caracal` | The CLI |
+| `caracal-sandbox-run` | Runner invoked by Caracal sandboxes - wired into harness configs automatically, never called directly |
+| `caracal-sandbox-mcp` | Sandbox MCP shim - also wired automatically |
+
+### Upgrade and uninstall
+
+```bash
+caracal self upgrade      # upgrade in place, with rollback support
+caracal self status       # current and available versions
+```
+
+`caracal self downgrade` and `caracal self rollback` revert a bad upgrade. See [caracal self](/cli/self).
+
+## Install the server
+
+<Note>
+Requires Docker Engine ≥ 24.0 with Compose v2 (`docker compose`, not `docker-compose`). Homebrew's Docker formula is outdated; use Docker Desktop or your distribution's upstream packages. Verify with `docker version` and `docker compose version`.
+</Note>
+
+### Packaged single-node install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-server.sh | bash
+```
+
+The installer downloads a config package, runs guided setup (domain, secrets, ports), generates restricted credential files under `secrets/`, pulls container images from GHCR, and starts the stack with host ports bound to loopback by default. It applies the same safe defaults automatically in headless environments. See [Single-node deployment](/self-hosting/single-node).
+
+### From source
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal
+cp .env.example .env
+make up
+```
+
+Intended for development and evaluation. `.env.example` contains working local defaults. See [Run from source](/self-hosting/docker-compose).
+
+### Other deployment targets
+
+| Target | Method | Docs |
+| --- | --- | --- |
+| Single VM | `install-server.sh` | [Single-node deployment](/self-hosting/single-node) |
+| Kubernetes | Official Helm chart | [Kubernetes](/self-hosting/kubernetes) |
+| AWS | OpenTofu module | [AWS](/self-hosting/aws) |
+| GCP | OpenTofu module | [GCP](/self-hosting/gcp) |
+| Azure | OpenTofu module | [Azure](/self-hosting/azure) |
+
+## First login
+
+A fresh server bootstraps its first deployment operator automatically: run `caracal auth login` against the new server from localhost and the account you create receives the `operator` role. On login, the CLI also installs the bundled Caracal skill into your detected harnesses so the LLM in your coding tool can drive Caracal commands directly.
+
+```bash
+caracal auth login --server https://caracal.your-company.internal
+caracal auth whoami
+```
