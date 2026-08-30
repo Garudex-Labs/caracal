@@ -1,0 +1,48 @@
+---
+# SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+name: caracal-agents
+command: caracal
+description: "Authors, validates, publishes, updates, versions, and pulls Caracal Agents. Use when the user wants to build or install an Agent, change an Agent definition, publish a draft, or release a version. Archiving, ownership transfer, and co-author management live in the web UI."
+version: 2.2.0
+owner: caracal
+---
+
+# Managing Caracal Agents
+
+## Execution contract
+
+1. Execute commands with a 60 second timeout.
+2. **Use machine output by default:** add `--output json` whenever supported. Parse list results from `items` and pagination fields.
+3. Use `--help` before acting when a path or flag is uncertain.
+4. Keep workflows noninteractive. Supply required fields, `--no-prompt`, and confirmation flags.
+5. Use UUIDs or `qualified_name` values returned by JSON. Never automate with row numbers.
+6. Prefer native `agent init`, `agent add`, and `agent build` over hand-written scaffolding or custom validation.
+7. Verify every publish, release, pull, ownership, and lifecycle mutation.
+8. Never print MCP environment values, headers, tokens, or other secrets.
+9. Mutations are sent once. After an uncertain transport failure, read Agent state before retrying.
+
+## Choose the workflow
+
+| User intent | Workflow |
+| --- | --- |
+| Find or inspect an Agent | Discover and inspect |
+| Install an existing Agent into a harness | Pull and verify |
+| Author an Agent with components or files | Init, add, build, publish |
+| Change the current listing without a new reviewed version | Update in place |
+| Publish a reviewed patch, minor, or major version | Release |
+| Archive, restore, transfer, or manage co-authors | Web UI (not the CLI) |
+
+Read [Agent workflows](references/agent-workflows.md) completely before executing the selected workflow.
+
+## State rules
+
+- `publish --update` changes the current Agent in place.
+- `release --bump` creates a reviewed version. Do not use update when the user asked for a release.
+- Public publication may remain pending until a listing review clears. Report the actual returned status.
+- Pull success requires checking `files`, `warnings`, and `setup_commands`. Partial setup is not success.
+- A 409 is a decision point, not a generic retry signal. Read current state before choosing update or release.
+
+## Completion
+
+Report the canonical Agent identity, resulting status and version, files changed for local operations, warnings, and the smallest next action. Verify with `agent show`, `agent versions`, or `scan` when the mutation response is not sufficient.
