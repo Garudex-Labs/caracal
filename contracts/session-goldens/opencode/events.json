@@ -1,0 +1,42 @@
+{
+  "harness": "opencode",
+  "events": [
+    {
+      "timestamp": "2026-01-01 00:00:00.000",
+      "event_name": "_parse_error",
+      "body": "",
+      "attributes": {
+        "tool_name": "",
+        "tool_id": "",
+        "uuid": "",
+        "parent_uuid": "",
+        "content_length": "188"
+      },
+      "service_name": "opencode"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_assistant_response",
+      "body": "Reading CHANGELOG.md.",
+      "attributes": {
+        "tool_response": "Reading CHANGELOG.md.",
+        "input_tokens": "310",
+        "output_tokens": "24",
+        "model": "claude-sonnet-4"
+      },
+      "service_name": "opencode"
+    },
+    {
+      "timestamp": "2026-01-01 00:00:01.000",
+      "event_name": "hook_posttooluse",
+      "body": "read",
+      "attributes": {
+        "tool_name": "read",
+        "tool_input": "{\"filePath\": \"CHANGELOG.md\"}",
+        "tool_use_id": "toolu_oc1",
+        "tool_response": "## 1.11.0"
+      },
+      "service_name": "opencode"
+    }
+  ]
+}
