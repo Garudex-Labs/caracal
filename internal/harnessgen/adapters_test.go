@@ -44,6 +44,8 @@ func TestGenerateCursorShape(t *testing.T) {
 		`"stop":[{"command":"caracal hook session-push --harness cursor"`,
 		`"merge":true`,
 		`"scope":"project"`,
+		// A Caracal Skill materializes as a Cursor project rule (.cursor/rules/*.mdc).
+		`"path":".cursor/rules/code-reviewer.mdc"`,
 	})
 }
 
@@ -74,6 +76,8 @@ func TestGenerateCodexShape(t *testing.T) {
 		`"mcp_servers":{"weather-fetcher"`,
 		// Hook commands carry the agent name for session attribution.
 		`CARACAL_AGENT_NAME=review-bot caracal hook session-push --harness codex`,
+		// Codex natively consumes Agent Skills; they ship as skill components.
+		`"skill_components":[{`,
 	})
 	// The agent profile is TOML, not JSON or YAML.
 	cfg, _ := Generate(testRequest("codex"))

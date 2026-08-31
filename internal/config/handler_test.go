@@ -294,8 +294,11 @@ func TestHarnessesCatalog(t *testing.T) {
 		if entry["name"] == "claude-code" && entry["skill_support"] != "native" {
 			t.Fatalf("claude-code skill_support = %v, want native", entry["skill_support"])
 		}
-		if entry["name"] == "codex" && entry["skill_support"] != "unsupported" {
-			t.Fatalf("codex skill_support = %v, want unsupported", entry["skill_support"])
+		if entry["name"] == "codex" && entry["skill_support"] != "native" {
+			t.Fatalf("codex skill_support = %v, want native", entry["skill_support"])
+		}
+		if entry["name"] == "cursor" && entry["skill_support"] != "compatible" {
+			t.Fatalf("cursor skill_support = %v, want compatible", entry["skill_support"])
 		}
 		if _, ok := entry["prompt_support"].(string); !ok {
 			t.Fatalf("%s prompt_support missing", entry["name"])

@@ -123,10 +123,20 @@ func (s *Spec) HasCapability(c Capability) bool {
 
 // EmitsSkillMd reports whether a Caracal Skill materializes for this harness as
 // a native Agent Skill (SKILL.md, agentskills.io) it discovers and consumes.
-// Harnesses whose skill-equivalent is a different native artifact (Cursor
-// rules, Codex prompts) are not SKILL.md consumers and return false, so Caracal
-// never writes them a file the harness ignores.
+// Harnesses whose skill-equivalent is a different native artifact (e.g. Cursor
+// rules) are not SKILL.md consumers and return false, so Caracal renders their
+// mechanism's own format instead of a file the harness ignores.
 func (s *Spec) EmitsSkillMd() bool { return s.SkillMechanism == "agent_skill" }
+
+// SupportsSkill reports whether a Caracal Skill can be materialized for this
+// harness through a documented native (Agent Skill / SKILL.md) or compatible
+// (e.g. Cursor rule) mechanism. It is the single gate the UI, CLI, installer,
+// and agent-pull generator consult so a Skill is never silently dropped or
+// installed into a harness that cannot consume it. Format is decided separately
+// by EmitsSkillMd; support is decided here.
+func (s *Spec) SupportsSkill() bool {
+	return s.SkillSupport == "native" || s.SkillSupport == "compatible"
+}
 
 // SupportsRegistryHooks reports whether a Caracal Registry Hook can be
 // materialized for this harness through a documented native or compatible

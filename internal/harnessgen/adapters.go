@@ -394,8 +394,15 @@ func (a cursorAdapter) formatConfig(g *generation) *Config {
 	if hookFiles := collectHookScriptFiles(g.hookConfigs, "cursor"); len(hookFiles) > 0 {
 		result.Set("hook_files", hookFiles)
 	}
-	if len(g.skillConfigs) > 0 {
-		result.Set("skill_components", g.skillConfigs)
+	// A Caracal Skill materializes as a Cursor project rule (.cursor/rules/*.mdc).
+	skills := []any{}
+	for _, s := range g.skillConfigs {
+		if file := generateSkillFile(s, "cursor", scope, a); file != nil {
+			skills = append(skills, file)
+		}
+	}
+	if len(skills) > 0 {
+		result.Set("skills", skills)
 	}
 	if len(g.compatWarnings) > 0 {
 		result.Set("_warnings", g.compatWarnings)
@@ -636,6 +643,9 @@ func (a codexAdapter) formatConfig(g *generation) *Config {
 	})
 	if hookFiles := collectHookScriptFiles(g.hookConfigs, "codex"); len(hookFiles) > 0 {
 		result.Set("hook_files", hookFiles)
+	}
+	if len(g.skillConfigs) > 0 {
+		result.Set("skill_components", g.skillConfigs)
 	}
 	result.Set("scope", scope)
 	if warnings := g.allWarnings(); len(warnings) > 0 {

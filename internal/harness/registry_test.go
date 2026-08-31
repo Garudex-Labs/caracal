@@ -50,30 +50,38 @@ func TestSessionParserMapping(t *testing.T) {
 	}
 }
 
-// TestSkillCapabilityMatchesMechanism guards the two skill representations from
+// TestSkillCapabilityMatchesMechanism guards the skill representations from
 // drifting: the "skills" capability must be present exactly when the harness
-// materializes a native Agent Skill (SKILL.md).
+// can materialize a Skill through a native or compatible mechanism.
 func TestSkillCapabilityMatchesMechanism(t *testing.T) {
 	r := MustLoad()
 	for _, name := range r.Names() {
 		spec, _ := r.Spec(name)
-		if spec.HasCapability(CapSkills) != spec.EmitsSkillMd() {
-			t.Errorf("%s: capabilities.skills=%v but EmitsSkillMd=%v (skill_mechanism=%q)",
-				name, spec.HasCapability(CapSkills), spec.EmitsSkillMd(), spec.SkillMechanism)
+		if spec.HasCapability(CapSkills) != spec.SupportsSkill() {
+			t.Errorf("%s: capabilities.skills=%v but SupportsSkill=%v (skill_support=%q)",
+				name, spec.HasCapability(CapSkills), spec.SupportsSkill(), spec.SkillSupport)
 		}
-		// skill_support is the human label; it must be one of the two honest
-		// states and agree with the materialization gate.
+		// skill_support must be one of the three honest states and agree with the
+		// materialization gates: native emits SKILL.md, compatible materializes a
+		// non-SKILL.md mechanism, unsupported materializes nothing.
 		switch spec.SkillSupport {
 		case "native":
 			if !spec.EmitsSkillMd() {
-				t.Errorf("%s: skill_support=native but does not emit SKILL.md", name)
+				t.Errorf("%s: skill_support=native but skill_mechanism=%q is not agent_skill", name, spec.SkillMechanism)
+			}
+		case "compatible":
+			if spec.EmitsSkillMd() {
+				t.Errorf("%s: skill_support=compatible but emits SKILL.md; use native", name)
+			}
+			if !spec.SupportsSkill() {
+				t.Errorf("%s: skill_support=compatible but SupportsSkill()=false", name)
 			}
 		case "unsupported":
-			if spec.EmitsSkillMd() {
-				t.Errorf("%s: skill_support=unsupported but emits SKILL.md", name)
+			if spec.SupportsSkill() {
+				t.Errorf("%s: skill_support=unsupported but SupportsSkill()=true", name)
 			}
 		default:
-			t.Errorf("%s: skill_support=%q must be native or unsupported", name, spec.SkillSupport)
+			t.Errorf("%s: skill_support=%q must be native, compatible, or unsupported", name, spec.SkillSupport)
 		}
 	}
 }

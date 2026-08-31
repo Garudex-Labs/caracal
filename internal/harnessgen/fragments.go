@@ -747,7 +747,7 @@ func yamlFrontmatter(pairs [][2]string) string {
 // harnesses that inline skills into the rules document.
 func generateSkillFile(skill skillConfig, harnessName, scope string, adapter adapter) map[string]any {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	if !ok || len(spec.Skills) == 0 || !spec.EmitsSkillMd() {
+	if !ok || len(spec.Skills) == 0 || !spec.SupportsSkill() {
 		return nil
 	}
 	name := str(skill["name"])

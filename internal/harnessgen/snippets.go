@@ -204,7 +204,7 @@ func SkillHookExtra(harnessName string) map[string]any {
 // using the one-line summary in frontmatter and the full description as body.
 func SkillInstallFile(harnessName, scope, name, shortDesc, fullDesc, slashCommand string) map[string]any {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	if !ok || len(spec.Skills) == 0 || !spec.EmitsSkillMd() {
+	if !ok || len(spec.Skills) == 0 || !spec.SupportsSkill() {
 		return nil
 	}
 	pathTemplate, ok := spec.Skills[scope]
@@ -234,12 +234,13 @@ func SkillInstallFile(harnessName, scope, name, shortDesc, fullDesc, slashComman
 	return map[string]any{"path": path, "content": content}
 }
 
-// SupportsSkill reports whether the harness natively consumes a Caracal Skill
-// (an Agent Skill / SKILL.md). Unsupported harnesses must be rejected, never
-// handed an empty skill config or a file they never read.
+// SupportsSkill reports whether the harness can materialize a Caracal Skill
+// through a documented native (SKILL.md) or compatible (e.g. Cursor rule)
+// mechanism. Unsupported harnesses must be rejected, never handed an empty
+// skill config or a file they never read.
 func SupportsSkill(harnessName string) bool {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	return ok && spec.EmitsSkillMd()
+	return ok && spec.SupportsSkill()
 }
 
 // SupportsAgent reports whether the harness can materialize a Caracal Agent
@@ -253,7 +254,7 @@ func SupportsAgent(harnessName string) bool {
 // SkillFilePath resolves the harness skill file location for a scope.
 func SkillFilePath(harnessName, scope, name string) string {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	if !ok || len(spec.Skills) == 0 || !spec.EmitsSkillMd() {
+	if !ok || len(spec.Skills) == 0 || !spec.SupportsSkill() {
 		return ""
 	}
 	pattern, ok := spec.Skills[scope]

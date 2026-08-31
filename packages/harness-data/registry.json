@@ -5,7 +5,7 @@
       "agent_support": "compatible",
       "agent_mechanism": "cursor_agent_markdown",
       "agent_multi": true,
-      "skill_support": "unsupported",
+      "skill_support": "compatible",
       "skill_mechanism": "cursor_rule",
       "hook_support": "native",
       "hook_mechanism": "command_json",
@@ -19,7 +19,8 @@
       },
       "capabilities": [
         "hooks",
-        "mcp_servers"
+        "mcp_servers",
+        "skills"
       ],
       "session_parser": "cursor",
       "scopes": [
@@ -42,10 +43,10 @@
       },
       "mcp_servers_key": "mcpServers",
       "skills": {
-        "project": ".cursor/skills/{name}/SKILL.md",
-        "user": "~/.cursor/skills/{name}/SKILL.md"
+        "project": ".cursor/rules/{name}.mdc",
+        "user": "~/.cursor/rules/{name}.mdc"
       },
-      "skill_format": "yaml_frontmatter",
+      "skill_format": "cursor_rule",
       "hook_type": "command",
       "hooks": {
         "project": ".cursor/hooks.json",
@@ -203,8 +204,8 @@
       "agent_support": "compatible",
       "agent_mechanism": "codex_agent_toml",
       "agent_multi": true,
-      "skill_support": "unsupported",
-      "skill_mechanism": "codex_prompt",
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
       "hook_support": "native",
       "hook_mechanism": "command_json",
       "prompts": {
@@ -217,7 +218,8 @@
       },
       "capabilities": [
         "hooks",
-        "mcp_servers"
+        "mcp_servers",
+        "skills"
       ],
       "session_parser": "codex",
       "scopes": [
