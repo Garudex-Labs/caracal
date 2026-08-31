@@ -192,7 +192,7 @@ func buildSignals(agg *metaAggregate, facets *facetsSummary, agentConfig map[str
 
 // shortlistFamilies is the tie-break order used when trimming the blended
 // shortlist.
-var shortlistFamilies = []string{"skills", "hooks", "prompts", "mcps", "sandboxes"}
+var shortlistFamilies = []string{"skills", "hooks", "prompts", "mcps"}
 
 func shortlistFamilyList() []registry.Family {
 	families := make([]registry.Family, 0, len(shortlistFamilies))

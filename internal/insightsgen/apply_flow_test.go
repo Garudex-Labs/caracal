@@ -449,8 +449,8 @@ func TestApplyReportReuseRejectedWhenUnresolvable(t *testing.T) {
 		t.Errorf("nothing applied must not create a version: %v", items["agent_version"])
 	}
 	// Every component family was probed for the id.
-	if probes := db.sqlCalls("WHERE l.id = $1"); len(probes) != 5 {
-		t.Errorf("family probes = %d, want 5", len(probes))
+	if probes := db.sqlCalls("WHERE l.id = $1"); len(probes) != 4 {
+		t.Errorf("family probes = %d, want 4", len(probes))
 	}
 }
 

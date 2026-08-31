@@ -96,7 +96,7 @@ func TestBuildSignals(t *testing.T) {
 
 func TestShortlistFamilyList(t *testing.T) {
 	families := shortlistFamilyList()
-	if len(families) != 5 {
+	if len(families) != 4 {
 		t.Fatalf("families = %d", len(families))
 	}
 	if families[0].Name != "skill" || families[3].Name != "mcp" {

@@ -49,7 +49,6 @@ func TestDeclaredComponentType(t *testing.T) {
 		{map[string]any{"feature": "a lifecycle hook"}, "hook"},
 		{map[string]any{"feature": "the github mcp"}, "mcp"},
 		{map[string]any{"feature": "reusable prompt template"}, "prompt"},
-		{map[string]any{"feature": "x", "name": "sandbox runner"}, "sandbox"},
 		{map[string]any{"feature": "totally ambiguous"}, ""},
 	}
 	for _, tc := range cases {

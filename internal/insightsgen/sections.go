@@ -174,7 +174,7 @@ RESPOND WITH ONLY A VALID JSON OBJECT:
     "features_to_try": [
       {
         "action_type": "reuse_existing_component | attach_registry_component | remove_component | create_new_skill | create_new_hook | no_action",
-        "feature": "Skill | Hook | Prompt | MCP | Sandbox | Component",
+        "feature": "Skill | Hook | Prompt | MCP | Component",
         "name": "short-kebab-name (max 30 chars, e.g. 'scope-guard', 'pr-review', 'test-runner')",
         "existing_component_id": "the exact ` + "`id`" + ` copied from the reusable-components list when action_type is reuse/attach/remove, else null",
         "match_reason": "for reuse only: which observed problem this existing component solves, citing the data",

@@ -48,15 +48,14 @@ const selfLearnSeparator = "\n\n# ── Auto-learned from Insights ──\n"
 const applyMaxNameLen = 48
 
 // applyTypeOrder is the resolution order for reused component references.
-var applyTypeOrder = []string{"skill", "hook", "prompt", "mcp", "sandbox"}
+var applyTypeOrder = []string{"skill", "hook", "prompt", "mcp"}
 
 // applyTypePrefix maps singular component types to registry family prefixes.
 var applyTypePrefix = map[string]string{
-	"skill":   "skills",
-	"hook":    "hooks",
-	"prompt":  "prompts",
-	"mcp":     "mcps",
-	"sandbox": "sandboxes",
+	"skill":  "skills",
+	"hook":   "hooks",
+	"prompt": "prompts",
+	"mcp":    "mcps",
 }
 
 var applyHarnessRegistry = sync.OnceValues(harness.Load)
@@ -495,9 +494,6 @@ func declaredComponentType(feature map[string]any) string {
 	label := strings.ToLower(str(feature["feature"]) + " " + str(feature["name"]))
 	if strings.Contains(label, "prompt") {
 		return "prompt"
-	}
-	if strings.Contains(label, "sandbox") {
-		return "sandbox"
 	}
 	return ""
 }
