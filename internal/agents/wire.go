@@ -91,10 +91,7 @@ func visibility(row map[string]any) string {
 	if rowStr(row, "ownership_scope", "") == "private" {
 		return "private"
 	}
-	if rowBool(row, "is_private") {
-		return "project"
-	}
-	return "public"
+	return "project"
 }
 
 // summarize renders one scanned row as the summary shape. The lifecycle

@@ -314,7 +314,7 @@ func TestCreateAgentRejectsBadNameAndVisibility(t *testing.T) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 	out := rec.Body.String()
-	if !strings.Contains(out, "value_error") || !strings.Contains(out, "'public', 'project' or 'private'") {
+	if !strings.Contains(out, "value_error") || !strings.Contains(out, "'project' or 'private'") {
 		t.Errorf("detail: %s", out)
 	}
 }

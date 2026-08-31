@@ -97,7 +97,6 @@ func (h *Handler) list() http.Handler {
 			Category:               q.Get("category"),
 			ProjectID:              registry.ParseUUIDQuery(q, "project_id", &errs),
 			ComposableForProjectID: registry.ParseUUIDQuery(q, "composable_for_project_id", &errs),
-			PublicOnly:             registry.ParseBoolQuery(q, "public_only", &errs),
 			Limit:                  registry.ParseIntQuery(q, "limit", 50, 1, 200, &errs),
 			Offset:                 registry.ParseIntQuery(q, "offset", 0, 0, -1, &errs),
 		}
@@ -503,7 +502,7 @@ func (h *Handler) validate() http.Handler {
 			return
 		}
 		if req.Visibility == "" {
-			req.Visibility = "public"
+			req.Visibility = "project"
 		}
 		// component_type is a closed set at the request boundary.
 		type literalError struct {
@@ -513,7 +512,7 @@ func (h *Handler) validate() http.Handler {
 			Input string         `json:"input"`
 			Ctx   map[string]any `json:"ctx"`
 		}
-		const expected = "'mcp', 'skill', 'hook', 'prompt' or 'sandbox'"
+		const expected = "'mcp', 'skill', 'hook' or 'prompt'"
 		literalErrs := []literalError{}
 		for i, ref := range req.Components {
 			if _, known := registry.Families[ref.ComponentType+"s"]; !known {

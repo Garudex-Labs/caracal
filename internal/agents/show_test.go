@@ -88,7 +88,7 @@ func TestShowByUUIDRendersDetail(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d["qualified_name"] != "acme/review-bot" || d["visibility"] != "public" {
+	if d["qualified_name"] != "acme/review-bot" || d["visibility"] != "project" {
 		t.Errorf("identity: %v %v", d["qualified_name"], d["visibility"])
 	}
 	if d["user_permission"] != "owner" || d["latest_version"] != "1.0.0" {

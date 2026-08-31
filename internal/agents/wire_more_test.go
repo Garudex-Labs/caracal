@@ -19,8 +19,8 @@ func TestVisibilityLabels(t *testing.T) {
 	}{
 		{map[string]any{"ownership_scope": "private", "is_private": true}, "private"},
 		{map[string]any{"is_private": true}, "project"},
-		{map[string]any{"is_private": false}, "public"},
-		{map[string]any{}, "public"},
+		{map[string]any{"ownership_scope": "project"}, "project"},
+		{map[string]any{}, "project"},
 	}
 	for _, tc := range cases {
 		if got := visibility(tc.row); got != tc.want {
