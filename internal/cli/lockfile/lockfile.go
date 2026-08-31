@@ -74,6 +74,13 @@ type Entry struct {
 	Slug          string           `json:"slug,omitempty"`
 	QualifiedName string           `json:"qualified_name,omitempty"`
 	LocalName     string           `json:"local_name,omitempty"`
+	// Org and Project bind the install to the Caracal Project it was
+	// materialized for, so a workspace never mixes resources across Projects.
+	Org     string `json:"org,omitempty"`
+	Project string `json:"project,omitempty"`
+	// ManagedPrompts records the native prompt files this install materialized,
+	// so a later pull can remove the ones it no longer writes.
+	ManagedPrompts []string `json:"managed_prompts,omitempty"`
 }
 
 // Harness groups the entries of one harness.
@@ -575,6 +582,38 @@ func AllEntries(harness string) ([]FlatEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+// WorkspaceProject reports the Caracal Project that project-scoped installs in
+// the given workspace directory are bound to, across every registry and
+// harness. Callers use it to refuse mixing resources from different Projects in
+// one workspace.
+func WorkspaceProject(directory string) (org, project string, ok bool) {
+	if directory == "" {
+		return "", "", false
+	}
+	data, err := Read()
+	if err != nil {
+		return "", "", false
+	}
+	for _, registry := range data.Registries {
+		if registry == nil {
+			continue
+		}
+		for _, section := range registry.Harnesses {
+			if section == nil {
+				continue
+			}
+			for _, list := range [][]Entry{section.Agents, section.Standalone} {
+				for _, e := range list {
+					if e.Scope == "project" && e.Directory == directory && (e.Org != "" || e.Project != "") {
+						return e.Org, e.Project, true
+					}
+				}
+			}
+		}
+	}
+	return "", "", false
 }
 
 // ComputeIntegrity fingerprints file content for install records.

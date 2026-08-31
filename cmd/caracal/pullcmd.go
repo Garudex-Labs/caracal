@@ -588,6 +588,17 @@ func pullCommand() *cobra.Command {
 				"Repair or remove the malformed lockfile, then retry.", err.Error())
 		}
 		options.set("local_name", localName)
+		pullOrg, pullProject := selectedProject()
+		if installScope == "project" && pullProject != "" {
+			if boundOrg, boundProject, ok := lockfile.WorkspaceProject(targetDir); ok &&
+				(boundOrg != pullOrg || boundProject != pullProject) {
+				return pullValidationErr(
+					fmt.Sprintf("This workspace already holds resources for Project %s/%s.", boundOrg, boundProject),
+					targetDir,
+					fmt.Sprintf("Pull %s/%s into a separate workspace, or run caracal use %s/%s here.",
+						pullOrg, pullProject, boundOrg, boundProject))
+			}
+		}
 		lockComponents := []map[string]any{}
 		for _, rawLink := range detail.array("component_links") {
 			link, _ := rawLink.(*omap)
@@ -689,11 +700,15 @@ func pullCommand() *cobra.Command {
 				return cerr
 			}
 		}
+		var managedPromptPaths []string
 		for _, listKey := range []string{"hook_files", "prompt_files", "skills"} {
 			for _, rawEntry := range snippet.array(listKey) {
 				entry, _ := rawEntry.(*omap)
 				if entry == nil || entry.str("path") == "" {
 					continue
+				}
+				if listKey == "prompt_files" {
+					managedPromptPaths = append(managedPromptPaths, entry.str("path"))
 				}
 				if cerr := writeChecked(entry.str("path"), entry.get("content"), isUserScope, false); cerr != nil {
 					return cerr
@@ -826,10 +841,15 @@ func pullCommand() *cobra.Command {
 			if agentVersion != "" {
 				versionPtr = &agentVersion
 			}
-			if err := lockfile.UpsertAgent(harnessName, lockfile.Entry{
+			bindOrg, bindProject := "", ""
+			if installScope == "project" {
+				bindOrg, bindProject = pullOrg, pullProject
+			}
+			if _, err := lockfile.UpsertAgentWithPromptReconcile(harnessName, lockfile.Entry{
 				Name: orDefault(detail.str("name"), resolved), ID: agentUUID, Version: versionPtr,
 				Scope: installScope, Directory: targetDir, Components: lockComponents,
 				Namespace: namespace, Slug: detail.str("slug"), LocalName: localName,
+				Org: bindOrg, Project: bindProject, ManagedPrompts: managedPromptPaths,
 			}); err != nil {
 				return pullUnavailableErr("Agent files were written, but installation tracking failed.", "Caracal lockfile",
 					"Repair the local lockfile and pull the agent again.", err.Error())

@@ -99,6 +99,51 @@ func TestUpsertAndLookups(t *testing.T) {
 	}
 }
 
+func TestWorkspaceProjectBinding(t *testing.T) {
+	setupHome(t)
+	dir := "/tmp/acme-platform"
+	if err := UpsertStandalone("claude-code", Entry{
+		Type: "skill", Name: "Reviewer", ID: "id-1", Version: str("1.0.0"),
+		Scope: "project", Directory: dir, Namespace: "acme", Slug: "reviewer",
+		LocalName: "reviewer", Org: "acme", Project: "platform",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The Project binding round-trips through the lockfile.
+	entries, err := AllEntries("claude-code")
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries = %+v err %v", entries, err)
+	}
+	if entries[0].Org != "acme" || entries[0].Project != "platform" {
+		t.Fatalf("binding lost: %+v", entries[0])
+	}
+	// The workspace directory resolves to its bound Project.
+	org, project, ok := WorkspaceProject(dir)
+	if !ok || org != "acme" || project != "platform" {
+		t.Fatalf("WorkspaceProject = %q/%q ok=%v", org, project, ok)
+	}
+	// An unrelated directory carries no binding.
+	if _, _, ok := WorkspaceProject("/tmp/other"); ok {
+		t.Fatal("unbound directory must not resolve a Project")
+	}
+	// An empty directory never resolves.
+	if _, _, ok := WorkspaceProject(""); ok {
+		t.Fatal("empty directory must not resolve a Project")
+	}
+	// A project-scoped agent binding is detected the same way as a skill.
+	agentDir := "/tmp/acme-payments"
+	if err := UpsertAgent("claude-code", Entry{
+		Name: "review-bot", ID: "agent-1", Version: str("2.0.0"),
+		Scope: "project", Directory: agentDir, Namespace: "acme", Slug: "review-bot",
+		Org: "acme", Project: "payments",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if org, project, ok := WorkspaceProject(agentDir); !ok || org != "acme" || project != "payments" {
+		t.Fatalf("agent WorkspaceProject = %q/%q ok=%v", org, project, ok)
+	}
+}
+
 func TestLocalRegistryNameCollisions(t *testing.T) {
 	setupHome(t)
 	name, err := LocalRegistryName("kiro", "skill", "acme", "reviewer", "user", "")

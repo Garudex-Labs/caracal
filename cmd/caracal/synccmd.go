@@ -117,6 +117,7 @@ func syncCommand() *cobra.Command {
 		if cerr != nil {
 			return cerr
 		}
+		entries = filterToActiveProject(entries)
 		installed := make([]outdatedItem, 0, len(entries))
 		for _, entry := range entries {
 			item, cerr := prepareOutdatedEntry(entry)

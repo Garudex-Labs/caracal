@@ -108,6 +108,28 @@ func checkOutdatedItems(client apiClient, installed []outdatedItem, progress *ui
 	return results, nil
 }
 
+// filterToActiveProject keeps only installs bound to the selected Caracal
+// Project so sync never updates another Project's resources. Entries with no
+// Project binding predate binding and are retained for compatibility.
+func filterToActiveProject(entries []lockfile.FlatEntry) []lockfile.FlatEntry {
+	cfg, cerr := config.Load()
+	if cerr != nil {
+		return entries
+	}
+	org := config.Str(cfg, "default_org")
+	project := config.Str(cfg, "default_project")
+	if org == "" || project == "" {
+		return entries
+	}
+	kept := make([]lockfile.FlatEntry, 0, len(entries))
+	for _, e := range entries {
+		if (e.Org == "" && e.Project == "") || (e.Org == org && e.Project == project) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
 func loadOutdatedEntries(harness string) ([]lockfile.FlatEntry, *clierr.Error) {
 	entries, err := lockfile.AllEntries(harness)
 	if err != nil {
