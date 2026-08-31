@@ -74,7 +74,7 @@ test.describe("Component Edit Form Screenshots", () => {
         version: "1.0.0",
         owner: "platform-team",
         description: "System prompt for a documentation writer agent",
-        category: "system-prompt",
+        category: "documentation",
         template: "You are a documentation writer. Write clear, concise documentation.\n\nFormat: {{format}}\nAudience: {{audience}}\nTone: {{tone}}",
         variables: [
           { name: "format", type: "string", default: "markdown" },
@@ -82,7 +82,6 @@ test.describe("Component Edit Form Screenshots", () => {
           { name: "tone", type: "string", default: "professional" },
         ],
         tags: ["documentation", "writing", "technical"],
-        model_hints: { preferred_model: "claude-sonnet-4-20250514" },
       }),
     });
     if (promptRes.ok) promptId = (await promptRes.json()).id;

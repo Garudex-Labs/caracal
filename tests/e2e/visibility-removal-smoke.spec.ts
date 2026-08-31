@@ -54,6 +54,8 @@ test.describe("Visibility removal smoke test", () => {
 
     for (const agent of agents) {
       expect(agent).not.toHaveProperty("team_accesses");
+      // The only supported scopes are project and private; public is gone.
+      if (agent.visibility) expect(["project", "private"]).toContain(agent.visibility);
     }
 
     // Check detail endpoint
@@ -63,5 +65,36 @@ test.describe("Visibility removal smoke test", () => {
     expect(detailRes.ok()).toBeTruthy();
     const detail = await detailRes.json();
     expect(detail).not.toHaveProperty("team_accesses");
+    if (detail.visibility) expect(["project", "private"]).toContain(detail.visibility);
+  });
+
+  test("submitting a component as public is rejected", async ({ request }) => {
+    const token = await getAccessToken();
+    const res = await request.post(`${API_BASE}/api/v1/mcps/submit`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name: "vis-smoke-public",
+        version: "1.0.0",
+        description: "public should be rejected",
+        command: "npx",
+        visibility: "public",
+      },
+    });
+    // The server accepts only project/private now.
+    expect(res.status()).toBe(422);
+    const body = await res.json();
+    expect(JSON.stringify(body)).toContain("project");
+  });
+
+  test("public MCP listings are never returned", async ({ request }) => {
+    const token = await getAccessToken();
+    const res = await request.get(`${API_BASE}/api/v1/mcps`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBeTruthy();
+    const items = await res.json();
+    for (const item of items) {
+      if (item.visibility) expect(["project", "private"]).toContain(item.visibility);
+    }
   });
 });
