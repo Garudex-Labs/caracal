@@ -1,7 +1,7 @@
 {
   "uid": "caracal-performance-resources",
   "title": "Caracal \u2014 Performance & Resources",
-  "description": "CPU, memory, network, disk, OOM, and sandbox execution metrics",
+  "description": "CPU, memory, network, disk, and OOM metrics",
   "tags": [
     "caracal"
   ],
@@ -340,7 +340,7 @@
             "uid": "caracal-clickhouse"
           },
           "queryType": "sql",
-          "rawSql": "SELECT countIf(exit_code IS NOT NULL AND exit_code != 0) AS failed_exits\nFROM spans FINAL\nWHERE is_deleted = 0\n  AND type = 'sandbox_exec'\n  AND $__timeFilter(start_time)\n  AND ('${project_id}' = '1' OR project_id IN (${project_id:singlequote}))\n  AND ('${environment}' = '1' OR environment IN (${environment:singlequote}))",
+          "rawSql": "SELECT countIf(exit_code IS NOT NULL AND exit_code != 0) AS failed_exits\nFROM spans FINAL\nWHERE is_deleted = 0\n  AND $__timeFilter(start_time)\n  AND ('${project_id}' = '1' OR project_id IN (${project_id:singlequote}))\n  AND ('${environment}' = '1' OR environment IN (${environment:singlequote}))",
           "refId": "A",
           "format": 1
         }
