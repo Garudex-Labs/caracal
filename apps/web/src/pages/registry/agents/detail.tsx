@@ -100,7 +100,6 @@ const COMPONENT_TYPES = [
 	{ value: "skills", singular: "skill", label: "Skills" },
 	{ value: "hooks", singular: "hook", label: "Hooks" },
 	{ value: "prompts", singular: "prompt", label: "Prompts" },
-	{ value: "sandboxes", singular: "sandbox", label: "Sandboxes" },
 ] as const;
 
 type ComponentGroupKey = (typeof COMPONENT_TYPES)[number]["value"];
@@ -114,16 +113,13 @@ const COMPONENT_GROUP_BY_TYPE: Record<string, ComponentGroupKey> = {
 	hooks: "hooks",
 	prompt: "prompts",
 	prompts: "prompts",
-	sandbox: "sandboxes",
-	sandboxes: "sandboxes",
 };
 
-// Visibility is decided by the publish target (personal vs project vs public
-// catalog) when a change is created; the workspace only reports it.
+// Visibility is decided by the publish target (project vs private) when a
+// change is created; the workspace only reports it.
 const VISIBILITY_LABELS: Record<string, string> = {
-	public: "Public",
-	team: "Project",
-	private: "Personal",
+	project: "Project",
+	private: "Private",
 };
 
 function semverCompareDesc(a: string, b: string): number {
@@ -173,7 +169,7 @@ function groupComponents(components: ComponentLink[]): Record<ComponentGroupKey,
 			groups[getComponentGroup(component)].push(component);
 			return groups;
 		},
-		{ mcps: [], skills: [], hooks: [], prompts: [], sandboxes: [] },
+		{ mcps: [], skills: [], hooks: [], prompts: [] },
 	);
 }
 
@@ -287,7 +283,7 @@ function AgentVersionContents({ components }: { components: ComponentLink[] }) {
 			<div>
 				<h3 className="text-sm font-medium font-display">Components</h3>
 				<p className="mt-1 text-xs text-muted-foreground">
-					MCPs, skills, hooks, prompts, and sandboxes linked to this agent version.
+					MCPs, skills, hooks, and prompts linked to this agent version.
 				</p>
 			</div>
 
@@ -681,7 +677,7 @@ export default function AgentDetailPage({ agentId }: { agentId?: string } = {}) 
 	const versionSuccessCriteria = (vd?.success_criteria ?? (selectedVersion ? undefined : a?.success_criteria)) as SuccessCriteria | null | undefined;
 	const isOwner = !!(whoami?.id && a?.created_by && whoami.id === String(a.created_by));
 	const canTransferOwnership = isOwner;
-	const currentVisibility = a?.visibility ?? (a?.is_private ? "team" : "public");
+	const currentVisibility = a?.visibility ?? "project";
 	const canManageLifecycle = isAdmin || isOwner;
 	const agentStatus = a?.status as string | undefined;
 	const canEdit = (isAdmin || a?.user_permission === "owner" || a?.user_permission === "edit") && ["approved", "pending", "draft", "rejected"].includes(agentStatus ?? "");

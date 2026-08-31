@@ -99,10 +99,10 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
   const [modelsByHarness, setModelsByIde] = useState<Record<string, string>>({});
   const [publishing, setPublishing] = useState(false);
   const [activeTab, setActiveTab] = useState<RegistryType>("mcps");
-  const [visibility, setVisibility] = useState<"public" | "team">("public");
+  const [visibility, setVisibility] = useState<"project" | "private">("project");
   const visibilityOptions = [
-    { value: "public", label: "Public" },
-    { value: "team", label: "Project members" },
+    { value: "project", label: "Project (shared with your project team)" },
+    { value: "private", label: "Private (only you)" },
   ];
 
   // Version bump dialog
@@ -135,7 +135,6 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
     skills: [],
     hooks: [],
     prompts: [],
-    sandboxes: [],
   });
 
   const [systemPrompt, setSystemPrompt] = useState<string>("");
@@ -167,7 +166,8 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
     const agentCategory = (existingAgent as Record<string, unknown>).category;
     if (typeof agentCategory === "string") setCategory(agentCategory);
     const agentVisibility = (existingAgent as Record<string, unknown>).visibility;
-    if (agentVisibility === "public" || agentVisibility === "team") setVisibility(agentVisibility);
+    if (agentVisibility === "private") setVisibility("private");
+    else if (typeof agentVisibility === "string") setVisibility("project");
 
     if (draftParam) setDraftId(draftParam);
 
@@ -175,7 +175,7 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
     const agentComponents = (existingAgent as Record<string, unknown>).components;
     if (Array.isArray(agentComponents)) {
       const grouped: Record<string, RegistryItem[]> = {
-        mcps: [], skills: [], hooks: [], prompts: [], sandboxes: [],
+        mcps: [], skills: [], hooks: [], prompts: [],
       };
       for (const comp of agentComponents) {
         const c = comp as Record<string, unknown>;
@@ -357,9 +357,10 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
         setSuccessCriteria(draft.success_criteria as SuccessCriteria);
       }
       if (draft.draft_id) setDraftId(draft.draft_id);
-      // Restore the publication target too. A project-shared draft must not
-      // come back as a public agent.
-      if (draft.visibility === "public" || draft.visibility === "team") setVisibility(draft.visibility);
+      // Restore the publication target too. A private draft must not come back
+      // as a project-shared agent.
+      if (draft.visibility === "private") setVisibility("private");
+      else if (typeof draft.visibility === "string") setVisibility("project");
       setShowRestoreBanner(false);
       toast.success("Draft restored");
     } catch {
@@ -702,7 +703,7 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
                   <PickerSelect
                     value={visibility}
                     onValueChange={(value) => {
-                      setVisibility(value as "public" | "team");
+                      setVisibility(value as "project" | "private");
                     }}
                     options={visibilityOptions}
                   />
@@ -756,7 +757,7 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
                   Components
                 </h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Select the MCPs, skills, hooks, prompts, and sandboxes for
+                  Select the MCPs, skills, hooks, and prompts for
                   this agent. Drag to reorder.
                 </p>
               </div>
@@ -791,7 +792,6 @@ function AgentBuilderInner({ editId, draftId: draftParam, backTo }: AgentBuilder
                       selected={selectedIds}
                       onToggle={handleToggle(ct.value)}
                       onCreateNew={() => setCreateDialogType(ct.value)}
-                      publicOnly={visibility !== "team"}
                     />
                     {/* In-memory components not yet submitted */}
                     {pendingComponents.filter((p) => p.type === ct.value).map((p) => (

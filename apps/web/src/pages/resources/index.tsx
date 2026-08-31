@@ -64,7 +64,6 @@ const TYPE_LABELS: Record<string, string> = {
 	skills: "Skills",
 	hooks: "Hooks",
 	prompts: "Prompts",
-	sandboxes: "Sandboxes",
 };
 const TYPES = Object.keys(TYPE_LABELS);
 
@@ -77,7 +76,6 @@ const SORT_LABELS: Record<string, string> = {
 };
 
 function singularType(type: string): string {
-	if (type === "sandboxes") return "sandbox";
 	return type.replace(/s$/, "");
 }
 

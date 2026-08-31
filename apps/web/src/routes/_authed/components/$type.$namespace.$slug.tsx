@@ -11,7 +11,7 @@ import { NotFoundState } from "@/components/shared/not-found-state";
 
 const ComponentDetail = lazy(() => import("@/pages/registry/components/detail"));
 
-const COMPONENT_ROUTE_TYPES = ["mcps", "skills", "hooks", "prompts", "sandboxes"] as const;
+const COMPONENT_ROUTE_TYPES = ["mcps", "skills", "hooks", "prompts"] as const;
 
 function isComponentRouteType(value: string): value is (typeof COMPONENT_ROUTE_TYPES)[number] {
   return (COMPONENT_ROUTE_TYPES as readonly string[]).includes(value);

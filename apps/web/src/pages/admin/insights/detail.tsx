@@ -605,7 +605,6 @@ const COMPONENT_TYPE_LABELS: Record<string, string> = {
 	hook: "Hook",
 	prompt: "Prompt",
 	mcp: "MCP server",
-	sandbox: "Sandbox",
 };
 
 /**

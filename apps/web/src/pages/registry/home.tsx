@@ -40,7 +40,6 @@ const RESOURCE_LABELS: Record<ProjectResource["resource_type"], string> = {
 	skills: "Skill",
 	hooks: "Hook",
 	prompts: "Prompt",
-	sandboxes: "Sandbox",
 };
 
 const SEVERITY_CLASS: Record<string, string> = {
@@ -395,7 +394,7 @@ function NextActions({ onAddResource }: { onAddResource: () => void }) {
 					<span className="min-w-0">
 						<span className="block text-sm font-medium text-foreground group-hover:text-primary-accent">Add a resource</span>
 						<span className="mt-0.5 hidden text-xs leading-5 text-muted-foreground sm:block">
-							Create an Agent, MCP server, Skill, Hook, Prompt, or Sandbox.
+							Create an Agent, MCP server, Skill, Hook, or Prompt.
 						</span>
 					</span>
 					<ArrowRight className="mt-0.5 h-4 w-4 text-muted-foreground group-hover:text-foreground" />

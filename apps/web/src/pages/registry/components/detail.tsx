@@ -70,12 +70,11 @@ import { PageHeader } from "@/components/layouts/page-header";
 import { DetailSkeleton } from "@/components/shared/skeleton-layouts";
 import { ErrorState } from "@/components/shared/error-state";
 
-// Visibility is decided by the publish target (personal vs project vs public
-// catalog) when a change is created; the workspace only reports it.
+// Visibility is decided by the publish target (project vs private) when a
+// change is created; the workspace only reports it.
 const VISIBILITY_LABELS: Record<string, string> = {
-	public: "Public",
-	team: "Project",
-	private: "Personal",
+	project: "Project",
+	private: "Private",
 };
 
 function formatArchiveDate(item: RegistryItem) {
@@ -123,7 +122,7 @@ export default function ComponentDetailPage({
 	const id = componentId ?? params.componentId ?? "";
 	const type = (componentType ?? search.type ?? "mcps") as RegistryType;
 	const navigate = useNavigate();
-	const singularType = type === "sandboxes" ? "sandbox" : type.replace(/s$/, "");
+	const singularType = type.replace(/s$/, "");
 	const { data: item, isLoading, isError, error, refetch } = useRegistryItem(type, id);
 	const { data: rawMetrics } = useRegistryMetrics(type, id);
 	const { data: versionsData, isLoading: versionsLoading } = useComponentVersions(type, id);
@@ -150,7 +149,7 @@ export default function ComponentDetailPage({
 	const canRelease = canEdit && ["approved", "archived"].includes(String(item?.status ?? ""));
 	const canTransferOwnership = !!(whoami?.id && item?.submitted_by && whoami.id === String(item.submitted_by));
 	const canOpenIssues = hasMinRole(getUserRole(), "reviewer") || canEdit;
-	const currentVisibility = (item?.visibility as string | undefined) ?? (item?.is_private ? "team" : "public");
+	const currentVisibility = (item?.visibility as string | undefined) ?? "project";
 
 	// Co-authors
 	const [coAuthors, setCoAuthors] = useState<CoAuthor[]>([]);
@@ -630,9 +629,7 @@ function ComponentMetadata({ item }: { item: RegistryItem }) {
 	if ("runtime_type" in item && item.runtime_type != null) fields.push({ label: "Runtime", value: String(item.runtime_type) });
 	if ("image" in item && item.image != null) fields.push({ label: "Image / Artifact", value: String(item.image), mono: true });
 	if ("network_policy" in item && item.network_policy != null) fields.push({ label: "Network Policy", value: String(item.network_policy) });
-	if ("entrypoint" in item && item.entrypoint != null) fields.push({ label: "Entrypoint", value: String(item.entrypoint), mono: true });
 	if ("source_url" in item && item.source_url != null) fields.push({ label: "Source URL", value: String(item.source_url), href: String(item.source_url) });
-	if ("sandbox_path" in item && item.sandbox_path != null) fields.push({ label: "Sandbox Path", value: String(item.sandbox_path), mono: true });
 
 	const setupInstructions = "setup_instructions" in item && item.setup_instructions ? String(item.setup_instructions) : null;
 	const changelog = "changelog" in item && item.changelog ? String(item.changelog) : null;

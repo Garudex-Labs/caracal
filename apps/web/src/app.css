@@ -65,7 +65,6 @@
   --color-component-skill: oklch(var(--component-skill));
   --color-component-hook: oklch(var(--component-hook));
   --color-component-prompt: oklch(var(--component-prompt));
-  --color-component-sandbox: oklch(var(--component-sandbox));
 
   /* ── Sidebar ────────────────────────────────────── */
   --color-sidebar-background: oklch(var(--sidebar-bg));
@@ -232,7 +231,6 @@
     --component-skill: 0.52 0.17 305;
     --component-hook: 0.62 0.17 55;
     --component-prompt: 0.5 0.14 155;
-    --component-sandbox: 0.52 0.08 250;
 
     --muted-gray: 0.93 0 0;
 
@@ -319,7 +317,6 @@
     --component-skill: 0.72 0.15 305;
     --component-hook: 0.78 0.14 68;
     --component-prompt: 0.7 0.12 155;
-    --component-sandbox: 0.7 0.08 245;
 
     --muted-gray: 0.22 0 0;
 

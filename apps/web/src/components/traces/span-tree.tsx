@@ -63,7 +63,6 @@ const threadColor: Record<string, { line: string; hover: string; bg: string }> =
   tool_call:    { line: "bg-info",        hover: "bg-info",       bg: "bg-light-blue text-dark-blue" },
   llm:          { line: "bg-purple-400", hover: "bg-purple-500", bg: "bg-purple-100 text-purple-700" },
   retrieval:    { line: "bg-warning",  hover: "bg-warning/80",  bg: "bg-warning/15 text-warning" },
-  sandbox_exec: { line: "bg-success",    hover: "bg-success",    bg: "bg-light-green text-dark-green" },
   hook:         { line: "bg-pink-400",   hover: "bg-pink-500",   bg: "bg-pink-100 text-pink-700" },
   prompt:       { line: "bg-teal-400",   hover: "bg-teal-500",   bg: "bg-teal-100 text-teal-700" },
   lifecycle:    { line: "bg-muted-foreground", hover: "bg-muted-foreground", bg: "bg-muted text-muted-foreground" },
