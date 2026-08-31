@@ -4,8 +4,8 @@
 # Adding a New Harness to Caracal
 
 This guide covers everything needed to add full harness support. Caracal manages
-four component types per harness: **MCP servers**, **skills**, **hooks**, and
-**sandboxes**. Each harness needs scanning (discovery), config generation (install),
+three component types per harness: **MCP servers**, **skills**, and **hooks**.
+Each harness needs scanning (discovery), config generation (install),
 hook instrumentation (telemetry), and session parsing (reconciliation).
 
 ## Overview: What "Supporting a harness" Means
@@ -17,7 +17,6 @@ When a user runs `caracal agent pull <agent>`, Caracal writes harness-specific f
 | MCP servers | Native JSON/TOML config with direct commands or URLs | `.cursor/mcp.json` |
 | Skills | Markdown skill files in harness's skill directory | `.claude/skills/my-skill/SKILL.md` |
 | Hooks | Telemetry hook config that fires on tool use, session start/stop | `settings.json` hooks section |
-| Sandboxes | MCP entry pointing to `caracal sandbox run` | Added to MCP config |
 
 When a user runs `caracal scan`, Caracal reads those same locations to discover what's installed.
 
@@ -62,9 +61,6 @@ Before writing code, document these for the target harness:
 - Does the harness write session logs? (JSONL, SQLite, custom format)
 - Where are session files stored?
 - What's the schema? (messages, tool calls, thinking blocks)
-
-**Sandboxes:**
-- Sandboxes are delivered as MCP servers, so if MCP works, sandboxes work.
 
 ## Step 2: Add Harness Registry Entry
 
@@ -274,10 +270,6 @@ in `skill_format`). No harness-specific skill generation code is needed beyond
 setting those two registry fields correctly. The shared skill generation in
 `internal/harnessgen` handles all harnesses.
 
-**Sandboxes are just MCP servers.** They use `caracal sandbox run` as the
-command. If MCP install works for your harness, sandboxes work automatically.
-No additional sandbox-specific code is needed per harness.
-
 Other notes:
 
 - Each concern has one per-harness implementation: scanning in `cmd/caracal/scancmd.go`, hook install/cleanup in `cmd/caracal/doctorcmd.go`, session discovery in `internal/cli/sessions`, config generation in `internal/harnessgen`
@@ -286,5 +278,4 @@ Other notes:
 - Capability gating comes from the registry: check `Spec.HasCapability` from `internal/harness` before capability-specific operations
 - MCP deduplication in scan uses first-discovered-wins
 - MCP commands and remote URLs are emitted directly in each harness's native format
-- Sandboxes are MCP servers backed by `caracal sandbox run`, so if MCP install works, sandboxes work automatically
 - Skills use the harness's native skill/rule file format, resolved from `skills` and `skill_format` in the registry
