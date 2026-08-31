@@ -4,7 +4,6 @@
 package harnessgen
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -317,8 +316,14 @@ func strOr(v any, fallback string) string {
 // skillConfig is the per-skill metadata handed to harness generators.
 type skillConfig map[string]any
 
-// buildSkillConfigs extracts skill metadata in composition order.
+// buildSkillConfigs extracts skill metadata in composition order. Harnesses
+// whose Skill materializes as something other than a native Agent Skill
+// (SKILL.md) receive no skill components: Caracal must not write them a file
+// their runtime never reads.
 func buildSkillConfigs(req *Request) []skillConfig {
+	if spec, ok := specOf(strings.ReplaceAll(req.Harness, "_", "-")); ok && !spec.EmitsSkillMd() {
+		return []skillConfig{}
+	}
 	order := listingOrder(req.Agent, "skill", req.SkillListings)
 	localNames := localRegistryNames(order, req.SkillListings)
 	skills := []skillConfig{}
@@ -403,53 +408,21 @@ func compatibilityWarnings(agent *Agent, harnessName string) []string {
 			"This agent requires '%s' but %s does not support it. Some functionality may not work.",
 			label, harnessName))
 	}
+	if spec.AgentSupport == "compatible" {
+		mechanism := spec.AgentMechanism
+		if mechanism == "" {
+			mechanism = "a non-native mechanism"
+		}
+		warnings = append(warnings, fmt.Sprintf(
+			"%s materializes this agent through a compatibility mechanism (%s); it may not appear as a separately selectable agent.",
+			harnessName, mechanism))
+	}
+	if !spec.AgentMulti {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s activates a single agent/instruction set, so multiple Caracal agents cannot coexist as independently selectable agents here.",
+			harnessName))
+	}
 	return warnings
-}
-
-// buildSandboxMcpEntry exposes sandboxes as callable tools through the
-// sandbox MCP server.
-func buildSandboxMcpEntry(req *Request) *Config {
-	order := listingOrder(req.Agent, "sandbox", req.SandboxLists)
-	if len(order) == 0 {
-		return nil
-	}
-	localNames := localRegistryNames(order, req.SandboxLists)
-	sandboxes := []any{}
-	for _, id := range order {
-		listing := req.SandboxLists[id]
-		limits := listing.dict("resource_limits")
-		if limits == nil {
-			limits = map[string]any{}
-		}
-		runtimeConfig := listing.dict("runtime_config")
-		if runtimeConfig == nil {
-			runtimeConfig = map[string]any{}
-		}
-		timeout, hasTimeout := limits["timeout"]
-		if !hasTimeout {
-			timeout = 300
-		}
-		entry := NewConfig()
-		entry.Set("id", id)
-		entry.Set("name", localNames[id])
-		entry.Set("runtime_type", listing.strOr("runtime_type", "docker"))
-		entry.Set("image", listing.str("image"))
-		entry.Set("resource_limits", limits)
-		entry.Set("timeout", timeout)
-		entry.Set("entrypoint", listing.strOr("entrypoint", "bash"))
-		entry.Set("network_policy", listing.strOr("network_policy", "none"))
-		entry.Set("runtime_config", runtimeConfig)
-		sandboxes = append(sandboxes, entry)
-	}
-	blob, _ := json.Marshal(sandboxes)
-	// Match the readable separators of the incumbent encoder.
-	spaced := respaceJSON(blob)
-	out := NewConfig()
-	out.Set("caracal-sandbox", map[string]any{
-		"command": "caracal",
-		"args":    []any{"sandbox", "mcp", "--sandboxes", spaced},
-	})
-	return out
 }
 
 // respaceJSON rewrites compact JSON with ", " and ": " separators.

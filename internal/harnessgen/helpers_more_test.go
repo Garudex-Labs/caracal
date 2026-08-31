@@ -197,8 +197,17 @@ func TestSkillFilePath(t *testing.T) {
 	if got := SkillFilePath("claude-code", "no-such-scope", "reviewer"); got == "" || !strings.Contains(got, "reviewer") {
 		t.Errorf("scope fallback path = %q", got)
 	}
-	if got := SkillFilePath("cursor", "project", "x"); got != ".cursor/skills/x/SKILL.md" {
-		t.Errorf("cursor skill path = %q", got)
+	// Kiro natively consumes SKILL.md.
+	if got := SkillFilePath("kiro", "project", "reviewer"); got != ".kiro/skills/reviewer/SKILL.md" {
+		t.Errorf("kiro project skill path = %q", got)
+	}
+	// Cursor's skill-equivalent is a rule, not SKILL.md: no skill file is emitted.
+	if got := SkillFilePath("cursor", "project", "x"); got != "" {
+		t.Errorf("cursor is not a SKILL.md consumer, want empty, got %q", got)
+	}
+	// Codex consumes AGENTS.md/prompts, not SKILL.md.
+	if got := SkillFilePath("codex", "project", "x"); got != "" {
+		t.Errorf("codex is not a SKILL.md consumer, want empty, got %q", got)
 	}
 	if got := SkillFilePath("nonexistent-harness", "project", "x"); got != "" {
 		t.Errorf("unknown harness has no skills, want empty, got %q", got)

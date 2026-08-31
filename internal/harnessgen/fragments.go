@@ -19,12 +19,11 @@ func harnessCapability(name string) harness.Capability {
 // typeLabels order component sections in the rules document.
 var typeLabels = []struct{ Type, Heading string }{
 	{"mcp", "MCP Servers"}, {"skill", "Skills"}, {"hook", "Hooks"},
-	{"prompt", "Prompts"}, {"sandbox", "Sandboxes"},
+	{"prompt", "Prompts"},
 }
 
 // buildRulesContent assembles the agent prompt and a component summary.
-// Prompt templates inline their content when listings are provided; sandbox
-// listings inject usage instructions with the run command.
+// Prompt templates inline their content when listings are provided.
 func buildRulesContent(req *Request, promptListings map[string]Listing) string {
 	agent := req.Agent
 	sections := []string{}
@@ -53,58 +52,7 @@ func buildRulesContent(req *Request, promptListings map[string]Listing) string {
 		}
 		switch {
 		case tl.Type == "prompt" && len(promptListings) > 0:
-			lines := []string{"## " + tl.Heading, ""}
-			for _, comp := range agent.Components {
-				if comp.Type != "prompt" {
-					continue
-				}
-				listing, ok := promptListings[comp.ID]
-				if !ok {
-					continue
-				}
-				pname := displayName(comp.ID)
-				if template := listing.str("template"); template != "" {
-					lines = append(lines, "### "+pname, "", template, "")
-				} else {
-					lines = append(lines, "- **"+pname+"**")
-				}
-			}
-			sections = append(sections, strings.Join(lines, "\n"))
-		case tl.Type == "sandbox" && len(req.SandboxLists) > 0:
-			lines := []string{
-				"## Sandboxes",
-				"",
-				"You have access to isolated execution environments. Use these to run code safely.",
-			}
-			for _, comp := range agent.Components {
-				if comp.Type != "sandbox" {
-					continue
-				}
-				listing, ok := req.SandboxLists[comp.ID]
-				if !ok {
-					continue
-				}
-				limits := listing.dict("resource_limits")
-				timeout, memory := any(300), any(512)
-				if v, ok := limits["timeout"]; ok {
-					timeout = v
-				}
-				if v, ok := limits["memory_mb"]; ok {
-					memory = v
-				}
-				image := listing.str("image")
-				lines = append(lines, "",
-					"### "+displayName(comp.ID),
-					fmt.Sprintf("- **Image:** `%s`", image),
-					fmt.Sprintf("- **Timeout:** %vs | **Memory:** %vMB | **Network:** %s",
-						jsonNumber(timeout), jsonNumber(memory), listing.strOr("network_policy", "none")))
-				if entrypoint := listing.str("entrypoint"); entrypoint != "" {
-					lines = append(lines, fmt.Sprintf("- **Default command:** `%s`", entrypoint))
-				}
-				lines = append(lines, fmt.Sprintf(
-					`- **Run:** `+"`"+`caracal sandbox run --sandbox-id %s --image %s --timeout %v --command "<your command>"`+"`",
-					comp.ID, image, jsonNumber(timeout)))
-			}
+			lines := append([]string{"## " + tl.Heading, ""}, promptSectionLines(req, promptNames(req))...)
 			sections = append(sections, strings.Join(lines, "\n"))
 		default:
 			lines := []string{"## " + tl.Heading, ""}
@@ -133,14 +81,89 @@ func jsonNumber(v any) string {
 	}
 }
 
-// generatePromptFiles builds native prompt files for harnesses with
-// first-class prompt support.
-func generatePromptFiles(req *Request) []map[string]any {
-	if len(req.PromptListings) == 0 {
+// promptNames maps each prompt component id to its canonical, collision-safe
+// resource name, shared by native prompt files and embedded headings so the
+// two never diverge.
+func promptNames(req *Request) map[string]string {
+	order := listingOrder(req.Agent, "prompt", req.PromptListings)
+	local := localRegistryNames(order, req.PromptListings)
+	names := map[string]string{}
+	for _, id := range order {
+		names[id] = canonicalPromptName(local[id])
+	}
+	return names
+}
+
+// canonicalPromptName normalizes a name to safe characters and a bounded
+// length for use both as a filename and as an embedded heading.
+func canonicalPromptName(raw string) string {
+	safe := strings.Trim(sanitizeName(strings.TrimSpace(raw)), "-")
+	if safe == "" {
+		safe = "prompt"
+	}
+	if len(safe) > 64 {
+		safe = strings.Trim(safe[:64], "-")
+	}
+	return safe
+}
+
+// promptResourceName resolves a component's canonical name, falling back to the
+// display name or a short id when no registry name is available.
+func promptResourceName(req *Request, compID string, names map[string]string) string {
+	if n := names[compID]; n != "" {
+		return n
+	}
+	if n, ok := req.ComponentNames[compID]; ok {
+		return canonicalPromptName(n)
+	}
+	if len(compID) >= 8 {
+		return canonicalPromptName(compID[:8])
+	}
+	return canonicalPromptName(compID)
+}
+
+// promptComponentCount counts prompt components with a loaded listing.
+func promptComponentCount(req *Request) int {
+	n := 0
+	for _, comp := range req.Agent.Components {
+		if comp.Type == "prompt" {
+			if _, ok := req.PromptListings[comp.ID]; ok {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// appendConfigWarning adds one warning to the config's _warnings list.
+func appendConfigWarning(cfg *Config, msg string) {
+	existing, _ := cfg.Get("_warnings")
+	list, _ := existing.([]string)
+	cfg.Set("_warnings", append(append([]string{}, list...), msg))
+}
+
+// managedPromptMarker identifies a Caracal-authored native prompt file so a
+// later reconcile can remove it without touching user-authored files.
+const managedPromptMarker = "<!-- caracal-managed: prompt"
+
+// generatePromptFiles builds native prompt files at the harness's documented
+// prompt location. Placement is deterministic: workspace-scoped when the
+// harness supports it (project-isolated), otherwise the shared user-level
+// location, where filenames are namespace-qualified so one project cannot
+// clobber another project's prompt.
+func generatePromptFiles(req *Request, spec *harness.Spec) []map[string]any {
+	if spec == nil || len(req.PromptListings) == 0 {
 		return nil
 	}
-	order := listingOrder(req.Agent, "prompt", req.PromptListings)
-	localNames := localRegistryNames(order, req.PromptListings)
+	res, ok := spec.ResolvePrompt()
+	if !ok {
+		return nil
+	}
+	format := ""
+	if spec.Prompts != nil {
+		format = spec.Prompts.Format
+	}
+	names := promptNames(req)
 	files := []map[string]any{}
 	for _, comp := range req.Agent.Components {
 		if comp.Type != "prompt" {
@@ -154,25 +177,162 @@ func generatePromptFiles(req *Request) []map[string]any {
 		if template == "" {
 			continue
 		}
-		rawName := localNames[comp.ID]
-		if rawName == "" {
-			if n, ok := req.ComponentNames[comp.ID]; ok {
-				rawName = n
-			} else {
-				rawName = comp.ID[:8]
-			}
-		}
-		safe := sanitizeName(rawName)
-		description := listing.strOr("description", rawName)
-		descYAML := strings.SplitN(strings.ReplaceAll(description, `"`, "'"), "\n", 2)[0]
-		content := fmt.Sprintf("---\ndescription: \"%s\"\n---\n\n%s\n",
-			descYAML, strings.TrimRight(template, " \t\n"))
+		name := promptFileName(req, comp.ID, listing, names, res.Workspace)
 		files = append(files, map[string]any{
-			"path":    fmt.Sprintf(".github/prompts/%s.prompt.md", safe),
-			"content": content,
+			"path":    strings.ReplaceAll(res.Path, "{name}", name),
+			"content": renderPromptFile(format, listing, template, promptQualified(listing, name)),
 		})
 	}
 	return files
+}
+
+// promptFileName resolves a prompt's on-disk file name. Workspace-scoped
+// locations are project-isolated, so the collision-safe canonical name is
+// enough; a shared user-level location is namespace-qualified so distinct
+// projects never map different prompts onto the same file.
+func promptFileName(req *Request, compID string, listing Listing, names map[string]string, workspace bool) string {
+	base := promptResourceName(req, compID, names)
+	if workspace {
+		return base
+	}
+	ns := strings.ReplaceAll(listing.str("namespace"), ".", "-")
+	slug := listing.ItemSlug()
+	if ns == "" || slug == "" {
+		return base
+	}
+	return canonicalPromptName(ns + "-" + slug)
+}
+
+// promptQualified is the prompt's registry identity for the managed marker.
+func promptQualified(listing Listing, fallback string) string {
+	if ns, slug := listing.str("namespace"), listing.ItemSlug(); ns != "" && slug != "" {
+		return ns + "/" + slug
+	}
+	return fallback
+}
+
+// promptMarker records the managed-ownership marker with the prompt identity so
+// a later reconcile can remove only the Caracal-authored file it wrote, never a
+// user file or another project's prompt at a shared location.
+func promptMarker(qualified string) string {
+	if qualified == "" {
+		return managedPromptMarker + " -->"
+	}
+	return managedPromptMarker + " " + qualified + " -->"
+}
+
+// renderPromptFile renders one native prompt file for a harness format,
+// prepending the managed marker.
+func renderPromptFile(format string, listing Listing, template, qualified string) string {
+	body := strings.TrimRight(template, " \t\n")
+	desc := strings.SplitN(strings.ReplaceAll(listing.strOr("description", ""), "\n", " "), "\n", 2)[0]
+	marker := promptMarker(qualified)
+	switch format {
+	case "copilot_prompt", "claude_command":
+		var fm strings.Builder
+		fm.WriteString("---\ndescription: ")
+		fm.WriteString(jsonString(desc))
+		fm.WriteByte('\n')
+		if hint := promptArgumentHint(listing); hint != "" {
+			fm.WriteString("argument-hint: ")
+			fm.WriteString(jsonString(hint))
+			fm.WriteByte('\n')
+		}
+		fm.WriteString("---\n")
+		return fm.String() + "\n" + marker + "\n\n" + body + "\n"
+	default:
+		return marker + "\n\n" + body + "\n"
+	}
+}
+
+// promptArgumentHint renders the prompt's declared template variables as the
+// harness's argument-hint so a native prompt advertises the inputs it expects.
+// Variables are discoverability metadata only: Caracal does not rewrite the
+// template body into a harness-native substitution syntax.
+func promptArgumentHint(listing Listing) string {
+	names := promptVariableNames(listing)
+	if len(names) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(names, "] [") + "]"
+}
+
+// promptVariableNames extracts variable names from the stored variables list,
+// which carries either bare names or objects with a name field.
+func promptVariableNames(listing Listing) []string {
+	raw, ok := listing["variables"].([]any)
+	if !ok {
+		return nil
+	}
+	names := []string{}
+	for _, v := range raw {
+		switch t := v.(type) {
+		case string:
+			if s := strings.TrimSpace(t); s != "" {
+				names = append(names, s)
+			}
+		case map[string]any:
+			if s, _ := t["name"].(string); strings.TrimSpace(s) != "" {
+				names = append(names, strings.TrimSpace(s))
+			}
+		}
+	}
+	return names
+}
+
+// promptSectionLines renders the embedded prompt block: one heading and body
+// per attached prompt, using the same canonical names as native files.
+func promptSectionLines(req *Request, names map[string]string) []string {
+	lines := []string{}
+	for _, comp := range req.Agent.Components {
+		if comp.Type != "prompt" {
+			continue
+		}
+		listing, ok := req.PromptListings[comp.ID]
+		if !ok {
+			continue
+		}
+		name := promptResourceName(req, comp.ID, names)
+		if template := listing.str("template"); template != "" {
+			lines = append(lines, "### "+name, "", strings.TrimRight(template, " \t\n"), "")
+		} else {
+			lines = append(lines, "- **"+name+"**")
+		}
+	}
+	return lines
+}
+
+// promptEmbedSection returns the "## Prompts" block for structured embedded
+// harnesses (e.g. Kiro) whose agent file does not carry the rules content.
+func promptEmbedSection(req *Request) string {
+	if len(req.PromptListings) == 0 {
+		return ""
+	}
+	lines := promptSectionLines(req, promptNames(req))
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(append([]string{"## Prompts", ""}, lines...), "\n")
+}
+
+// hookHandlerCommand resolves the shell command a command-based harness runs
+// for a hook component. HTTP handlers are wrapped as a curl POST so harnesses
+// without a native HTTP hook type still deliver the event; script components
+// resolve to their on-disk path. Returns "" when the component carries neither
+// a command, a script, nor a URL.
+func hookHandlerCommand(hc hookConfig, scriptsDir string) string {
+	handlerConfig := hc.dict("handler_config")
+	if hc.str("handler_type") == "http" {
+		hookURL := str(handlerConfig["url"])
+		if hookURL == "" {
+			return ""
+		}
+		return fmt.Sprintf("curl -s -X POST -H 'Content-Type: application/json' -d @- %s", hookURL)
+	}
+	if filename := hc.str("script_filename"); filename != "" && scriptsDir != "" {
+		return scriptsDir + "/" + filename
+	}
+	return str(handlerConfig["command"])
 }
 
 // mergeHookComponents folds hook components into a harness hooks config.
@@ -198,11 +358,8 @@ func mergeHookComponents(hooksContent map[string]any, hookConfigs []hookConfig, 
 		if mapped, ok := eventsMap[event]; ok {
 			ideEvent = mapped
 		}
-		command := str(hc.dict("handler_config")["command"])
-		scriptFilename := hc.str("script_filename")
-		if scriptFilename != "" && scriptsDir != "" {
-			command = scriptsDir + "/" + scriptFilename
-		} else if command == "" {
+		command := hookHandlerCommand(hc, scriptsDir)
+		if command == "" {
 			continue
 		}
 		entries, _ := hooksDict[ideEvent].([]any)
@@ -346,6 +503,41 @@ func codexHooksConfig(agentName string) map[string]any {
 	}
 	return map[string]any{
 		"hooks": map[string]any{"UserPromptSubmit": entry(), "Stop": entry()},
+	}
+}
+
+// mergeCodexHookComponents folds Registry Hook components into a Codex hooks
+// config. Codex uses the Claude-style matcher-group shape
+// ({event:[{matcher,hooks:[{type:command,command}]}]}) at .codex/hooks.json.
+func mergeCodexHookComponents(hooksContent map[string]any, hookConfigs []hookConfig) {
+	spec, ok := specOf("codex")
+	if !ok {
+		return
+	}
+	hooksDict, ok := hooksContent["hooks"].(map[string]any)
+	if !ok {
+		hooksDict = map[string]any{}
+		hooksContent["hooks"] = hooksDict
+	}
+	for _, hc := range hookConfigs {
+		event := hc.str("event")
+		if event == "" {
+			continue
+		}
+		codexEvent := event
+		if mapped, mok := spec.HookEventsMap[event]; mok {
+			codexEvent = mapped
+		}
+		command := hookHandlerCommand(hc, spec.HookScriptsDir)
+		if command == "" {
+			continue
+		}
+		group := map[string]any{
+			"matcher": strOr(hc.dict("handler_config")["matcher"], ""),
+			"hooks":   []any{map[string]any{"type": "command", "command": command}},
+		}
+		entries, _ := hooksDict[codexEvent].([]any)
+		hooksDict[codexEvent] = append(entries, group)
 	}
 }
 
@@ -555,7 +747,7 @@ func yamlFrontmatter(pairs [][2]string) string {
 // harnesses that inline skills into the rules document.
 func generateSkillFile(skill skillConfig, harnessName, scope string, adapter adapter) map[string]any {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	if !ok || len(spec.Skills) == 0 {
+	if !ok || len(spec.Skills) == 0 || !spec.EmitsSkillMd() {
 		return nil
 	}
 	name := str(skill["name"])

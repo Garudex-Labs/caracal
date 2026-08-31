@@ -11,14 +11,13 @@ import (
 	"github.com/garudex-labs/caracal/internal/harness"
 )
 
-// richRequest extends testRequest with hook, prompt, and sandbox components
+// richRequest extends testRequest with hook and prompt components
 // so adapters exercise their component-emission branches.
 func richRequest(harnessName string) *Request {
 	req := testRequest(harnessName)
 	req.Agent.Components = append(req.Agent.Components,
 		ComponentLink{Type: "hook", ID: "h1", OrderIndex: 2},
 		ComponentLink{Type: "prompt", ID: "p1", OrderIndex: 3},
-		ComponentLink{Type: "sandbox", ID: "sb1", OrderIndex: 4},
 	)
 	req.Agent.RequiredCapabilities = []any{"skills", "hooks", "mcp_servers"}
 	req.HookListings = map[string]Listing{"h1": {
@@ -31,20 +30,13 @@ func richRequest(harnessName string) *Request {
 		"slug": "review-prompt", "namespace": "acme", "status": "approved",
 		"template": "Please review carefully.",
 	}}
-	req.SandboxLists = map[string]Listing{"sb1": {
-		"slug": "py-sandbox", "namespace": "acme", "status": "approved",
-		"image": "python:3.12", "entrypoint": "bash", "network_policy": "none",
-		"runtime_type":    "docker",
-		"resource_limits": map[string]any{"timeout": 120, "memory_mb": 256},
-	}}
 	req.ComponentNames["h1"] = "Guard Hook"
 	req.ComponentNames["p1"] = "Review Prompt"
-	req.ComponentNames["sb1"] = "Py Sandbox"
 	return req
 }
 
 // TestGenerateRichComponents drives every adapter with a full component set,
-// covering rules assembly, sandbox MCP wiring, and hook config extraction.
+// covering rules assembly and hook config extraction.
 func TestGenerateRichComponents(t *testing.T) {
 	for _, name := range HarnessNames() {
 		t.Run(name, func(t *testing.T) {
@@ -52,18 +44,8 @@ func TestGenerateRichComponents(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Generate(%s): %v", name, err)
 			}
-			blob, err := json.Marshal(cfg)
-			if err != nil {
+			if _, err := json.Marshal(cfg); err != nil {
 				t.Fatalf("marshal %s: %v", name, err)
-			}
-			text := string(blob)
-			// The sandbox is exposed as the caracal-sandbox MCP server for every harness.
-			if !strings.Contains(text, "caracal-sandbox") {
-				t.Errorf("%s missing sandbox MCP entry", name)
-			}
-			// jsonNumber renders the integer limits without a float tail.
-			if !strings.Contains(text, "120") || strings.Contains(text, "120.0") {
-				t.Errorf("%s sandbox timeout not rendered as integer", name)
 			}
 		})
 	}
@@ -108,6 +90,79 @@ func TestGenerateOpencodeHookPlugins(t *testing.T) {
 	}
 	if !strings.Contains(text, "Hook_guard_hook") {
 		t.Errorf("opencode plugin export not generated:\n%s", text)
+	}
+}
+
+func TestGenerateCodexCustomHooks(t *testing.T) {
+	cfg, err := Generate(richRequest("codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooksConfig, ok := cfg.Get("hooks_config")
+	if !ok {
+		t.Fatal("codex hooks_config missing")
+	}
+	blob, _ := json.Marshal(hooksConfig)
+	text := string(blob)
+	// The attached command hook lands as a matcher-group under PreToolUse,
+	// alongside the telemetry groups, pointing at the managed scripts dir.
+	if !strings.Contains(text, "PreToolUse") || !strings.Contains(text, ".codex/hooks/guard.sh") {
+		t.Errorf("codex custom hook not materialized:\n%s", text)
+	}
+	if !strings.Contains(text, `"matcher":"Bash"`) {
+		t.Errorf("codex hook matcher not preserved:\n%s", text)
+	}
+	files, ok := cfg.Get("hook_files")
+	if !ok {
+		t.Fatal("codex hook_files missing")
+	}
+	fblob, _ := json.Marshal(files)
+	if !strings.Contains(string(fblob), `"executable":true`) {
+		t.Errorf("codex hook file not executable: %s", fblob)
+	}
+}
+
+func TestGenerateCopilotCustomHooks(t *testing.T) {
+	cfg, err := Generate(richRequest("copilot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooksConfig, ok := cfg.Get("hooks_config")
+	if !ok {
+		t.Fatal("copilot hooks_config missing")
+	}
+	entry := hooksConfig.(map[string]any)
+	path, _ := entry["path"].(string)
+	if !strings.HasPrefix(path, ".github/hooks/") || !strings.HasSuffix(path, ".json") {
+		t.Errorf("copilot hooks path = %q", path)
+	}
+	blob, _ := json.Marshal(entry["content"])
+	text := string(blob)
+	// VS Code Copilot requires type:command and reads the PascalCase event.
+	if !strings.Contains(text, "PreToolUse") || !strings.Contains(text, `"type":"command"`) {
+		t.Errorf("copilot hook not in VS Code format:\n%s", text)
+	}
+	if !strings.Contains(text, ".github/hooks/scripts/guard.sh") {
+		t.Errorf("copilot hook command not pointed at scripts dir:\n%s", text)
+	}
+}
+
+func TestGenerateHTTPHookCurlWrap(t *testing.T) {
+	req := richRequest("cursor")
+	req.HookListings["h1"] = Listing{
+		"slug": "webhook", "namespace": "acme", "status": "approved",
+		"event": "PreToolUse", "handler_type": "http",
+		"handler_config": map[string]any{"url": "https://hooks.example/x"},
+	}
+	cfg, err := Generate(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooksConfig, _ := cfg.Get("hooks_config")
+	blob, _ := json.Marshal(hooksConfig)
+	// Cursor has no native HTTP hook type, so the URL is delivered via curl.
+	if !strings.Contains(string(blob), "curl -s -X POST") || !strings.Contains(string(blob), "https://hooks.example/x") {
+		t.Errorf("http hook not wrapped as curl:\n%s", blob)
 	}
 }
 

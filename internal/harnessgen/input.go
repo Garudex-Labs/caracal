@@ -87,7 +87,6 @@ type Request struct {
 	SkillListings  map[string]Listing
 	HookListings   map[string]Listing
 	PromptListings map[string]Listing
-	SandboxLists   map[string]Listing
 	ComponentNames map[string]string
 	EnvValues      map[string]map[string]string
 	HeaderValues   map[string]map[string]string

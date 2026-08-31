@@ -35,11 +35,11 @@ func TestHookInstallSnippet(t *testing.T) {
 		want    string
 	}{
 		{"claude-code", `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"python guard.py","timeout":10}]}]}}`},
-		{"cursor", `{"version":1,"hooks":{"PreToolUse":[{"command":"python guard.py"}]}}`},
+		{"cursor", `{"version":1,"hooks":{"PreToolUse":[{"command":"python guard.py","type":"command"}]}}`},
 		{"kiro", `{"hooks":{"PreToolUse":[{"command":"python guard.py"}]}}`},
-		{"copilot", `{"hooks":{"PreToolUse":[{"command":"python guard.py"}]}}`},
-		{"copilot-cli", `{"hooks":{"PreToolUse":[{"command":"python guard.py"}]}}`},
-		{"codex", `{"hooks":{"PreToolUse":{"command":"python guard.py"}},"_format":"toml","_note":"Add to .codex/config.toml under [hooks.PreToolUse]"}`},
+		{"copilot", `{"hooks":{"PreToolUse":[{"type":"command","command":"python guard.py","timeout":10}]}}`},
+		{"copilot-cli", `{"hooks":{"PreToolUse":[{"type":"command","command":"python guard.py","timeout":10}]}}`},
+		{"codex", `{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"python guard.py","timeout":10}]}]}}`},
 		{"goose", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"python guard.py","timeout":10}]}]},"_note":"Add to .agents/plugins/caracal/hooks/hooks.json"}`},
 		{"antigravity", `{"hooks":{"PreToolUse":[{"command":"python guard.py","timeout":10}]}}`},
 	}

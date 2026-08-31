@@ -23,16 +23,19 @@ func Generate(req *Request) (*Config, error) {
 	safeName := sanitizeName(strOr(req.Options["local_name"], req.Agent.ItemSlug()))
 
 	mcpConfigs := buildMcpConfigs(req, adapter)
-	if sandboxMcp := buildSandboxMcpEntry(req); sandboxMcp != nil {
-		for _, k := range sandboxMcp.Keys() {
-			v, _ := sandboxMcp.Get(k)
-			mcpConfigs.Set(k, v)
-		}
-	}
 
-	// Harnesses with first-class prompt files keep the agent body to a name list.
+	spec, _ := specOf(req.Harness)
+	if spec != nil && !spec.SupportsAgents() {
+		return nil, fmt.Errorf("harness %q does not support agents", req.Harness)
+	}
+	promptMode := harness.PromptUnsupported
+	if spec != nil {
+		promptMode = spec.PromptMode()
+	}
+	// Native harnesses receive a first-class prompt file, so the agent body
+	// keeps prompts to a name list; every other mode inlines the template.
 	promptListings := req.PromptListings
-	if adapter.emitsPromptFiles() {
+	if promptMode == harness.PromptNative {
 		promptListings = nil
 	}
 	g := &generation{
@@ -44,7 +47,29 @@ func Generate(req *Request) (*Config, error) {
 		hookConfigs:    buildHookConfigs(req),
 		compatWarnings: compatibilityWarnings(req.Agent, req.Harness),
 	}
-	return adapter.formatConfig(g), nil
+	cfg := adapter.formatConfig(g)
+	materializePrompts(cfg, g, promptMode)
+	return cfg, nil
+}
+
+// materializePrompts applies the harness's declared prompt mode after the
+// adapter renders its config. Native harnesses get dedicated prompt files;
+// unsupported harnesses surface a warning instead of silently dropping the
+// content; embedded harnesses already inlined the template via rules content.
+func materializePrompts(cfg *Config, g *generation, mode harness.PromptMaterialization) {
+	switch mode {
+	case harness.PromptNative:
+		spec, _ := specOf(g.req.Harness)
+		if files := generatePromptFiles(g.req, spec); len(files) > 0 {
+			cfg.Set("prompt_files", files)
+		}
+	case harness.PromptUnsupported:
+		if n := promptComponentCount(g.req); n > 0 {
+			appendConfigWarning(cfg, fmt.Sprintf(
+				"%s does not support prompts; %d attached prompt component(s) were not materialized.",
+				g.req.Harness, n))
+		}
+	}
 }
 
 // ResolveModel picks the model value a harness config should emit, plus any

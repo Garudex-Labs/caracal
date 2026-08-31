@@ -134,11 +134,13 @@ func McpInstallSnippet(harnessName string, in McpSnippetInput) (map[string]any, 
 	return map[string]any{"mcpServers": map[string]any{ctx.Name: ctx.standardEntry()}}, nil
 }
 
-// HookInstallSnippet renders the harness-specific hook config entry.
+// HookInstallSnippet renders the harness-specific hook config entry. HTTP
+// handlers are wrapped into a curl command upstream, so command is always the
+// executable string the harness runs.
 func HookInstallSnippet(harnessName, event, handlerType, command string, timeout int) map[string]any {
 	switch harnessName {
 	case "claude-code":
-		entry := map[string]any{"type": handlerType, "command": command}
+		entry := map[string]any{"type": "command", "command": command}
 		if timeout != 0 {
 			entry["timeout"] = timeout
 		}
@@ -146,15 +148,25 @@ func HookInstallSnippet(harnessName, event, handlerType, command string, timeout
 			event: []any{map[string]any{"matcher": "*", "hooks": []any{entry}}},
 		}}
 	case "codex":
-		return map[string]any{
-			"hooks":   map[string]any{event: map[string]any{"command": command}},
-			"_format": "toml",
-			"_note":   fmt.Sprintf("Add to .codex/config.toml under [hooks.%s]", event),
+		// Codex reads .codex/hooks.json using the Claude-style matcher-group.
+		entry := map[string]any{"type": "command", "command": command}
+		if timeout != 0 {
+			entry["timeout"] = timeout
 		}
-	case "copilot", "copilot-cli", "kiro":
+		return map[string]any{"hooks": map[string]any{
+			event: []any{map[string]any{"matcher": "", "hooks": []any{entry}}},
+		}}
+	case "copilot", "copilot-cli":
+		// VS Code Copilot and Copilot CLI require an explicit type:"command".
+		entry := map[string]any{"type": "command", "command": command}
+		if timeout != 0 {
+			entry["timeout"] = timeout
+		}
+		return map[string]any{"hooks": map[string]any{event: []any{entry}}}
+	case "kiro":
 		return map[string]any{"hooks": map[string]any{event: []any{map[string]any{"command": command}}}}
 	case "cursor":
-		return map[string]any{"version": 1, "hooks": map[string]any{event: []any{map[string]any{"command": command}}}}
+		return map[string]any{"version": 1, "hooks": map[string]any{event: []any{map[string]any{"command": command, "type": "command"}}}}
 	case "goose":
 		entry := map[string]any{"type": "command", "command": command}
 		if timeout != 0 {
@@ -192,7 +204,7 @@ func SkillHookExtra(harnessName string) map[string]any {
 // using the one-line summary in frontmatter and the full description as body.
 func SkillInstallFile(harnessName, scope, name, shortDesc, fullDesc, slashCommand string) map[string]any {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	if !ok || len(spec.Skills) == 0 {
+	if !ok || len(spec.Skills) == 0 || !spec.EmitsSkillMd() {
 		return nil
 	}
 	pathTemplate, ok := spec.Skills[scope]
@@ -222,10 +234,26 @@ func SkillInstallFile(harnessName, scope, name, shortDesc, fullDesc, slashComman
 	return map[string]any{"path": path, "content": content}
 }
 
+// SupportsSkill reports whether the harness natively consumes a Caracal Skill
+// (an Agent Skill / SKILL.md). Unsupported harnesses must be rejected, never
+// handed an empty skill config or a file they never read.
+func SupportsSkill(harnessName string) bool {
+	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
+	return ok && spec.EmitsSkillMd()
+}
+
+// SupportsAgent reports whether the harness can materialize a Caracal Agent
+// through a documented native or compatible mechanism. Unsupported harnesses
+// must be rejected, never handed an agent file they never read.
+func SupportsAgent(harnessName string) bool {
+	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
+	return ok && spec.SupportsAgents()
+}
+
 // SkillFilePath resolves the harness skill file location for a scope.
 func SkillFilePath(harnessName, scope, name string) string {
 	spec, ok := specOf(strings.ReplaceAll(harnessName, "_", "-"))
-	if !ok || len(spec.Skills) == 0 {
+	if !ok || len(spec.Skills) == 0 || !spec.EmitsSkillMd() {
 		return ""
 	}
 	pattern, ok := spec.Skills[scope]

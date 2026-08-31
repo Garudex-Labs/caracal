@@ -57,7 +57,6 @@ type adapter interface {
 	previewModelFallback(modelName string) string
 	skillFrontmatterExtra(slashCommand string) [][2]string
 	formatHookComponent(command string) any
-	emitsPromptFiles() bool
 }
 
 // base provides the shared adapter defaults.
@@ -75,8 +74,6 @@ func (base) skillFrontmatterExtra(string) [][2]string { return nil }
 func (base) formatHookComponent(command string) any {
 	return map[string]any{"command": command}
 }
-
-func (base) emitsPromptFiles() bool { return false }
 
 var adapters = map[string]adapter{
 	"kiro":        kiroAdapter{},
@@ -189,7 +186,15 @@ func (a kiroAdapter) formatConfig(g *generation) *Config {
 	content := NewConfig()
 	content.Set("name", g.safeName)
 	content.Set("description", g.truncatedDescription())
-	content.Set("prompt", wrapKiroPrompt(g.req.Agent.Prompt, g.safeName))
+	kiroPrompt := wrapKiroPrompt(g.req.Agent.Prompt, g.safeName)
+	if section := promptEmbedSection(g.req); section != "" {
+		if kiroPrompt != "" {
+			kiroPrompt += "\n\n" + section
+		} else {
+			kiroPrompt = "# " + g.safeName + " - Agent Specialization\n\n" + section
+		}
+	}
+	content.Set("prompt", kiroPrompt)
 	content.Set("mcpServers", g.mcpConfigs)
 	content.Set("tools", []any{"*"})
 	content.Set("toolAliases", map[string]any{})
@@ -413,8 +418,6 @@ func pyRepr(s string) string {
 
 type copilotAdapter struct{ base }
 
-func (copilotAdapter) emitsPromptFiles() bool { return true }
-
 func (copilotAdapter) formatHookComponent(command string) any {
 	return map[string]any{"type": "command", "command": command}
 }
@@ -459,8 +462,19 @@ func (a copilotAdapter) formatConfig(g *generation) *Config {
 	mcpContent.Set(spec.MCPServersKey, copilotConfigs)
 	result.Set("mcp_config", map[string]any{"path": spec.MCPConfig["project"], "content": mcpContent})
 	result.Set("scope", spec.DefaultScope)
-	if promptFiles := generatePromptFiles(g.req); len(promptFiles) > 0 {
-		result.Set("prompt_files", promptFiles)
+	// VS Code Copilot loads every .github/hooks/*.json using the Claude/CLI hook
+	// format ({hooks:{PascalEvent:[{type:command,command}]}}). Attached Registry
+	// Hooks land in a per-agent file so they never clobber the telemetry file.
+	hooksContent := map[string]any{"hooks": map[string]any{}}
+	mergeHookComponents(hooksContent, g.hookConfigs, "copilot", a)
+	if hd, _ := hooksContent["hooks"].(map[string]any); len(hd) > 0 {
+		result.Set("hooks_config", map[string]any{
+			"path":    ".github/hooks/" + g.safeName + ".json",
+			"content": hooksContent,
+		})
+	}
+	if hookFiles := collectHookScriptFiles(g.hookConfigs, "copilot"); len(hookFiles) > 0 {
+		result.Set("hook_files", hookFiles)
 	}
 	if len(g.compatWarnings) > 0 {
 		result.Set("_warnings", g.compatWarnings)
@@ -471,8 +485,6 @@ func (a copilotAdapter) formatConfig(g *generation) *Config {
 // ── Copilot CLI ──
 
 type copilotCliAdapter struct{ base }
-
-func (copilotCliAdapter) emitsPromptFiles() bool { return true }
 
 func (copilotCliAdapter) formatHookComponent(command string) any {
 	return map[string]any{"type": "command", "command": command}
@@ -557,9 +569,6 @@ func (a copilotCliAdapter) formatConfig(g *generation) *Config {
 	if hookFiles := collectHookScriptFiles(g.hookConfigs, "copilot-cli"); len(hookFiles) > 0 {
 		result.Set("hook_files", hookFiles)
 	}
-	if promptFiles := generatePromptFiles(g.req); len(promptFiles) > 0 {
-		result.Set("prompt_files", promptFiles)
-	}
 	if len(skills) > 0 {
 		result.Set("skills", skills)
 		gitSkills := []any{}
@@ -619,10 +628,15 @@ func (a codexAdapter) formatConfig(g *generation) *Config {
 		"content": strings.Join(tomlLines, "\n") + "\n",
 	})
 	result.Set("mcp_config", map[string]any{"path": spec.MCPConfig[scope], "content": content})
+	codexHooks := codexHooksConfig(g.safeName)
+	mergeCodexHookComponents(codexHooks, g.hookConfigs)
 	result.Set("hooks_config", map[string]any{
 		"path":    spec.Hooks[scope],
-		"content": codexHooksConfig(g.safeName),
+		"content": codexHooks,
 	})
+	if hookFiles := collectHookScriptFiles(g.hookConfigs, "codex"); len(hookFiles) > 0 {
+		result.Set("hook_files", hookFiles)
+	}
 	result.Set("scope", scope)
 	if warnings := g.allWarnings(); len(warnings) > 0 {
 		result.Set("_warnings", warnings)
@@ -999,6 +1013,9 @@ func (a piAdapter) formatConfig(g *generation) *Config {
 			rewritten = append(rewritten, copy)
 		}
 		result.Set("skill_components", rewritten)
+	}
+	if warnings := g.allWarnings(); len(warnings) > 0 {
+		result.Set("_warnings", warnings)
 	}
 	return result
 }
