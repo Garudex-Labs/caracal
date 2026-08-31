@@ -216,6 +216,12 @@ func TestUpdateVisibilityValidation(t *testing.T) {
 	rec = serveRegistryReq(t, &fakeDB{}, http.MethodPatch,
 		"/api/v1/registry/mcp/"+listingUUID+"/visibility", "user",
 		strings.NewReader(`{"visibility":"public"}`))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("public is rejected: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serveRegistryReq(t, &fakeDB{}, http.MethodPatch,
+		"/api/v1/registry/mcp/"+listingUUID+"/visibility", "user",
+		strings.NewReader(`{"visibility":"project"}`))
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "Listing not found") {
 		t.Errorf("unknown listing: %d %s", rec.Code, rec.Body.String())
 	}

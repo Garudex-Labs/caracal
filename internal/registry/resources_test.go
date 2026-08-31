@@ -40,7 +40,7 @@ func TestSerializeResourceProjection(t *testing.T) {
 	if item.wire["qualified_name"] != "acme/weather" || item.wire["resource_type"] != "mcp" {
 		t.Errorf("wire identity: %v", item.wire)
 	}
-	if item.wire["visibility"] != "public" || item.downloads != 9 {
+	if item.wire["visibility"] != "project" || item.downloads != 9 {
 		t.Errorf("visibility/downloads: %v", item.wire)
 	}
 	if item.nameLower != "weather" {

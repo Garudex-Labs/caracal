@@ -13,14 +13,14 @@ import (
 
 // sourceCols matches sourceColumns aliases in the RETURNING/SELECT lists.
 var sourceCols = []string{
-	"id", "url", "provider", "component_type", "is_public",
+	"id", "url", "provider", "component_type",
 	"project_id", "auto_sync_interval", "last_synced_at", "sync_status",
 	"sync_error", "created_at",
 }
 
-func sourceRow(id, url string, isPublic bool, projectID any) []any {
+func sourceRow(id, url string, projectID any) []any {
 	return []any{
-		id, url, "github", "mcp", isPublic,
+		id, url, "github", "mcp",
 		projectID, nil, testNow, "success",
 		nil, testNow,
 	}
@@ -54,27 +54,25 @@ func TestIsoDurationRendersInterval(t *testing.T) {
 }
 
 func TestSourceWireOfMapsRow(t *testing.T) {
-	pub := sourceWireOf(map[string]any{
+	w := sourceWireOf(map[string]any{
 		"id": "abc", "url": "https://github.com/a/b", "provider": "github",
-		"component_type": "mcp", "is_public": true, "created_at": testNow,
+		"component_type": "mcp", "project_id": "p1", "created_at": testNow,
 	})
-	if pub.Visibility != "public" || pub.ID != "abc" || pub.Provider != "github" {
-		t.Errorf("public wire = %+v", pub)
+	if w.Visibility != "project" || w.ID != "abc" || w.Provider != "github" {
+		t.Errorf("wire = %+v", w)
 	}
-	if pub.CreatedAt != "2026-08-30T08:00:00Z" {
-		t.Errorf("created_at = %v", pub.CreatedAt)
+	if w.ProjectID == nil || *w.ProjectID != "p1" {
+		t.Errorf("project id = %+v", w.ProjectID)
 	}
-
-	proj := sourceWireOf(map[string]any{"is_public": false, "project_id": "p1"})
-	if proj.Visibility != "project" || proj.ProjectID == nil || *proj.ProjectID != "p1" {
-		t.Errorf("project wire = %+v", proj)
+	if w.CreatedAt != "2026-08-30T08:00:00Z" {
+		t.Errorf("created_at = %v", w.CreatedAt)
 	}
 }
 
 func TestListSourcesEndpoint(t *testing.T) {
 	db := &fakeDB{stubs: []stub{
 		{match: "FROM component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
-			sourceRow("11111111-1111-1111-1111-111111111111", "https://github.com/a/b", true, nil),
+			sourceRow("11111111-1111-1111-1111-111111111111", "https://github.com/a/b", "99999999-9999-9999-9999-999999999999"),
 		}}},
 	}}
 	rec := serveRegistry(t, db, http.MethodGet, "/api/v1/component-sources?component_type=mcp", "user")
@@ -85,7 +83,7 @@ func TestListSourcesEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("body: %v\n%s", err, rec.Body.String())
 	}
-	if len(out) != 1 || out[0]["provider"] != "github" || out[0]["visibility"] != "public" {
+	if len(out) != 1 || out[0]["provider"] != "github" || out[0]["visibility"] != "project" {
 		t.Errorf("sources = %v", out)
 	}
 	// The component_type filter must reach the query as a bound predicate.
@@ -109,15 +107,17 @@ func TestListSourcesStorageFailureIs500(t *testing.T) {
 func TestGetSourceEndpoint(t *testing.T) {
 	id := "11111111-1111-1111-1111-111111111111"
 
-	// Public source: visible to any signed-in caller.
+	// Project source: visible to a member of its project.
 	db := &fakeDB{stubs: []stub{
 		{match: "FROM component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
-			sourceRow(id, "https://github.com/a/b", true, nil),
+			sourceRow(id, "https://github.com/a/b", "99999999-9999-9999-9999-999999999999"),
 		}}},
+		{match: "user_id FROM project_memberships", rows: &fakeRows{
+			cols: []string{"user_id"}, rows: [][]any{{"22222222-2222-2222-2222-222222222222"}}}},
 	}}
 	rec := serveRegistry(t, db, http.MethodGet, "/api/v1/component-sources/"+id, "user")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("public source: status = %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("project source: status = %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Unknown source: 404.
@@ -137,7 +137,7 @@ func TestGetSourcePrivateHiddenFromNonMember(t *testing.T) {
 	id := "11111111-1111-1111-1111-111111111111"
 	db := &fakeDB{stubs: []stub{
 		{match: "FROM component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
-			sourceRow(id, "https://github.com/a/b", false, "99999999-9999-9999-9999-999999999999"),
+			sourceRow(id, "https://github.com/a/b", "99999999-9999-9999-9999-999999999999"),
 		}}},
 		// No project_memberships row: not a member.
 	}}
@@ -156,11 +156,15 @@ func TestDeleteSourceEndpoint(t *testing.T) {
 		t.Errorf("missing source: status = %d", rec.Code)
 	}
 
-	// Public source, ordinary user without project lead: 403.
+	// Project source, member who is not a lead: 403.
 	pub := &fakeDB{stubs: []stub{
 		{match: "FROM component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
-			sourceRow(id, "https://github.com/a/b", true, nil),
+			sourceRow(id, "https://github.com/a/b", "99999999-9999-9999-9999-999999999999"),
 		}}},
+		{match: "user_id FROM project_memberships", rows: &fakeRows{
+			cols: []string{"user_id"}, rows: [][]any{{"22222222-2222-2222-2222-222222222222"}}}},
+		{match: "role FROM project_memberships", rows: &fakeRows{
+			cols: []string{"role"}, rows: [][]any{{"member"}}}},
 	}}
 	rec = serveRegistry(t, pub, http.MethodDelete, "/api/v1/component-sources/"+id, "user")
 	if rec.Code != http.StatusForbidden {
@@ -168,7 +172,12 @@ func TestDeleteSourceEndpoint(t *testing.T) {
 	}
 
 	// Operator deletes any source.
-	rec = serveRegistry(t, pub, http.MethodDelete, "/api/v1/component-sources/"+id, "operator")
+	op := &fakeDB{stubs: []stub{
+		{match: "FROM component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
+			sourceRow(id, "https://github.com/a/b", "99999999-9999-9999-9999-999999999999"),
+		}}},
+	}}
+	rec = serveRegistry(t, op, http.MethodDelete, "/api/v1/component-sources/"+id, "operator")
 	if rec.Code != http.StatusOK {
 		t.Errorf("operator delete: status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -179,7 +188,7 @@ func TestDeleteSourceProjectLeadAllowed(t *testing.T) {
 	pid := "99999999-9999-9999-9999-999999999999"
 	db := &fakeDB{stubs: []stub{
 		{match: "FROM component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
-			sourceRow(id, "https://github.com/a/b", false, pid),
+			sourceRow(id, "https://github.com/a/b", pid),
 		}}},
 		// sourceVisible membership probe.
 		{match: "user_id FROM project_memberships", rows: &fakeRows{
@@ -239,11 +248,11 @@ func TestAddSourceHappyPath(t *testing.T) {
 		{match: "FROM projects WHERE organization_id", rows: &fakeRows{
 			cols: []string{"id"}, rows: [][]any{{"66666666-6666-6666-6666-666666666666"}}}},
 		{match: "INSERT INTO component_sources", rows: &fakeRows{cols: sourceCols, rows: [][]any{
-			sourceRow(newID, "https://github.com/a/b", true, nil),
+			sourceRow(newID, "https://github.com/a/b", "66666666-6666-6666-6666-666666666666"),
 		}}},
 	}}
 	rec := serveRegistryReq(t, db, http.MethodPost, "/api/v1/component-sources", "user",
-		strings.NewReader(`{"url":"https://github.com/a/b","component_type":"mcp","visibility":"public"}`))
+		strings.NewReader(`{"url":"https://github.com/a/b","component_type":"mcp"}`))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}

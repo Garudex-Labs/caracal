@@ -34,7 +34,6 @@ var resourceSpecs = []resourceSpec{
 	{"skills", "skill", "skill_listings", "skill_versions", "submitted_by", false},
 	{"hooks", "hook", "hook_listings", "hook_versions", "submitted_by", false},
 	{"prompts", "prompt", "prompt_listings", "prompt_versions", "submitted_by", false},
-	{"sandboxes", "sandbox", "sandbox_listings", "sandbox_versions", "submitted_by", false},
 }
 
 var resourceSorts = []string{"updated", "created", "name", "name_desc", "downloads"}
@@ -187,11 +186,9 @@ func serializeResource(spec resourceSpec, row map[string]any) resourceItem {
 	if s, ok := row["ownership_scope"].(string); ok {
 		scope, scopeWire = s, s
 	}
-	visibility := "public"
+	visibility := "project"
 	if scope == "private" {
 		visibility = "private"
-	} else if rowBool(row, "is_private") {
-		visibility = "project"
 	}
 	wire := map[string]any{
 		"id":              id,

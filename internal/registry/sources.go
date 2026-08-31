@@ -42,17 +42,13 @@ func isoDuration(v any) *string {
 }
 
 func sourceWireOf(row map[string]any) sourceWire {
-	visibility := "project"
-	if rowBool(row, "is_public") {
-		visibility = "public"
-	}
 	return sourceWire{
 		ID:               rowStr(row, "id", ""),
 		URL:              rowStr(row, "url", ""),
 		Provider:         rowStr(row, "provider", ""),
 		ComponentType:    rowStr(row, "component_type", ""),
 		ProjectID:        rowNStr(row, "project_id"),
-		Visibility:       visibility,
+		Visibility:       "project",
 		AutoSyncInterval: isoDuration(row["auto_sync_interval"]),
 		LastSyncedAt:     wireTimeZ(row["last_synced_at"]),
 		SyncStatus:       rowNStr(row, "sync_status"),
@@ -61,7 +57,7 @@ func sourceWireOf(row map[string]any) sourceWire {
 	}
 }
 
-const sourceColumns = `id::text AS id, url, provider, component_type, is_public,
+const sourceColumns = `id::text AS id, url, provider, component_type,
 	project_id::text AS project_id, auto_sync_interval, last_synced_at, sync_status,
 	sync_error, created_at`
 
@@ -102,11 +98,10 @@ func (s *Store) AddSource(ctx context.Context, viewer *Viewer, req SourceCreate,
 		return nil, err
 	}
 	rows, err := s.DB.Query(ctx, `INSERT INTO component_sources
-		(id, url, provider, component_type, is_public, project_id, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, now(), now())
+		(id, url, provider, component_type, project_id, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, now(), now())
 		RETURNING `+sourceColumns,
-		req.URL, detectProvider(req.URL), req.ComponentType,
-		target.Visibility == "public", target.ProjectID)
+		req.URL, detectProvider(req.URL), req.ComponentType, target.ProjectID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, &apiError{Status: 409, Detail: "Source with this URL and component type already exists"}
@@ -140,8 +135,8 @@ func (s *Store) ListSources(ctx context.Context, viewer *Viewer, componentType s
 	}
 	if !viewer.seesPrivateListings() {
 		args = append(args, viewer.ID)
-		where = append(where, fmt.Sprintf(`(is_public = TRUE OR (is_public = FALSE AND EXISTS (
-			SELECT 1 FROM project_memberships pm WHERE pm.project_id = component_sources.project_id AND pm.user_id = $%d)))`, len(args)))
+		where = append(where, fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM project_memberships pm WHERE pm.project_id = component_sources.project_id AND pm.user_id = $%d)`, len(args)))
 	}
 	rows, err := s.DB.Query(ctx, fmt.Sprintf(
 		"SELECT %s FROM component_sources WHERE %s ORDER BY created_at DESC",
@@ -191,7 +186,7 @@ func (s *Store) sourceVisible(ctx context.Context, row map[string]any, viewer *V
 			return false, nil
 		}
 	}
-	if rowBool(row, "is_public") || viewer.seesPrivateListings() {
+	if viewer.seesPrivateListings() {
 		return true, nil
 	}
 	projectID := rowNStr(row, "project_id")

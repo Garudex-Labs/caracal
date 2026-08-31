@@ -28,12 +28,11 @@ var visibilityEntities = map[string]struct {
 	listingTable, versionTable string
 	isAgent                    bool
 }{
-	"mcp":     {"mcp_listings", "mcp_versions", false},
-	"skill":   {"skill_listings", "skill_versions", false},
-	"hook":    {"hook_listings", "hook_versions", false},
-	"prompt":  {"prompt_listings", "prompt_versions", false},
-	"sandbox": {"sandbox_listings", "sandbox_versions", false},
-	"agent":   {"agents", "agent_versions", true},
+	"mcp":    {"mcp_listings", "mcp_versions", false},
+	"skill":  {"skill_listings", "skill_versions", false},
+	"hook":   {"hook_listings", "hook_versions", false},
+	"prompt": {"prompt_listings", "prompt_versions", false},
+	"agent":  {"agents", "agent_versions", true},
 }
 
 // viewerLeadsProject reports whether the viewer is a lead of the given project.
@@ -53,8 +52,9 @@ func (s *Store) viewerLeadsProject(ctx context.Context, projectID *string, userI
 	return role == "lead"
 }
 
-// UpdateVisibility flips a listing between public and project-member
-// visibility, enforcing the review boundary on the way back to public.
+// UpdateVisibility sets a listing to project-member visibility, promoting a
+// personal-private item to its owning project's audience. There is no public
+// scope, so the caller only ever passes "project".
 func (s *Store) UpdateVisibility(ctx context.Context, itemType, listingID, visibility string, viewer *Viewer) (map[string]any, error) {
 	spec, known := visibilityEntities[itemType]
 	if !known {
@@ -173,16 +173,12 @@ func (s *Store) UpdateVisibility(ctx context.Context, itemType, listingID, visib
 	if returnedToReview {
 		finalStatus = "pending"
 	}
-	wireVisibility := "public"
-	if isPrivate {
-		wireVisibility = "project"
-	}
 	return map[string]any{
 		"id":                 listingUUID,
 		"type":               itemType,
 		"qualified_name":     namespace + "/" + rowStr(listing, "slug", ""),
 		"project_id":         projectID,
-		"visibility":         wireVisibility,
+		"visibility":         "project",
 		"status":             finalStatus,
 		"returned_to_review": returnedToReview,
 	}, nil
@@ -264,7 +260,7 @@ func (s *Store) BulkCreateAgents(ctx context.Context, items []map[string]any, dr
 	created, skipped, errored := 0, 0, 0
 	for _, item := range items {
 		name, _ := item["name"].(string)
-		target, err := resolver.ResolvePublishTarget(ctx, user, name, tenancy.PublishOptions{Visibility: "public"})
+		target, err := resolver.ResolvePublishTarget(ctx, user, name, tenancy.PublishOptions{Visibility: "project"})
 		var tErr *tenancy.Error
 		if err != nil {
 			detail := "invalid name"
@@ -514,8 +510,8 @@ func (h *Handler) updateVisibility() http.Handler {
 		if _, known := visibilityEntities[itemType]; !known {
 			httpapi.WriteErrorDetail(w, http.StatusUnprocessableEntity, []fieldError{
 				{Type: "literal_error", Loc: []string{"path", "item_type"},
-					Msg: "Input should be 'agent', 'mcp', 'skill', 'hook', 'prompt' or 'sandbox'", Input: itemType,
-					Ctx: map[string]any{"expected": "'agent', 'mcp', 'skill', 'hook', 'prompt' or 'sandbox'"}},
+					Msg: "Input should be 'agent', 'mcp', 'skill', 'hook' or 'prompt'", Input: itemType,
+					Ctx: map[string]any{"expected": "'agent', 'mcp', 'skill', 'hook' or 'prompt'"}},
 			})
 			return
 		}
@@ -524,11 +520,11 @@ func (h *Handler) updateVisibility() http.Handler {
 			return
 		}
 		visibility, _ := body["visibility"].(string)
-		if visibility != "public" && visibility != "project" {
+		if visibility != "project" {
 			httpapi.WriteErrorDetail(w, http.StatusUnprocessableEntity, []fieldError{
 				{Type: "literal_error", Loc: []string{"body", "visibility"},
-					Msg: "Input should be 'public' or 'project'", Input: body["visibility"],
-					Ctx: map[string]any{"expected": "'public' or 'project'"}},
+					Msg: "Input should be 'project'", Input: body["visibility"],
+					Ctx: map[string]any{"expected": "'project'"}},
 			})
 			return
 		}

@@ -60,9 +60,9 @@ func TestEscapeLike(t *testing.T) {
 }
 
 func TestVisibilitySQL(t *testing.T) {
-	// anonymous: public only
+	// anonymous: no public scope exists, so nothing is visible
 	args := []any{}
-	if got := visibilitySQL("l", nil, &args); got != "l.is_private = FALSE" || len(args) != 0 {
+	if got := visibilitySQL("l", nil, &args); got != "FALSE" || len(args) != 0 {
 		t.Fatalf("anonymous = %s", got)
 	}
 	// operator: deployment-wide bypass of row visibility
@@ -70,12 +70,11 @@ func TestVisibilitySQL(t *testing.T) {
 	if got := visibilitySQL("l", operator, &args); got != "TRUE" {
 		t.Fatalf("operator visibility = %s, want TRUE", got)
 	}
-	// plain user: all three grants, scoped listings exclude the creator arm
+	// plain user: private-own and project-member grants, no public arm
 	user := &Viewer{ID: uuid.New(), Role: "user"}
 	args = []any{}
 	got := visibilitySQL("l", user, &args)
 	for _, want := range []string{
-		"l.is_private = FALSE",
 		"(l.ownership_scope = 'private' OR l.project_id IS NULL) AND l.submitted_by = $1",
 		"project_memberships pm WHERE pm.project_id = l.project_id AND pm.user_id = $1",
 	} {
@@ -129,7 +128,7 @@ func TestEffectivePermission(t *testing.T) {
 }
 
 func TestFamilyDescriptors(t *testing.T) {
-	if len(Families) != 5 {
+	if len(Families) != 4 {
 		t.Fatalf("families = %d", len(Families))
 	}
 	for prefix, f := range Families {

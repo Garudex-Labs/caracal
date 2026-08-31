@@ -22,10 +22,10 @@ func TestScopeSQLReexportsVisibilityFilter(t *testing.T) {
 		t.Errorf("operator must not bind args: %v", args)
 	}
 
-	// Anonymous sees only public rows, no bound viewer id.
+	// Anonymous sees nothing: there is no public scope, no bound viewer id.
 	args = nil
 	got := ScopeSQL("a", "a.created_by", nil, &args)
-	if got != "a.is_private = FALSE" {
+	if got != "FALSE" {
 		t.Errorf("anonymous ScopeSQL = %q", got)
 	}
 	if len(args) != 0 {
