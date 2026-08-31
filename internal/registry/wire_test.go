@@ -82,35 +82,6 @@ func TestSummaryFieldOrder(t *testing.T) {
 	}
 }
 
-func TestSummaryFallbacksWithoutVersion(t *testing.T) {
-	// A draft row from /my with no latest version resolves the compat defaults.
-	row := map[string]any{
-		"id": "abc", "name": "n", "namespace": "ns", "slug": "s", "owner": "o",
-		"is_private": false,
-	}
-	blob, _ := json.Marshal(summarize(Families["sandboxes"], row))
-	var d map[string]any
-	_ = json.Unmarshal(blob, &d)
-	checks := map[string]any{
-		"version": "0.0.0", "description": "", "status": "draft",
-		"network_policy": "none", "image": "", "visibility": "public",
-	}
-	for k, want := range checks {
-		if d[k] != want {
-			t.Errorf("%s = %v, want %v", k, d[k], want)
-		}
-	}
-	if len(d["supported_harnesses"].([]any)) != 0 || len(d["resource_limits"].(map[string]any)) != 0 {
-		t.Errorf("empty collections wrong: %s", blob)
-	}
-	if _, has := d["download_count"]; has {
-		t.Error("sandbox summary must not carry download_count")
-	}
-	if d["entrypoint"] != nil || d["rejection_reason"] != nil || d["updated_at"] != nil {
-		t.Errorf("nullables wrong: %s", blob)
-	}
-}
-
 func TestSummaryPrivateScopeVisibility(t *testing.T) {
 	row := map[string]any{
 		"id": "abc", "name": "n", "namespace": "ns", "slug": "s", "owner": "o",
@@ -151,8 +122,8 @@ func TestBuildListQueryShape(t *testing.T) {
 	if got := args[len(args)-2]; got != 50 {
 		t.Errorf("limit arg = %v", got)
 	}
-	// anonymous viewer sees only public rows
-	if !strings.Contains(listSQL, "l.is_private = FALSE") {
+	// anonymous viewer sees nothing: there is no public scope
+	if !strings.Contains(listSQL, "FALSE") {
 		t.Error("anonymous visibility clause missing")
 	}
 }

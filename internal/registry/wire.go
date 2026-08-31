@@ -52,15 +52,13 @@ func rowBool(row map[string]any, key string) bool {
 	return b
 }
 
-// rowVisibility derives the three-state visibility label.
+// rowVisibility derives the two-state visibility label from the ownership
+// scope: 'private' is owner-only, everything else is shared with the project.
 func rowVisibility(row map[string]any) string {
 	if rowStr(row, "ownership_scope", "") == "private" {
 		return "private"
 	}
-	if rowBool(row, "is_private") {
-		return "project"
-	}
-	return "public"
+	return "project"
 }
 
 type summaryCore struct {
@@ -148,22 +146,6 @@ type promptSummary struct {
 	summaryStatus
 }
 
-type sandboxSummary struct {
-	summaryCore
-	RuntimeType    string         `json:"runtime_type"`
-	Image          string         `json:"image"`
-	ResourceLimits map[string]any `json:"resource_limits"`
-	NetworkPolicy  string         `json:"network_policy"`
-	Entrypoint     *string        `json:"entrypoint"`
-	RuntimeConfig  map[string]any `json:"runtime_config"`
-	SourceURL      *string        `json:"source_url"`
-	SourceRef      *string        `json:"source_ref"`
-	SandboxPath    *string        `json:"sandbox_path"`
-	summaryTail
-	SupportedHarnesses []any `json:"supported_harnesses"`
-	summaryStatus
-}
-
 // summarize renders one scanned row as its family's list-item shape.
 func summarize(f Family, row map[string]any) any {
 	switch f.Prefix {
@@ -199,20 +181,6 @@ func summarize(f Family, row map[string]any) any {
 			summaryStatus: statusOf(row),
 		}
 	default:
-		return sandboxSummary{
-			summaryCore:        coreOf(row),
-			RuntimeType:        rowStr(row, "runtime_type", ""),
-			Image:              rowStr(row, "image", ""),
-			ResourceLimits:     rowDict(row, "resource_limits"),
-			NetworkPolicy:      rowStr(row, "network_policy", "none"),
-			Entrypoint:         rowNStr(row, "entrypoint"),
-			RuntimeConfig:      rowDict(row, "runtime_config"),
-			SourceURL:          rowNStr(row, "source_url"),
-			SourceRef:          rowNStr(row, "source_ref"),
-			SandboxPath:        rowNStr(row, "sandbox_path"),
-			summaryTail:        tailOf(row),
-			SupportedHarnesses: rowList(row, "supported_harnesses"),
-			summaryStatus:      statusOf(row),
-		}
+		return nil
 	}
 }

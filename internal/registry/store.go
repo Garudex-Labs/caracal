@@ -39,7 +39,6 @@ type ListParams struct {
 	Namespace              string
 	Search                 string
 	ComposableForProjectID string // uuid; publish-scope filter
-	PublicOnly             bool
 	Limit                  int
 	Offset                 int
 	// Extra holds family-specific equality filters keyed by parameter name.
@@ -67,9 +66,6 @@ func selectColumns(f Family) string {
 		cols = append(cols, "v.event", "v.scope")
 	case "prompts":
 		cols = append(cols, "v.category")
-	case "sandboxes":
-		cols = append(cols, "v.runtime_type", "v.image", "v.resource_limits", "v.network_policy",
-			"v.entrypoint", "v.runtime_config", "v.source_url", "v.source_ref", "v.sandbox_path")
 	}
 	return strings.Join(cols, ", ")
 }
@@ -79,13 +75,10 @@ func buildListQuery(f Family, p ListParams, viewer *Viewer) (listSQL, countSQL s
 	where := []string{"v.status = 'approved'"}
 
 	where = append(where, visibilitySQL("l", viewer, &args))
-	switch {
-	case p.PublicOnly:
-		where = append(where, "l.is_private = FALSE")
-	case p.ComposableForProjectID != "":
+	if p.ComposableForProjectID != "" {
 		args = append(args, p.ComposableForProjectID)
 		where = append(where, fmt.Sprintf(
-			"(l.is_private = FALSE OR (l.is_private = TRUE AND l.ownership_scope != 'private' AND l.project_id = $%d))", len(args)))
+			"(l.ownership_scope != 'private' AND l.project_id = $%d)", len(args)))
 	}
 	if p.Namespace != "" {
 		args = append(args, strings.ToLower(strings.TrimSpace(p.Namespace)))

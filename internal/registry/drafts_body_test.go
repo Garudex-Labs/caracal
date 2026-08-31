@@ -162,20 +162,23 @@ func TestDraftBodyUUIDNull(t *testing.T) {
 
 func TestDraftBodyVisibility(t *testing.T) {
 	b := draftBodyOf(map[string]any{})
-	if got := b.visibility(); got != "public" || len(b.errs) != 0 {
+	if got := b.visibility(); got != "project" || len(b.errs) != 0 {
 		t.Errorf("default = %q errs %v", got, b.errs)
 	}
 
-	for _, valid := range []string{"public", "project", "private"} {
+	for _, valid := range []string{"project", "private"} {
 		b = draftBodyOf(map[string]any{"visibility": valid})
 		if got := b.visibility(); got != valid || len(b.errs) != 0 {
 			t.Errorf("%s = %q errs %v", valid, got, b.errs)
 		}
 	}
 
-	b = draftBodyOf(map[string]any{"visibility": "internal"})
-	if got := b.visibility(); got != "public" || firstErrType(t, b) != "literal_error" {
-		t.Errorf("invalid = %q errs %v", got, b.errs)
+	// The removed public scope and any unknown value are rejected.
+	for _, bad := range []string{"public", "internal"} {
+		b = draftBodyOf(map[string]any{"visibility": bad})
+		if got := b.visibility(); got != "project" || firstErrType(t, b) != "literal_error" {
+			t.Errorf("invalid %q = %q errs %v", bad, got, b.errs)
+		}
 	}
 }
 

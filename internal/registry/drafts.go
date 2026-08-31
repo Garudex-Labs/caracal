@@ -151,14 +151,14 @@ func (b *draftBody) uuidNull(key string) *uuid.UUID {
 }
 
 func (b *draftBody) visibility() string {
-	v := b.str("visibility", "public")
+	v := b.str("visibility", "project")
 	switch v {
-	case "public", "project", "private":
+	case "project", "private":
 		return v
 	}
-	b.fail("literal_error", "visibility", "Input should be 'public', 'project' or 'private'",
-		map[string]any{"expected": "'public', 'project' or 'private'"})
-	return "public"
+	b.fail("literal_error", "visibility", "Input should be 'project' or 'private'",
+		map[string]any{"expected": "'project' or 'private'"})
+	return "project"
 }
 
 // harnessList validates and normalizes the supported-harness tokens.
@@ -265,16 +265,12 @@ func (b *draftBody) slashCommand() (string, bool) {
 	return normalized, true
 }
 
-var sandboxRuntimeTypes = []string{"docker", "lxc", "firecracker", "wasm"}
-var sandboxNetworkPolicies = []string{"none", "host", "bridge", "restricted"}
-
 // draftLabels carries the two per-family error-message spellings.
 var draftLabels = map[string]struct{ exists, conflict string }{
-	"mcps":      {"MCP server", "listing"},
-	"skills":    {"Skill", "skill"},
-	"hooks":     {"Hook", "hook"},
-	"prompts":   {"Prompt", "prompt"},
-	"sandboxes": {"Sandbox", "sandbox"},
+	"mcps":    {"MCP server", "listing"},
+	"skills":  {"Skill", "skill"},
+	"hooks":   {"Hook", "hook"},
+	"prompts": {"Prompt", "prompt"},
 }
 
 // versionInsertOnly are stored columns kept off the version wire shape.
@@ -355,24 +351,13 @@ func draftVersionFields(f Family, b *draftBody, validHarnesses []string) map[str
 		fields["source_path"] = b.nstr("source_path")
 		fields["requirements"] = b.nStrList("requirements")
 	case "prompts":
-		fields["category"] = b.str("category", "general")
+		fields["category"] = b.promptCategory()
 		fields["template"] = b.str("template", "")
 		fields["variables"] = b.raw["variables"]
 		if fields["variables"] == nil {
 			fields["variables"] = []any{}
 		}
-		fields["model_hints"] = b.ndict("model_hints")
 		fields["tags"] = b.strList("tags", []string{})
-	case "sandboxes":
-		fields["runtime_type"] = b.option("runtime_type", "docker", sandboxRuntimeTypes)
-		fields["image"] = b.str("image", "")
-		fields["resource_limits"] = b.dict("resource_limits", map[string]any{})
-		fields["network_policy"] = b.option("network_policy", "none", sandboxNetworkPolicies)
-		fields["entrypoint"] = b.nstr("entrypoint")
-		fields["runtime_config"] = b.dict("runtime_config", map[string]any{})
-		fields["source_url"] = b.nstr("source_url")
-		fields["source_ref"] = b.nstr("source_ref")
-		fields["sandbox_path"] = b.nstr("sandbox_path")
 	}
 	return fields
 }
@@ -542,7 +527,7 @@ type insertDraftParams struct {
 var jsonColumns = map[string]bool{
 	"args": true, "headers": true, "auto_approve": true, "environment_variables": true,
 	"handler_config": true, "tool_filter": true, "requirements": true, "variables": true,
-	"model_hints": true, "tags": true, "resource_limits": true, "runtime_config": true,
+	"tags": true, "resource_limits": true, "runtime_config": true,
 	"supported_harnesses": true, "target_agents": true,
 }
 

@@ -47,8 +47,8 @@ func mayViewUnapproved(permission string, viewer *Viewer) bool {
 }
 
 // visibilitySQL renders the list-level row filter for the family's listing
-// table alias. Private rows are visible to the personal creator (unscoped
-// only), team members, and project members.
+// table alias. Rows are visible to their private creator and to members of the
+// owning project. There is no public scope, so anonymous callers see nothing.
 func visibilitySQL(alias string, viewer *Viewer, args *[]any) string {
 	return visibilitySQLCreator(alias, alias+".submitted_by", viewer, args)
 }
@@ -60,9 +60,9 @@ func visibilitySQLCreator(alias, creatorCol string, viewer *Viewer, args *[]any)
 	if viewer.seesPrivateListings() {
 		base = "TRUE"
 	} else {
-		public := fmt.Sprintf("%s.is_private = FALSE", alias)
 		if viewer == nil {
-			return public
+			// No public scope exists: an anonymous caller sees nothing.
+			return "FALSE"
 		}
 		*args = append(*args, viewer.ID)
 		viewerArg := fmt.Sprintf("$%d", len(*args))
@@ -73,7 +73,7 @@ func visibilitySQLCreator(alias, creatorCol string, viewer *Viewer, args *[]any)
 			"(%s.is_private = TRUE AND %s.project_id IS NOT NULL AND %s.ownership_scope != 'private' AND EXISTS ("+
 				"SELECT 1 FROM project_memberships pm WHERE pm.project_id = %s.project_id AND pm.user_id = %s))",
 			alias, alias, alias, alias, viewerArg)
-		base = "(" + public + " OR " + own + " OR " + projectMember + ")"
+		base = "(" + own + " OR " + projectMember + ")"
 	}
 	if viewer != nil && viewer.ProjectID != "" {
 		*args = append(*args, viewer.ProjectID)

@@ -122,10 +122,6 @@ func familySubmitGate(f Family, row map[string]any) *apiError {
 		if rowStr(row, "template", "") == "" {
 			return &apiError{Status: 400, Detail: "Template is required before submitting"}
 		}
-	case "sandboxes":
-		if rowStr(row, "image", "") == "" {
-			return &apiError{Status: 400, Detail: "Image is required before submitting"}
-		}
 	}
 	return nil
 }

@@ -209,7 +209,6 @@ func (h *Handler) list(f Family) http.Handler {
 			Namespace:              q.Get("namespace"),
 			Search:                 q.Get("search"),
 			ComposableForProjectID: uuidParam(q, "composable_for_project_id", &errs),
-			PublicOnly:             boolParam(q, "public_only", &errs),
 			Limit:                  intParam(q, "limit", 50, 1, 200, &errs),
 			Offset:                 intParam(q, "offset", 0, 0, -1, &errs),
 			Extra:                  map[string]string{},
@@ -299,7 +298,7 @@ type registryResolution struct {
 	QualifiedName string `json:"qualified_name"`
 }
 
-var resolveTypePattern = regexp.MustCompile(`^(agent|mcp|skill|hook|prompt|sandbox)$`)
+var resolveTypePattern = regexp.MustCompile(`^(agent|mcp|skill|hook|prompt)$`)
 
 // resolve answers GET /api/v1/registry/resolve; agent identity remains with
 // the incumbent service and is relayed.
@@ -315,8 +314,8 @@ func (h *Handler) resolve() http.Handler {
 		case !resolveTypePattern.MatchString(kind):
 			errs = append(errs, fieldError{
 				Type: "string_pattern_mismatch", Loc: []string{"query", "type"},
-				Msg:   "String should match pattern '^(agent|mcp|skill|hook|prompt|sandbox)$'",
-				Input: kind, Ctx: map[string]any{"pattern": "^(agent|mcp|skill|hook|prompt|sandbox)$"},
+				Msg:   "String should match pattern '^(agent|mcp|skill|hook|prompt)$'",
+				Input: kind, Ctx: map[string]any{"pattern": "^(agent|mcp|skill|hook|prompt)$"},
 			})
 		}
 		switch {
@@ -778,7 +777,8 @@ func (h *Handler) updateDraft(f Family) http.Handler {
 
 // sourceCreateBody validates the add-source request.
 func sourceCreateBody(b *draftBody) SourceCreate {
-	req := SourceCreate{Visibility: b.visibility()}
+	// Git import sources are always Project-scoped.
+	req := SourceCreate{Visibility: "project"}
 	url, present := b.raw["url"].(string)
 	switch {
 	case b.raw["url"] == nil:
@@ -800,8 +800,8 @@ func sourceCreateBody(b *draftBody) SourceCreate {
 		b.fail("string_type", "component_type", "Input should be a valid string", nil)
 	case !resolveTypePattern.MatchString(kind) || kind == "agent":
 		b.fail("string_pattern_mismatch", "component_type",
-			"String should match pattern '^(mcp|skill|hook|prompt|sandbox)$'",
-			map[string]any{"pattern": "^(mcp|skill|hook|prompt|sandbox)$"})
+			"String should match pattern '^(mcp|skill|hook|prompt)$'",
+			map[string]any{"pattern": "^(mcp|skill|hook|prompt)$"})
 	default:
 		req.ComponentType = kind
 	}
@@ -906,12 +906,12 @@ func (h *Handler) deleteSource() http.Handler {
 // recommendTypeAliases maps plural and singular type names onto canonical
 // singular forms.
 var recommendTypeAliases = map[string]string{
-	"skill": "skill", "hook": "hook", "prompt": "prompt", "mcp": "mcp", "sandbox": "sandbox",
-	"skills": "skill", "hooks": "hook", "prompts": "prompt", "mcps": "mcp", "sandboxes": "sandbox",
+	"skill": "skill", "hook": "hook", "prompt": "prompt", "mcp": "mcp",
+	"skills": "skill", "hooks": "hook", "prompts": "prompt", "mcps": "mcp",
 }
 
 // recommendFamilies is the default recommendation order.
-var recommendFamilies = []string{"skill", "hook", "prompt", "mcp", "sandbox"}
+var recommendFamilies = []string{"skill", "hook", "prompt", "mcp"}
 
 func (h *Handler) myRecommendations() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
