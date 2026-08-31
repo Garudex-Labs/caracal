@@ -66,10 +66,10 @@ Removed surfaces: organization/project management, submission review, server adm
 - `caracal ops top`: Show top MCP servers or agents by usage.
 - `caracal ops traces`: List recent traces (sessions).
 
-**`caracal registry`**: Component registry (MCPs, skills, hooks, prompts, sandboxes)
+**`caracal registry`**: Component registry (MCPs, skills, hooks, prompts)
 
 - `caracal registry bulk`: Submit mixed Registry components from one JSON file.
-  - `caracal registry bulk submit`: Submit mixed MCP, skill, hook, prompt, and sandbox entries.
+  - `caracal registry bulk submit`: Submit mixed MCP, skill, hook, and prompt entries.
 - `caracal registry hook`: Hook registry commands
   - `caracal registry hook co-authors`: Manage co-authors for hooks
     - `caracal registry hook co-authors add`: Add a co-author.
@@ -116,18 +116,6 @@ Removed surfaces: organization/project management, submission review, server adm
 - `caracal registry recommend`: Components recommended for you, based on your own sessions
   - `caracal registry recommend dismiss`: Stop recommending a component to you.
   - `caracal registry recommend list`: Show components recommended for you.
-- `caracal registry sandbox`: Sandbox registry commands
-  - `caracal registry sandbox co-authors`: Manage co-authors for sandboxes
-    - `caracal registry sandbox co-authors add`: Add a co-author.
-    - `caracal registry sandbox co-authors list`: List co-authors.
-    - `caracal registry sandbox co-authors remove`: Remove a co-author.
-  - `caracal registry sandbox archive`: Archive this component.
-  - `caracal registry sandbox edit`: Edit a draft, rejected, or pending sandbox submission.
-  - `caracal registry sandbox list`: List approved sandboxes in the registry.
-  - `caracal registry sandbox show`: Show detailed information about a sandbox.
-  - `caracal registry sandbox submit`: Submit a new sandbox environment for review.
-  - `caracal registry sandbox transfer-owner`: Transfer ownership to another username.
-  - `caracal registry sandbox unarchive`: Restore an archived component.
 - `caracal registry skill`: Skill registry commands
   - `caracal registry skill co-authors`: Manage co-authors for skills
     - `caracal registry skill co-authors add`: Add a co-author.

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: caracal-registry
 command: caracal
-description: "Searches, recommends, bulk-submits, installs, edits, versions, archives, restores, transfers, and manages co-authors for Caracal MCP servers, skills, hooks, prompts, and sandboxes. Use when the user wants to find components, publish one or many they control, install them into a harness, or manage their lifecycle."
+description: "Searches, recommends, bulk-submits, installs, edits, versions, archives, restores, transfers, and manages co-authors for Caracal MCP servers, skills, hooks, and prompts. Use when the user wants to find components, publish one or many they control, install them into a harness, or manage their lifecycle."
 version: 2.3.0
 owner: caracal
 ---

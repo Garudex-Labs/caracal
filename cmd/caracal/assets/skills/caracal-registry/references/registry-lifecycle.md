@@ -36,7 +36,6 @@ caracal registry mcp edit NAMESPACE/SLUG --name new-name --description 'New desc
 caracal registry skill edit NAMESPACE/SLUG --from-file updates.json --output json
 caracal registry hook edit NAMESPACE/SLUG --version 1.2.0 --event Stop --output json
 caracal registry prompt edit NAMESPACE/SLUG --template 'New template body' --output json
-caracal registry sandbox edit NAMESPACE/SLUG --image python:3.12-slim --output json
 ```
 
 Verify the returned status and version. On an edit-lock conflict, do not overwrite blindly. Wait or ask the current editor to release it.
@@ -50,7 +49,6 @@ caracal registry version publish mcp NAMESPACE/SLUG --version 1.2.0 --descriptio
 caracal registry version publish skill NAMESPACE/SLUG --version 0.3.0 --description 'New tasks' --output json
 caracal registry version publish hook NAMESPACE/SLUG --version 1.0.1 --description 'Bug fix' --output json
 caracal registry version publish prompt NAMESPACE/SLUG --version 2.0.0 --description 'Rewrite' --output json
-caracal registry version publish sandbox NAMESPACE/SLUG --version 1.1.0 --description 'New image' --extra '{"runtime_type":"docker","image":"python:3.12-slim"}' --output json
 caracal registry version list mcp NAMESPACE/SLUG --output json
 ```
 
@@ -63,7 +61,6 @@ caracal registry mcp archive NAMESPACE/SLUG --yes --output json
 caracal registry skill archive NAMESPACE/SLUG --yes --output json
 caracal registry hook archive NAMESPACE/SLUG --yes --output json
 caracal registry prompt archive NAMESPACE/SLUG --yes --output json
-caracal registry sandbox archive NAMESPACE/SLUG --yes --output json
 caracal registry mcp unarchive NAMESPACE/SLUG --yes --output json
 caracal registry skill unarchive NAMESPACE/SLUG --yes --output json
 ```
