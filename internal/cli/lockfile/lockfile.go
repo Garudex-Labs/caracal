@@ -81,6 +81,12 @@ type Entry struct {
 	// ManagedPrompts records the native prompt files this install materialized,
 	// so a later pull can remove the ones it no longer writes.
 	ManagedPrompts []string `json:"managed_prompts,omitempty"`
+	// ManagedMcps records the MCP server names this install wrote into the shared
+	// harness MCP config, keyed by ManagedMcpKey inside the ManagedMcpPath file,
+	// so a later pull prunes only the entries it wrote and no longer writes.
+	ManagedMcps    []string `json:"managed_mcps,omitempty"`
+	ManagedMcpPath string   `json:"managed_mcp_path,omitempty"`
+	ManagedMcpKey  string   `json:"managed_mcp_key,omitempty"`
 }
 
 // Harness groups the entries of one harness.

@@ -661,7 +661,16 @@ func pullCommand() *cobra.Command {
 			written = append(written, [2]string{path, status})
 			return nil
 		}
+		var managedMcpNames []string
+		managedMcpPath, managedMcpKey := "", ""
 		if mcpConfig := snippet.object("mcp_config"); mcpConfig != nil && mcpConfig.str("path") != "" {
+			managedMcpPath = mcpConfig.str("path")
+			if content := mcpConfig.object("content"); content != nil && content.len() > 0 {
+				managedMcpKey = content.keys[0]
+				if servers := content.object(managedMcpKey); servers != nil {
+					managedMcpNames = append([]string{}, servers.keys...)
+				}
+			}
 			if cerr := writeChecked(mcpConfig.str("path"), mcpConfig.get("content"), isUserScope, true); cerr != nil {
 				return cerr
 			}
@@ -840,14 +849,26 @@ func pullCommand() *cobra.Command {
 			if installScope == "project" {
 				bindOrg, bindProject = pullOrg, pullProject
 			}
-			if _, err := lockfile.UpsertAgentWithPromptReconcile(harnessName, lockfile.Entry{
+			_, mcpAbs, mcpKey, staleMcps, upErr := lockfile.UpsertAgentWithReconcile(harnessName, lockfile.Entry{
 				Name: orDefault(detail.str("name"), resolved), ID: agentUUID, Version: versionPtr,
 				Scope: installScope, Directory: targetDir, Components: lockComponents,
 				Namespace: namespace, Slug: detail.str("slug"), LocalName: localName,
 				Org: bindOrg, Project: bindProject, ManagedPrompts: managedPromptPaths,
-			}); err != nil {
+				ManagedMcps: managedMcpNames, ManagedMcpPath: managedMcpPath, ManagedMcpKey: managedMcpKey,
+			})
+			if upErr != nil {
 				return pullUnavailableErr("Agent files were written, but installation tracking failed.", "Caracal lockfile",
-					"Repair the local lockfile and pull the agent again.", err.Error())
+					"Repair the local lockfile and pull the agent again.", upErr.Error())
+			}
+			if len(staleMcps) > 0 {
+				stale := map[string]bool{}
+				for _, n := range staleMcps {
+					stale[n] = true
+				}
+				if perr := pruneMcpEntries(mcpAbs, mcpKey, stale); perr != nil {
+					warningsList = append(warningsList, fmt.Sprintf(
+						"Could not remove %d stale MCP entries from %s: %v", len(staleMcps), mcpAbs, perr))
+				}
 			}
 			if harnessName == "pi" {
 				if cerr := persistActiveAgent(agentUUID, orDefault(detail.str("name"), resolved), agentVersion); cerr != nil {

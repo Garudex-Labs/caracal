@@ -141,14 +141,3 @@ func agentManagedPrompts(harness, agentID, scope, directory string) []string {
 	}
 	return nil
 }
-
-// UpsertAgentWithPromptReconcile records the agent install and then removes the
-// native prompt files a prior install of the same agent no longer materializes.
-// It returns the absolute paths cleaned up.
-func UpsertAgentWithPromptReconcile(harness string, entry Entry) ([]string, error) {
-	old := agentManagedPrompts(harness, entry.ID, entry.Scope, entry.Directory)
-	if err := UpsertAgent(harness, entry); err != nil {
-		return nil, err
-	}
-	return ReconcileManagedPrompts(entry.Directory, old, entry.ManagedPrompts)
-}
