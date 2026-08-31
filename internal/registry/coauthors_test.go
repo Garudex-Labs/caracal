@@ -61,8 +61,6 @@ func TestListCoAuthorsRendersUsers(t *testing.T) {
 func TestListCoAuthors404UsesEntityLabel(t *testing.T) {
 	cases := []struct{ prefix, label string }{
 		{"mcps", "Mcp not found"},
-		// The label derivation trims one trailing s; "Sandboxe" is contract.
-		{"sandboxes", "Sandboxe not found"},
 	}
 	for _, tc := range cases {
 		rec := serveRegistry(t, &fakeDB{}, http.MethodGet,

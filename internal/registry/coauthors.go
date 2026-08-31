@@ -13,7 +13,7 @@ import (
 )
 
 // entityLabel is the 404 subject derived from the plural route segment; the
-// derivation is part of the wire contract ("sandboxes" reads "Sandboxe").
+// derivation is part of the wire contract ("prompts" reads "Prompt").
 func entityLabel(f Family) string {
 	trimmed := strings.TrimSuffix(f.Prefix, "s")
 	return strings.ToUpper(trimmed[:1]) + trimmed[1:]

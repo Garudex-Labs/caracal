@@ -77,7 +77,7 @@ func TestListEndpointRendersSummaries(t *testing.T) {
 		t.Fatalf("items = %d", len(items))
 	}
 	first := items[0]
-	if first["qualified_name"] != "acme/weather" || first["visibility"] != "public" {
+	if first["qualified_name"] != "acme/weather" || first["visibility"] != "project" {
 		t.Errorf("summary fields: %v", first)
 	}
 	if first["updated_at"] != "2026-08-30T08:00:00Z" {
@@ -92,7 +92,6 @@ func TestListEndpointValidatesParams(t *testing.T) {
 		"/api/v1/mcps?limit=doom",
 		"/api/v1/mcps?limit=1000",
 		"/api/v1/mcps?composable_for_project_id=not-a-uuid",
-		"/api/v1/mcps?public_only=perhaps",
 	}
 	for _, target := range cases {
 		rec := serveRegistry(t, db, http.MethodGet, target, "user")

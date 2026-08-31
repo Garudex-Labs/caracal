@@ -26,11 +26,8 @@ var reviewDetailFields = map[string][]string{
 	"hooks": {"git_url", "git_ref", "event", "execution_mode", "priority", "handler_type",
 		"handler_config", "input_schema", "output_schema", "scope", "tool_filter", "file_pattern",
 		"supported_harnesses", "rejection_reason", "bundle_id"},
-	"prompts": {"git_url", "git_ref", "category", "template", "variables", "model_hints", "tags",
+	"prompts": {"git_url", "git_ref", "category", "template", "variables", "tags",
 		"supported_harnesses", "rejection_reason", "bundle_id"},
-	"sandboxes": {"git_url", "git_ref", "runtime_type", "image", "dockerfile_url", "resource_limits",
-		"network_policy", "allowed_mounts", "env_vars", "entrypoint", "supported_harnesses",
-		"rejection_reason", "bundle_id"},
 }
 
 // safeSerialize mirrors the incumbent's ad-hoc value coercion.

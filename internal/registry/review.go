@@ -17,7 +17,7 @@ import (
 
 // reviewFamilies iterates the component families in the canonical order the
 // incumbent's model map declared.
-var reviewFamilies = []string{"mcps", "skills", "hooks", "prompts", "sandboxes"}
+var reviewFamilies = []string{"mcps", "skills", "hooks", "prompts"}
 
 const reviewEditLockTTL = 30 * time.Minute
 
