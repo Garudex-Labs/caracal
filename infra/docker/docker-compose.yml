@@ -38,6 +38,9 @@ services:
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost}
       - AUTH_TRUSTED_ORIGINS=${AUTH_TRUSTED_ORIGINS:-http://localhost,http://localhost:8000}
+      # Set to the org-subdomain base (e.g. .caracal.run, or .localhost in dev)
+      # so the session cookie spans {org}.{base}; empty keeps cookies host-only.
+      - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:-}
       - AUTH_INTERNAL_SECRET=${AUTH_INTERNAL_SECRET:?set AUTH_INTERNAL_SECRET in .env}
       - AUTH_DEV_LOGIN=${AUTH_DEV_LOGIN:-0}
       - CARACAL_OPERATOR_EMAILS=${CARACAL_OPERATOR_EMAILS:-rawx18.dev@gmail.com}
