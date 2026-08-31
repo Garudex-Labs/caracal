@@ -8,7 +8,6 @@ export const COMPONENT_TYPES: { value: RegistryType; label: string; singular: st
   { value: "skills", label: "Skills", singular: "Skill" },
   { value: "hooks", label: "Hooks", singular: "Hook" },
   { value: "prompts", label: "Prompts", singular: "Prompt" },
-  { value: "sandboxes", label: "Sandboxes", singular: "Sandbox" },
 ];
 
 export const TYPE_MAP: Record<string, string> = {
@@ -16,7 +15,6 @@ export const TYPE_MAP: Record<string, string> = {
   skills: "skill",
   hooks: "hook",
   prompts: "prompt",
-  sandboxes: "sandbox",
 };
 
 export const REVERSE_TYPE_MAP: Record<string, RegistryType> = {
@@ -24,5 +22,4 @@ export const REVERSE_TYPE_MAP: Record<string, RegistryType> = {
   skill: "skills",
   hook: "hooks",
   prompt: "prompts",
-  sandbox: "sandboxes",
 };

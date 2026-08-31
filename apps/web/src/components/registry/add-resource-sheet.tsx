@@ -36,7 +36,6 @@ const RESOURCE_TYPE_OPTIONS: { value: string; label: string }[] = [
 	{ value: "skills", label: "Skill" },
 	{ value: "hooks", label: "Hook" },
 	{ value: "prompts", label: "Prompt" },
-	{ value: "sandboxes", label: "Sandbox" },
 ];
 
 const AGENT_CATEGORIES = [
@@ -92,12 +91,11 @@ function AgentQuickCreate({
 	const [prompt, setPrompt] = useState("");
 	const [category, setCategory] = useState("");
 	const [version, setVersion] = useState("1.0.0");
-	const [visibility, setVisibility] = useState<"public" | "team" | "private">("public");
+	const [visibility, setVisibility] = useState<"project" | "private">("project");
 	const [pending, setPending] = useState(false);
 
 	const visibilityOptions = [
-		{ value: "public", label: "Public" },
-		{ value: "team", label: "Project members" },
+		{ value: "project", label: "Project (shared with your project team)" },
 		{ value: "private", label: "Private (only you)" },
 	];
 
@@ -211,7 +209,7 @@ function AgentQuickCreate({
 						<Label>Visibility</Label>
 						<PickerSelect
 							value={visibility}
-							onValueChange={(value) => setVisibility(value as "public" | "team" | "private")}
+							onValueChange={(value) => setVisibility(value as "project" | "private")}
 							options={visibilityOptions}
 							ariaLabel="Visibility"
 						/>

@@ -28,7 +28,6 @@ const TYPE_LABELS: Record<string, string> = {
   skills: "Skill",
   hooks: "Hook",
   prompts: "Prompt",
-  sandboxes: "Sandbox",
 };
 
 export function ComponentCard({

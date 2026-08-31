@@ -28,6 +28,11 @@ import { useWhoami } from "@/hooks/use-api";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { parseMcpConfigJson, applyParsedConfig } from "@/lib/mcp-parser";
 import type { EnvVar } from "@/lib/mcp-parser";
+import {
+	PROMPT_CATEGORIES,
+	PROMPT_CATEGORY_CUSTOM,
+	normalizePromptCategory,
+} from "@/lib/prompt-category";
 import { useHelp } from "@/components/help/help-context";
 
 export const MCP_CATEGORIES = [
@@ -105,24 +110,10 @@ const HOOK_HANDLER_TYPES = ["command", "http"];
 const HOOK_EXECUTION_MODES = ["async", "sync", "blocking"];
 export const HOOK_SCOPES = ["agent", "session", "global"];
 
-export const PROMPT_CATEGORIES = [
-	"system-prompt",
-	"code-review",
-	"code-generation",
-	"testing",
-	"documentation",
-	"debugging",
-	"general",
-];
-
-export const SANDBOX_RUNTIME_TYPES = ["docker", "lxc", "firecracker", "wasm"];
-const SANDBOX_NETWORK_POLICIES = ["none", "host", "bridge", "restricted"];
-
 const COMPONENT_HELP_DOCS = {
 	mcps: { file: "registry-mcp-helper.md", label: "MCP helper" },
 	skills: { file: "registry-skill-helper.md", label: "Skill helper" },
 	hooks: { file: "registry-hook-helper.md", label: "Hook helper" },
-	sandboxes: { file: "registry-sandbox-helper.md", label: "Sandbox helper" },
 	prompts: { file: "cli/prompt.md", label: "Prompt helper" },
 	agents: { file: "core-concepts/README.md", label: "Agent helper" },
 } as const;
@@ -137,7 +128,7 @@ interface SubmitComponentDialogProps {
 	isSubmitting: boolean;
 	isSavingDraft: boolean;
 	editItem?: Record<string, unknown> | null;
-	fixedVisibility?: "public" | "team";
+	fixedVisibility?: "project" | "private";
 	/** Render as a centered dialog (default) or a fixed right-side drawer. */
 	container?: "dialog" | "sheet";
 	/** Extra content under the title - e.g. a resource-type selector. */
@@ -175,12 +166,11 @@ export function SubmitComponentDialog({
 		(d?.description as string) ?? "",
 	);
 	const owner = defaultOwner;
-	const [visibility, setVisibility] = useState<"public" | "team" | "private">(
-		(d?.visibility as "public" | "team" | "private") ?? "public",
+	const [visibility, setVisibility] = useState<"project" | "private">(
+		d?.visibility === "private" ? "private" : "project",
 	);
 	const visibilityOptions = [
-		{ value: "public", label: "Public" },
-		{ value: "team", label: "Project members" },
+		{ value: "project", label: "Project (shared with your project team)" },
 		{ value: "private", label: "Private (only you)" },
 	];
 
@@ -322,29 +312,20 @@ export function SubmitComponentDialog({
 	);
 
 	// ── Prompt ──────────────────────────────────────────────
+	const initialPromptCategory =
+		type === "prompts" ? ((d?.category as string) ?? "general") : "general";
+	const initialPromptCategoryIsCustom =
+		initialPromptCategory !== "" &&
+		!(PROMPT_CATEGORIES as readonly string[]).includes(initialPromptCategory);
 	const [promptCategory, setPromptCategory] = useState(
-		type === "prompts" ? ((d?.category as string) ?? "general") : "general",
+		initialPromptCategoryIsCustom
+			? PROMPT_CATEGORY_CUSTOM
+			: initialPromptCategory,
+	);
+	const [customPromptCategory, setCustomPromptCategory] = useState(
+		initialPromptCategoryIsCustom ? initialPromptCategory : "",
 	);
 	const [template, setTemplate] = useState((d?.template as string) ?? "");
-
-	// ── Sandbox ─────────────────────────────────────────────
-	const [runtimeType, setRuntimeType] = useState(
-		(d?.runtime_type as string) ?? "docker",
-	);
-	const [image, setImage] = useState((d?.image as string) ?? "");
-	const [networkPolicy, setNetworkPolicy] = useState(
-		(d?.network_policy as string) ?? "none",
-	);
-	const [entrypoint, setEntrypoint] = useState((d?.entrypoint as string) ?? "");
-	const [sandboxResourceLimits, setSandboxResourceLimits] = useState(
-		d?.resource_limits && typeof d.resource_limits === "object" ? JSON.stringify(d.resource_limits, null, 2) : "{}",
-	);
-	const [sandboxRuntimeConfig, setSandboxRuntimeConfig] = useState(
-		d?.runtime_config && typeof d.runtime_config === "object" ? JSON.stringify(d.runtime_config, null, 2) : "{}",
-	);
-	const [sandboxSourceUrl, setSandboxSourceUrl] = useState((d?.source_url as string) ?? "");
-	const [sandboxSourceRef, setSandboxSourceRef] = useState((d?.source_ref as string) ?? "");
-	const [sandboxPath, setSandboxPath] = useState((d?.sandbox_path as string) ?? "");
 
 	function bumpPatchVersion(ver: string): string {
 		const parts = ver.split(".");
@@ -409,7 +390,7 @@ export function SubmitComponentDialog({
 		setDescription("");
 		// The publication target has to reset with everything else, or the next
 		// submission silently inherits the previous visibility.
-		setVisibility("public");
+		setVisibility("project");
 		setSupportedHarnesses([]);
 		setMcpMode("json");
 		setJsonInput("");
@@ -441,16 +422,8 @@ export function SubmitComponentDialog({
 		setHookScope("agent");
 		setHandlerConfig("");
 		setPromptCategory("general");
+		setCustomPromptCategory("");
 		setTemplate("");
-		setRuntimeType("docker");
-		setImage("");
-		setNetworkPolicy("none");
-		setEntrypoint("");
-		setSandboxResourceLimits("{}");
-		setSandboxRuntimeConfig("{}");
-		setSandboxSourceUrl("");
-		setSandboxSourceRef("");
-		setSandboxPath("");
 	}
 
 	const isEditMode = !!editItem;
@@ -523,26 +496,12 @@ export function SubmitComponentDialog({
 				}
 				return body;
 			}
-			case "prompts":
-				return { ...base, category: promptCategory, template };
-			case "sandboxes": {
-				const body: Record<string, unknown> = {
-					...base,
-					runtime_type: runtimeType,
-					image,
-					network_policy: networkPolicy,
-					entrypoint: entrypoint || undefined,
-				};
-				try {
-					body.resource_limits = JSON.parse(sandboxResourceLimits || "{}");
-					body.runtime_config = JSON.parse(sandboxRuntimeConfig || "{}");
-				} catch {
-					/* validation below reports JSON errors */
-				}
-				if (sandboxSourceUrl) body.source_url = sandboxSourceUrl;
-				if (sandboxSourceRef) body.source_ref = sandboxSourceRef;
-				if (sandboxPath) body.sandbox_path = sandboxPath;
-				return body;
+			case "prompts": {
+				const category =
+					promptCategory === PROMPT_CATEGORY_CUSTOM
+						? normalizePromptCategory(customPromptCategory)
+						: promptCategory;
+				return { ...base, category, template };
 			}
 			default:
 				return base;
@@ -570,15 +529,16 @@ export function SubmitComponentDialog({
 		if (type === "prompts" && !template) {
 			return "Template is required";
 		}
-		if (type === "sandboxes" && !image) {
-			return "Image is required";
+		if (type === "hooks") {
+			const unsupported = supportedHarnesses.filter((h) => !harnessSupportsHooks(h));
+			if (unsupported.length > 0) {
+				return `These harnesses do not support hooks: ${unsupported.join(", ")}. Remove them before submitting.`;
+			}
 		}
-		if (type === "sandboxes") {
-			try {
-				JSON.parse(sandboxResourceLimits || "{}");
-				JSON.parse(sandboxRuntimeConfig || "{}");
-			} catch {
-				return "Sandbox resource limits and runtime config must be valid JSON";
+		if (type === "skills") {
+			const unsupported = supportedHarnesses.filter((h) => !harnessSupportsSkills(h));
+			if (unsupported.length > 0) {
+				return `These harnesses do not support skills: ${unsupported.join(", ")}. Remove them before submitting.`;
 			}
 		}
 		return null;
@@ -622,7 +582,29 @@ export function SubmitComponentDialog({
 		setEnvVars((prev) => prev.filter((_, i) => i !== index));
 	}
 
+	function harnessSupportsHooks(name: string): boolean {
+		const entry = (harnessList ?? []).find((x) => x.name === name);
+		return entry?.hook_support === "native" || entry?.hook_support === "compatible";
+	}
+
+	function harnessSupportsSkills(name: string): boolean {
+		const entry = (harnessList ?? []).find((x) => x.name === name);
+		return entry?.skill_support === "native";
+	}
+
+	// A harness may be unable to consume the component type being submitted.
+	// Its button is disabled and submission is blocked so we never advertise a
+	// resource that the harness would silently drop.
+	function harnessUnsupportedForType(name: string): boolean {
+		if (type === "hooks") return !harnessSupportsHooks(name);
+		if (type === "skills") return !harnessSupportsSkills(name);
+		return false;
+	}
+
 	function toggleHarness(harness: string) {
+		// A harness that cannot consume this component type is disabled in the UI;
+		// this guards programmatic toggles too.
+		if (harnessUnsupportedForType(harness)) return;
 		setSupportedHarnesses((prev) =>
 			prev.includes(harness) ? prev.filter((item) => item !== harness) : [...prev, harness],
 		);
@@ -632,9 +614,7 @@ export function SubmitComponentDialog({
 	const typeLabel =
 		type === "mcps"
 			? "MCP Server"
-			: type === "sandboxes"
-				? "Sandbox"
-				: type.charAt(0).toUpperCase() + type.slice(1, -1);
+			: type.charAt(0).toUpperCase() + type.slice(1, -1);
 
 	const submitError = validateForSubmit();
 	const jsonExample = mcpExampleConfig(isEditMode, name);
@@ -720,13 +700,13 @@ export function SubmitComponentDialog({
 							value={fixedVisibility ?? visibility}
 							disabled={fixedVisibility !== undefined}
 							onValueChange={(value) => {
-								setVisibility(value as "public" | "team" | "private");
+								setVisibility(value as "project" | "private");
 							}}
 							options={visibilityOptions}
 						/>
 					</div>
 					<p className="text-xs text-muted-foreground">
-						Public items are visible to everyone. Project items are limited to members of your active project. Private items stay yours alone, inside your active project.
+						Project items are shared with members of your active project. Private items stay yours alone, inside your active project.
 					</p>
 
 					{/* ── MCP-specific ──────────────────────────────── */}
@@ -1197,8 +1177,45 @@ export function SubmitComponentDialog({
 								<PickerSelect
 									value={promptCategory}
 									onValueChange={setPromptCategory}
-									options={PROMPT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+									options={[
+										...PROMPT_CATEGORIES.map((c) => ({ value: c, label: c })),
+										{ value: PROMPT_CATEGORY_CUSTOM, label: "Custom…" },
+									]}
 								/>
+								{promptCategory === PROMPT_CATEGORY_CUSTOM && (
+									<div className="space-y-1">
+										<Input
+											value={customPromptCategory}
+											onChange={(e) => setCustomPromptCategory(e.target.value)}
+											placeholder="my-custom-category"
+											aria-label="Custom category"
+										/>
+										<p className="text-xs text-muted-foreground">
+											{(() => {
+												if (customPromptCategory.trim() === "")
+													return "Lowercase letters, digits, and hyphens; max 32 characters.";
+												const slug = normalizePromptCategory(customPromptCategory);
+												if (slug === "")
+													return (
+														<span className="text-destructive">
+															Not a valid category.
+														</span>
+													);
+												if (slug.length > 32)
+													return (
+														<span className="text-destructive">
+															Too long (max 32 characters).
+														</span>
+													);
+												return (
+													<>
+														Stored as <code>{slug}</code>.
+													</>
+												);
+											})()}
+										</p>
+									</div>
+								)}
 							</div>
 							<div className="space-y-1.5">
 								<Label htmlFor="prompt-template">Template *</Label>
@@ -1216,98 +1233,48 @@ export function SubmitComponentDialog({
 						</>
 					)}
 
-					{/* ── Sandbox-specific ──────────────────────────── */}
-					{type === "sandboxes" && (
-						<>
-							<div className="grid grid-cols-2 gap-3">
-								<div className="space-y-1.5">
-									<Label>Runtime Type</Label>
-									<PickerSelect
-										value={runtimeType}
-										onValueChange={setRuntimeType}
-										options={SANDBOX_RUNTIME_TYPES.map((r) => ({ value: r, label: r }))}
-									/>
-								</div>
-								<div className="space-y-1.5">
-									<Label>Network Policy</Label>
-									<PickerSelect
-										value={networkPolicy}
-										onValueChange={setNetworkPolicy}
-										options={SANDBOX_NETWORK_POLICIES.map((p) => ({ value: p, label: p }))}
-									/>
-								</div>
-							</div>
-							<div className="grid grid-cols-2 gap-3">
-								<div className="space-y-1.5">
-									<Label htmlFor="sandbox-image">Image / Artifact Ref *</Label>
-									<Input
-										id="sandbox-image"
-										value={image}
-										onChange={(e) => setImage(e.target.value)}
-										placeholder="ubuntu:22.04"
-									/>
-								</div>
-								<div className="space-y-1.5">
-									<Label htmlFor="sandbox-entry">Entrypoint</Label>
-									<Input
-										id="sandbox-entry"
-										value={entrypoint}
-										onChange={(e) => setEntrypoint(e.target.value)}
-										placeholder="/bin/bash"
-									/>
-								</div>
-							</div>
-							<div className="grid grid-cols-2 gap-3">
-								<div className="space-y-1.5">
-									<Label htmlFor="sandbox-limits">Resource Limits JSON</Label>
-									<CodeEditor
-										id="sandbox-limits"
-										value={sandboxResourceLimits}
-										onChange={setSandboxResourceLimits}
-										language="json"
-										minHeightClassName="min-h-28 [&_.cm-editor]:min-h-28 [&_.cm-scroller]:min-h-28"
-										placeholder='{"timeout": 60, "memory_mb": 512}'
-									/>
-								</div>
-								<div className="space-y-1.5">
-									<Label htmlFor="sandbox-runtime-config">Runtime Config JSON</Label>
-									<CodeEditor
-										id="sandbox-runtime-config"
-										value={sandboxRuntimeConfig}
-										onChange={setSandboxRuntimeConfig}
-										language="json"
-										minHeightClassName="min-h-28 [&_.cm-editor]:min-h-28 [&_.cm-scroller]:min-h-28"
-										placeholder='{"module": "runner.wasm"}'
-									/>
-								</div>
-							</div>
-							<div className="grid grid-cols-3 gap-3">
-								<Input value={sandboxSourceUrl} onChange={(e) => setSandboxSourceUrl(e.target.value)} placeholder="Source URL" />
-								<Input value={sandboxSourceRef} onChange={(e) => setSandboxSourceRef(e.target.value)} placeholder="Source ref" />
-								<Input value={sandboxPath} onChange={(e) => setSandboxPath(e.target.value)} placeholder="Sandbox path" />
-							</div>
-						</>
-					)}
-
-					{/* ── Supported harnesses (all types) ────────────────── */}
+					{/* Supported harnesses (all types) */}
 					<div className="space-y-1.5">
 						<Label>Supported harnesses</Label>
 						<div className="flex flex-wrap gap-1.5">
-							{(harnessList ?? []).map((harness) => (
-								<button
-									key={harness.name}
-									type="button"
-									onClick={() => toggleHarness(harness.name)}
-									className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-										supportedHarnesses.includes(harness.name)
-											? "bg-primary text-primary-foreground"
-											: "bg-muted/50 text-muted-foreground hover:bg-muted"
-									}`}
-								>
-									{harness.display_name}
-								</button>
-							))}
+							{(harnessList ?? []).map((harness) => {
+								const unsupported = harnessUnsupportedForType(harness.name);
+								const selected = supportedHarnesses.includes(harness.name);
+								return (
+									<button
+										key={harness.name}
+										type="button"
+										disabled={unsupported}
+										aria-disabled={unsupported}
+										onClick={() => toggleHarness(harness.name)}
+										title={
+											unsupported
+												? "Not supported for this resource"
+												: undefined
+										}
+										className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+											unsupported
+												? "cursor-not-allowed border border-destructive/50 bg-destructive/10 text-destructive"
+												: selected
+													? "bg-primary text-primary-foreground"
+													: "bg-muted/50 text-muted-foreground hover:bg-muted"
+										}`}
+									>
+										{harness.display_name}
+										{unsupported && (
+											<span className="ml-1 opacity-90">
+												· Not supported for this resource
+											</span>
+										)}
+									</button>
+								);
+							})}
 						</div>
+						{(type === "hooks" || type === "skills") && (
+							<p className="text-xs text-muted-foreground">
+								Harnesses shown in red cannot run a {type === "hooks" ? "hook" : "skill"} and are disabled.
+							</p>
+						)}
 					</div>
 
 					{/* ── Actions ───────────────────────────────────── */}

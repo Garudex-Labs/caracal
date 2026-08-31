@@ -27,7 +27,7 @@ export interface CoAuthor {
 }
 
 interface CoAuthorInputProps {
-	/** Entity type: "agents" | "mcps" | "hooks" | "sandboxes" | "prompts" */
+	/** Entity type: "agents" | "mcps" | "hooks" | "prompts" */
 	entityType: string;
 	/** UUID of the entity */
 	entityId: string;

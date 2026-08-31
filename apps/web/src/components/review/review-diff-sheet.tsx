@@ -96,7 +96,6 @@ const TYPE_MAP: Record<string, string> = {
 	skill: "skills",
 	hook: "hooks",
 	prompt: "prompts",
-	sandbox: "sandboxes",
 };
 
 function LinkedComponentDetail({

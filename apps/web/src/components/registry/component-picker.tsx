@@ -15,22 +15,14 @@ export function ComponentPicker({
   selected,
   onToggle,
   onCreateNew,
-  publicOnly = true,
 }: {
   type: RegistryType;
   label?: string;
   selected: Set<string>;
   onToggle: (item: RegistryItem) => void;
   onCreateNew?: () => void;
-  /** Public agents compose only public components; project-shared ones also see shared items. */
-  publicOnly?: boolean;
 }) {
-  const { data: items, isLoading } = useRegistryList(
-    type,
-    // Composition scope, not ownership: a project-shared agent may contain any
-    // public component plus its project's shared ones (validated on submit).
-    publicOnly ? { public_only: "true" } : {},
-  );
+  const { data: items, isLoading } = useRegistryList(type, {});
   const [search, setSearch] = useState("");
   const searchLabel = label ?? type;
 
@@ -96,7 +88,7 @@ export function ComponentPicker({
                   <span className="block truncate font-medium">{item.name}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">
                     {item.qualified_name ?? item.name}
-                    {item.visibility === "team" ? " · project" : item.visibility === "private" ? " · private" : " · public"}
+                    {item.visibility === "private" ? " · private" : " · project"}
                   </span>
                   {item.description && (
                     <span className="block truncate text-xs text-muted-foreground">
