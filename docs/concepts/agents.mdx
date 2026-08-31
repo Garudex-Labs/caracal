@@ -16,7 +16,6 @@ The **agent** is Caracal's primary entity: a complete, installable AI agent defi
 | **Skill** | A portable instruction package the agent loads on demand | A `SKILL.md` directory in the harness's skills path |
 | **Hook** | A lifecycle callback that fires on session events (session start, tool use, stop, ...) | A command, HTTP, or plugin entry in the harness's hook config |
 | **Prompt** | A named, parameterized prompt template with variable substitution | A prompt file, on harnesses that support prompts |
-| **Sandbox** | A Docker execution environment for agent-generated code | Wiring for `caracal-sandbox-run` in the harness config |
 
 Anyone can publish any of these. Review controls what appears in the public listing, but your own submissions are usable by you immediately. See [Registry, identity, and review](/concepts/registry).
 
@@ -36,7 +35,6 @@ components:
   hooks:
     - richard/pretooluse-logger
   prompts: []
-  sandboxes: []
 ```
 
 Two ways to author one:

@@ -10,7 +10,7 @@ Caracal is a self-hosted platform for organizations standardizing how developers
 
 The current product solves two concrete problems:
 
-1. **Distribution.** Agent configurations - MCP servers, skills, hooks, prompts, sandboxes - live in per-tool config files with incompatible formats. Sharing a working setup means copy-pasting JSON between `~/.claude/`, `.kiro/`, `.cursor/`, and half a dozen other directories.
+1. **Distribution.** Agent configurations - MCP servers, skills, hooks, prompts - live in per-tool config files with incompatible formats. Sharing a working setup means copy-pasting JSON between `~/.claude/`, `.kiro/`, `.cursor/`, and half a dozen other directories.
 2. **Visibility.** Coding agents leave their history in local transcript files. Nobody can answer "which agents does this Organization actually use," "what did that failed session do," or "which MCP server is called most" without collecting those transcripts somewhere.
 
 Caracal addresses both with a server you run on your own infrastructure and a CLI installed on each developer machine. The long-term direction is policy-aware access, scoped credentials, runtime enforcement, and evaluation loops for safer AI-assisted development; those are documented as roadmap work until the implementation supports them.
@@ -19,7 +19,7 @@ Caracal addresses both with a server you run on your own infrastructure and a CL
 
 Three ideas carry the whole system:
 
-**Resources are the managed objects.** The registry stores Agents plus component Resources: MCP servers, Skills, Hooks, Prompts, and Sandboxes. Each Resource has `namespace/slug` identity, versions, visibility, review status, lifecycle activity, and ownership metadata.
+**Resources are the managed objects.** The registry stores Agents plus component Resources: MCP servers, Skills, Hooks, and Prompts. Each Resource has `namespace/slug` identity, versions, visibility, review status, lifecycle activity, and ownership metadata.
 
 **Agents are the unit of distribution.** An Agent is a versioned bundle of component references plus prompt/model metadata and generated harness configs. `caracal agent pull <agent>` resolves the bundle and writes native config files for whichever coding tool you use. One definition, capability-specific install targets.
 

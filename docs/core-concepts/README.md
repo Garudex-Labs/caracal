@@ -15,12 +15,11 @@ Six component types are available. Agents bundle the other five.
 
 | Type | What it is |
 | --- | --- |
-| **Agent** | A complete, installable AI agent. Bundles MCP servers, skills, hooks, prompts, and sandboxes into one YAML. |
+| **Agent** | A complete, installable AI agent. Bundles MCP servers, skills, hooks, and prompts into one YAML. |
 | **MCP Server** | A [Model Context Protocol](https://modelcontextprotocol.io/) server, the tools an agent can call. |
 | **Skill** | A portable instruction package agents load on demand. |
 | **Hook** | A lifecycle callback that runs on session start, tool use, session end, and other supported events. |
 | **Prompt** | A named, parameterized prompt template with variable substitution. |
-| **Sandbox** | A Docker execution environment for running code the agent generates. |
 
 Anyone can publish. Admin review controls what appears in the public listing, but your own items are usable immediately without approval.
 

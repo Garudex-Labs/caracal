@@ -15,7 +15,7 @@ Caracal runs two DBs with very different jobs.
 ### What's in it
 
 * `users`, `roles`, RBAC bindings
-* `mcps`, `agents`, `skills`, `hooks`, `prompts`, `sandboxes`: registry metadata
+* `mcps`, `agents`, `skills`, `hooks`, `prompts`: registry metadata
 * `reviews`: submission review state
 * `alerts`, `alert_history`
 * `audit_log` and related audit tables

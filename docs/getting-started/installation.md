@@ -69,9 +69,6 @@ One binary lands on your `PATH`:
 | Command                | Purpose                                              |
 | ---------------------- | ---------------------------------------------------- |
 | `caracal`             | The main CLI                                         |
-| `caracal sandbox run` | Sandbox runner invoked by Caracal sandboxes           |
-
-You will almost never call the sandbox runner directly. The CLI wires it into your harness config for you.
 
 ## Upgrade
 

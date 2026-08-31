@@ -24,7 +24,7 @@ Base path: `/api/v1`.
 
 ## Registry
 
-Per type: `mcps`, `agents`, `skills`, `hooks`, `prompts`, `sandboxes`.
+Per type: `mcps`, `agents`, `skills`, `hooks`, `prompts`.
 
 All `{id}` parameters accept a UUID or a name.
 

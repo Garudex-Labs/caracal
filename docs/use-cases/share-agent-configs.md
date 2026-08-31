@@ -15,7 +15,6 @@ Every Agent is a YAML file that bundles:
 * Skills to load
 * Hooks to wire into the session lifecycle
 * Prompts (with variables)
-* Sandboxes for code execution
 
 When someone runs `caracal agent pull <agent>`, Caracal resolves a version and writes the right native files for that harness: agent profile files, MCP config, Skills, Hooks, Prompts, and local lockfile entries where the harness supports them.
 

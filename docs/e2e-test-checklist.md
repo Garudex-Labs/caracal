@@ -54,10 +54,8 @@
 ### Via CLI
 - [ ] Log in as User A via CLI (`caracal auth login`)
 - [ ] Create Prompt as draft via CLI, verify it appears in drafts
-- [ ] Create Sandbox as draft via CLI, verify it appears in drafts
 - [ ] Create Hook as draft via CLI, verify it appears in drafts
 - [ ] Submit Prompt draft for review via CLI
-- [ ] Submit Sandbox draft for review via CLI
 - [ ] Submit Hook draft for review via CLI
 
 ## 4. Reviewer A - Review Components via CLI
