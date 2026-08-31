@@ -137,9 +137,9 @@ func (h *Handler) createOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.emitOrgEvent(r.Context(), "org.created", userID, org, fmt.Sprintf("Created organization '%s'", org.Slug))
-	role, one, zero := "owner", 1, 0
+	role, one := "owner", 1
 	resp := orgWire(org, &role, &one, &one)
-	defWire := projectWire(def, role, nil, &zero)
+	defWire := projectWire(def, role, def.Role, &one)
 	resp.DefaultProject = &defWire
 	httpapi.WriteJSON(w, http.StatusCreated, resp)
 }

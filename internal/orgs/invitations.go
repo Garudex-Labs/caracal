@@ -152,12 +152,39 @@ func (s *Store) ReissueInvitation(ctx context.Context, inv *Invitation, role, to
 	return err
 }
 
-// ListInvitations returns every invitation for an organization, newest first,
-// with the inviter's username when the account still exists.
-func (s *Store) ListInvitations(ctx context.Context, orgID uuid.UUID) ([]*Invitation, map[uuid.UUID]string, error) {
+// InvitationListQuery carries validated filters for the organization invitation list.
+type InvitationListQuery struct {
+	Q     string
+	Role  string
+	State string
+}
+
+// ListInvitations returns invitations for an organization, newest first, with
+// the inviter's username when the account still exists.
+func (s *Store) ListInvitations(ctx context.Context, orgID uuid.UUID, q InvitationListQuery) ([]*Invitation, map[uuid.UUID]string, error) {
+	where := []string{"organization_id = $1"}
+	args := []any{orgID}
+	if q.Q != "" {
+		args = append(args, likePattern(q.Q))
+		where = append(where, fmt.Sprintf("email ILIKE $%d", len(args)))
+	}
+	if q.Role != "" {
+		args = append(args, q.Role)
+		where = append(where, fmt.Sprintf("role = $%d::organization_role", len(args)))
+	}
+	switch q.State {
+	case "pending":
+		where = append(where, "accepted_at IS NULL", "revoked_at IS NULL", "expires_at > now()")
+	case "accepted":
+		where = append(where, "accepted_at IS NOT NULL")
+	case "revoked":
+		where = append(where, "accepted_at IS NULL", "revoked_at IS NOT NULL")
+	case "expired":
+		where = append(where, "accepted_at IS NULL", "revoked_at IS NULL", "expires_at <= now()")
+	}
 	rows, err := s.DB.Query(ctx,
 		`SELECT `+invitationColumns+` FROM org_invitations
-		 WHERE organization_id = $1 ORDER BY created_at DESC`, orgID)
+		 WHERE `+strings.Join(where, " AND ")+` ORDER BY created_at DESC`, args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -332,6 +359,21 @@ func (s *Store) AcceptInvitation(ctx context.Context, tx TxBeginner, inv *Invita
 		uuid.New(), inv.OrganizationID, userID, inv.Role); err != nil {
 		return err
 	}
+	var orgRole string
+	if err := t.QueryRow(ctx,
+		`SELECT role FROM organization_memberships WHERE organization_id = $1 AND user_id = $2`,
+		inv.OrganizationID, userID).Scan(&orgRole); err != nil {
+		return err
+	}
+	if _, err := t.Exec(ctx,
+		`INSERT INTO project_memberships (id, project_id, organization_id, user_id, role, created_at)
+		 SELECT $1, p.id, p.organization_id, $2, $3::project_role, now()
+		 FROM projects p
+		 WHERE p.organization_id = $4 AND p.is_default
+		 ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+		uuid.New(), userID, defaultProjectMemberRole(orgRole), inv.OrganizationID); err != nil {
+		return err
+	}
 	if _, err := t.Exec(ctx,
 		`UPDATE org_invitations SET accepted_at = now(), accepted_by = $2 WHERE id = $1`,
 		inv.ID, userID); err != nil {
@@ -478,7 +520,11 @@ func (h *Handler) listInvitations(w http.ResponseWriter, r *http.Request) {
 	if !ok || !requireOrgPermission(w, org, tenancy.PermissionOrgMembersManage) {
 		return
 	}
-	invs, inviters, err := h.Store.ListInvitations(r.Context(), org.ID)
+	query, ok := parseInvitationListQuery(w, r)
+	if !ok {
+		return
+	}
+	invs, inviters, err := h.Store.ListInvitations(r.Context(), org.ID, query)
 	if err != nil {
 		writeErr(w, r, err)
 		return

@@ -114,12 +114,12 @@ func TestOrgMembersSearchAndFiltersShapeTheQuery(t *testing.T) {
 		{match: "SELECT count(*) FROM users u JOIN organization_memberships", rows: &fakeRows{rows: [][]any{{0}}}},
 	}}
 	rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet,
-		"/api/v1/orgs/acme/members?q=ri%25ch&role=admin&sort=joined&dir=desc&page=3&page_size=10", "")
+		"/api/v1/orgs/acme/members?q=ri%25ch&role=admin&project=app&project_role=lead&sort=joined&dir=desc&page=3&page_size=10", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 	listSQL := db.log[len(db.log)-1]
-	for _, want := range []string{"u.email ILIKE", "m.role = $", "ORDER BY m.created_at DESC, u.id ASC"} {
+	for _, want := range []string{"u.email ILIKE", "m.role = $", "fp.slug = $", "fpm.role = $", "ORDER BY m.created_at DESC, u.id ASC"} {
 		if !strings.Contains(listSQL, want) {
 			t.Errorf("missing %q in:\n%s", want, listSQL)
 		}
@@ -135,6 +135,8 @@ func TestOrgMembersRejectsInvalidListControls(t *testing.T) {
 		"/api/v1/orgs/acme/members?sort=password",
 		"/api/v1/orgs/acme/members?dir=sideways",
 		"/api/v1/orgs/acme/members?role=root",
+		"/api/v1/orgs/acme/members?project=bad%20project",
+		"/api/v1/orgs/acme/members?project_role=owner",
 		"/api/v1/orgs/acme/members?page=0",
 		"/api/v1/orgs/acme/members?page_size=100000",
 	} {
@@ -194,6 +196,40 @@ func TestMemberProjectsListsAccess(t *testing.T) {
 	if out[0]["slug"] != "app" || out[0]["role"] != "lead" {
 		t.Errorf("member project wire: %v", out[0])
 	}
+	perms, _ := out[0]["permissions"].([]any)
+	if out[0]["access_source"] != "project" || len(perms) == 0 {
+		t.Errorf("member effective access missing: %v", out[0])
+	}
+}
+
+func TestMemberProjectsListsInheritedAdminAccess(t *testing.T) {
+	db := &fakeDB{stubs: []stub{
+		orgStub("admin"),
+		{match: "SELECT role FROM organization_memberships", rows: &fakeRows{rows: [][]any{{"admin"}}}},
+		{match: "FROM projects p", rows: &fakeRows{rows: [][]any{
+			{projID.String(), "app", "App", true, nil, orgTime},
+		}}},
+	}}
+	rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet,
+		"/api/v1/orgs/acme/members/"+targetID.String()+"/projects", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out) != 1 {
+		t.Fatalf("body: %v\n%s", err, rec.Body.String())
+	}
+	if out[0]["role"] != "lead" || out[0]["assigned_role"] != nil || out[0]["access_source"] != "organization" {
+		t.Errorf("inherited project wire: %v", out[0])
+	}
+	perms, _ := out[0]["permissions"].([]any)
+	foundManage := false
+	for _, perm := range perms {
+		foundManage = foundManage || perm == "project.members.manage"
+	}
+	if !foundManage {
+		t.Errorf("inherited permissions = %v", perms)
+	}
 }
 
 func TestMemberProjectsUnknownTargetIs404(t *testing.T) {
@@ -205,6 +241,45 @@ func TestMemberProjectsUnknownTargetIs404(t *testing.T) {
 	}
 }
 
+func TestListInvitationsFiltersShapeQuery(t *testing.T) {
+	db := &fakeDB{stubs: []stub{
+		orgStub("admin"),
+		{match: "FROM org_invitations", rows: &fakeRows{}},
+	}}
+	rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet,
+		"/api/v1/orgs/acme/invitations?q=raw%25&role=admin&state=pending", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	listSQL := db.log[len(db.log)-1]
+	for _, want := range []string{"email ILIKE", "role = $", "accepted_at IS NULL", "revoked_at IS NULL", "expires_at > now()"} {
+		if !strings.Contains(listSQL, want) {
+			t.Errorf("missing %q in:\n%s", want, listSQL)
+		}
+	}
+	if got := likePattern("raw%"); got != `%raw\%%` {
+		t.Errorf("likePattern = %q", got)
+	}
+}
+
+func TestListInvitationsRejectsInvalidFilters(t *testing.T) {
+	for _, target := range []string{
+		"/api/v1/orgs/acme/invitations?role=owner",
+		"/api/v1/orgs/acme/invitations?state=paused",
+	} {
+		db := &fakeDB{stubs: []stub{orgStub("admin")}}
+		rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet, target, "")
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: status = %d: %s", target, rec.Code, rec.Body.String())
+		}
+		for _, sql := range db.log {
+			if strings.Contains(sql, "FROM org_invitations") {
+				t.Errorf("%s: invalid filters reached invitation storage", target)
+			}
+		}
+	}
+}
+
 func TestProjectsListingScopesByRole(t *testing.T) {
 	rows := &fakeRows{rows: [][]any{
 		{projID, orgID, "app", "App", "docs", orgTime, true, 3, "lead"},
@@ -212,7 +287,7 @@ func TestProjectsListingScopesByRole(t *testing.T) {
 	member := &fakeDB{stubs: []stub{
 		orgStub("member"),
 		{match: "SELECT count(*) FROM projects p", rows: &fakeRows{rows: [][]any{{1}}}},
-		{match: "LEFT JOIN (SELECT project_id, count(*)", rows: rows},
+		{match: "SELECT p.id, p.organization_id", rows: rows},
 	}}
 	rec := serveOrgsFull(t, newOrgsHandler(member), http.MethodGet, "/api/v1/orgs/acme/projects", "")
 	if rec.Code != http.StatusOK {
@@ -236,7 +311,7 @@ func TestProjectsListingScopesByRole(t *testing.T) {
 	admin := &fakeDB{stubs: []stub{
 		orgStub("admin"),
 		{match: "SELECT count(*) FROM projects p", rows: &fakeRows{rows: [][]any{{1}}}},
-		{match: "LEFT JOIN (SELECT project_id, count(*)", rows: rows},
+		{match: "SELECT p.id, p.organization_id", rows: rows},
 	}}
 	serveOrgsFull(t, newOrgsHandler(admin), http.MethodGet, "/api/v1/orgs/acme/projects?sort=members&dir=desc", "")
 	last := admin.log[len(admin.log)-1]
@@ -252,7 +327,7 @@ func TestProjectDetailFillsMemberCount(t *testing.T) {
 	db := &fakeDB{stubs: []stub{
 		orgStub("member"),
 		projectStub(projectRowValues("app", false, "user")),
-		{match: "count(*) FROM project_memberships WHERE project_id", rows: &fakeRows{rows: [][]any{{4}}}},
+		{match: "count(DISTINCT om.user_id)", rows: &fakeRows{rows: [][]any{{4}}}},
 	}}
 	rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet, "/api/v1/orgs/acme/projects/app", "")
 	if rec.Code != http.StatusOK {
@@ -279,18 +354,25 @@ func TestProjectHiddenFromNonMembers(t *testing.T) {
 func TestProjectMembersListsRoster(t *testing.T) {
 	db := &fakeDB{stubs: []stub{
 		orgStub("member"),
-		projectStub(projectRowValues("app", false, "user")),
-		{match: "JOIN project_memberships m ON m.user_id", rows: &fakeRows{rows: [][]any{
-			{targetID.String(), "b@x.io", nil, nil, "lead", orgTime},
+		projectStub(projectRowValues("app", false, "lead")),
+		{match: "SELECT count(*) FROM projects p", rows: &fakeRows{rows: [][]any{{1}}}},
+		{match: "SELECT u.id::text", rows: &fakeRows{rows: [][]any{
+			{targetID.String(), "b@x.io", nil, nil, "member", "lead", orgTime},
 		}}},
 	}}
 	rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet, "/api/v1/orgs/acme/projects/app/members", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	var out []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out) != 1 || out[0]["role"] != "lead" {
+	var out struct {
+		Members []map[string]any `json:"members"`
+		Total   int              `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Members) != 1 || out.Members[0]["role"] != "lead" {
 		t.Errorf("body: %v\n%s", err, rec.Body.String())
+	}
+	if out.Total != 1 || out.Members[0]["access_source"] != "project" {
+		t.Errorf("project member access wire: %+v", out)
 	}
 }
 
@@ -299,10 +381,10 @@ func TestProjectResourcesListsAllTypes(t *testing.T) {
 		orgStub("member"),
 		projectStub(projectRowValues("app", false, "user")),
 		{match: "ORDER BY slug", rows: &fakeRows{rows: [][]any{
-			{"id-1", "Helper", "acme/helper", "public"},
+			{"id-1", "Helper", "acme/helper", "project"},
 		}}},
 		{match: "FROM component_sources WHERE project_id", rows: &fakeRows{rows: [][]any{
-			{"id-2", "https://example.com/src", "public"},
+			{"id-2", "https://example.com/src", "project"},
 		}}},
 	}}
 	rec := serveOrgsFull(t, newOrgsHandler(db), http.MethodGet, "/api/v1/orgs/acme/projects/app/resources", "")
@@ -313,11 +395,11 @@ func TestProjectResourcesListsAllTypes(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	items, _ := out["items"].([]any)
 	// One row per registry table plus the component source.
-	if out["total"] != float64(7) || len(items) != 7 {
+	if out["total"] != float64(6) || len(items) != 6 {
 		t.Fatalf("resources wire: %v", out)
 	}
 	first, _ := items[0].(map[string]any)
-	last, _ := items[6].(map[string]any)
+	last, _ := items[5].(map[string]any)
 	if first["type"] != "agent" || first["qualified_name"] != "acme/helper" {
 		t.Errorf("first item: %v", first)
 	}
@@ -517,6 +599,7 @@ func TestUpsertOrgMemberAddsAndPromotes(t *testing.T) {
 	added := &fakeDB{stubs: []stub{
 		orgStub("admin"), userStub(),
 		{match: "INSERT INTO organization_memberships", rows: &fakeRows{rows: [][]any{{targetID}}}},
+		{match: "INSERT INTO project_memberships", rows: &fakeRows{rows: [][]any{{targetID}}}},
 	}}
 	rec := serveOrgsFull(t, newOrgsHandler(added), http.MethodPost, "/api/v1/orgs/acme/members",
 		`{"email":"b@x.io"}`)
@@ -528,12 +611,16 @@ func TestUpsertOrgMemberAddsAndPromotes(t *testing.T) {
 	if out["email"] != "b@x.io" || out["role"] != "member" || out["id"] != targetID.String() {
 		t.Errorf("member wire: %v", out)
 	}
+	if !strings.Contains(strings.Join(added.log, "\n"), "INSERT INTO project_memberships") {
+		t.Fatalf("org member add did not materialize default project membership: %v", added.log)
+	}
 
 	promoted := &fakeDB{stubs: []stub{
 		orgStub("admin"), userStub(),
 		{match: "FROM organization_memberships WHERE organization_id = $1 AND user_id = $2",
 			rows: &fakeRows{rows: [][]any{{"member"}}}},
 		{match: "UPDATE organization_memberships SET role", rows: &fakeRows{rows: [][]any{{targetID}}}},
+		{match: "INSERT INTO project_memberships", rows: &fakeRows{rows: [][]any{{targetID}}}},
 	}}
 	rec = serveOrgsFull(t, newOrgsHandler(promoted), http.MethodPost, "/api/v1/orgs/acme/members",
 		`{"email":"b@x.io","role":"admin"}`)
@@ -543,6 +630,9 @@ func TestUpsertOrgMemberAddsAndPromotes(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out["role"] != "admin" {
 		t.Errorf("promoted wire: %v", out)
+	}
+	if !strings.Contains(strings.Join(promoted.log, "\n"), "INSERT INTO project_memberships") {
+		t.Fatalf("org member role change did not refresh default project membership: %v", promoted.log)
 	}
 }
 

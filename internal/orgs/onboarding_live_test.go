@@ -100,15 +100,24 @@ func TestLiveDefaultProjectInvariants(t *testing.T) {
 	if def == nil || !def.IsDefault || def.Slug != org.Slug || def.Name != org.Name {
 		t.Fatalf("default project = %+v, want is_default named after the org", def)
 	}
-	// The default project has no membership rows: owner access is the org role.
+	// The default project starts with real membership rows so roster counts and
+	// access-management views reflect the protected project's initial state.
 	var memberCount int
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM project_memberships WHERE project_id = $1`, def.ID).Scan(&memberCount)
-	if memberCount != 0 {
-		t.Fatalf("default project has %d membership rows, want 0", memberCount)
+	if memberCount != 1 {
+		t.Fatalf("default project has %d membership rows, want 1", memberCount)
 	}
 	resolved, err := s.ResolveProject(ctx, org, def.Slug, owner)
 	if err != nil || !resolved.IsDefault {
 		t.Fatalf("owner resolve = %+v, %v; want default project access via org role", resolved, err)
+	}
+	member := liveUser(t, pool, "member")
+	if err := s.UpsertOrgMember(ctx, org.ID, &TargetUser{ID: member}, "member"); err != nil {
+		t.Fatal(err)
+	}
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM project_memberships WHERE project_id = $1`, def.ID).Scan(&memberCount)
+	if memberCount != 2 {
+		t.Fatalf("default project after member add has %d membership rows, want 2", memberCount)
 	}
 
 	// A duplicate creation conflicts instead of duplicating anything.

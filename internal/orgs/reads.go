@@ -38,12 +38,16 @@ type orgResponse struct {
 }
 
 type memberResponse struct {
-	ID        string  `json:"id"`
-	Email     string  `json:"email"`
-	Username  *string `json:"username"`
-	Name      *string `json:"name"`
-	Role      string  `json:"role"`
-	CreatedAt *string `json:"created_at"`
+	ID           string   `json:"id"`
+	Email        string   `json:"email"`
+	Username     *string  `json:"username"`
+	Name         *string  `json:"name"`
+	Role         string   `json:"role"`
+	OrgRole      *string  `json:"org_role,omitempty"`
+	AssignedRole *string  `json:"assigned_role,omitempty"`
+	AccessSource string   `json:"access_source,omitempty"`
+	Permissions  []string `json:"permissions,omitempty"`
+	CreatedAt    *string  `json:"created_at"`
 	// ProjectCount is the member's project-membership count inside the
 	// organization; only the org roster listing fills it.
 	ProjectCount *int `json:"project_count,omitempty"`
@@ -59,12 +63,15 @@ type membersPage struct {
 
 // memberProjectResponse is one project a member can access via membership.
 type memberProjectResponse struct {
-	ID        string `json:"id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	IsDefault bool   `json:"is_default"`
-	Role      string `json:"role"`
-	CreatedAt string `json:"created_at"`
+	ID           string   `json:"id"`
+	Slug         string   `json:"slug"`
+	Name         string   `json:"name"`
+	IsDefault    bool     `json:"is_default"`
+	Role         string   `json:"role"`
+	AssignedRole *string  `json:"assigned_role,omitempty"`
+	AccessSource string   `json:"access_source"`
+	Permissions  []string `json:"permissions"`
+	CreatedAt    string   `json:"created_at"`
 }
 
 type projectResponse struct {
@@ -170,12 +177,14 @@ func (s *Store) OrgDetail(ctx context.Context, org *Org) (orgResponse, error) {
 // the org roster and project listings. Handlers construct it from request
 // parameters; sort keys are whitelisted there, never interpolated from input.
 type ListQuery struct {
-	Q         string
-	Role      string
-	Sort      string
-	Ascending bool
-	Page      int
-	PageSize  int
+	Q           string
+	Role        string
+	Project     string
+	ProjectRole string
+	Sort        string
+	Ascending   bool
+	Page        int
+	PageSize    int
 }
 
 func (q ListQuery) offset() int { return (q.Page - 1) * q.PageSize }
@@ -234,6 +243,23 @@ func (s *Store) OrgMembers(ctx context.Context, orgID uuid.UUID, q ListQuery) (m
 		args = append(args, q.Role)
 		where = append(where, fmt.Sprintf("m.role = $%d", len(args)))
 	}
+	if q.Project != "" || q.ProjectRole != "" {
+		filter := `EXISTS (
+			SELECT 1 FROM projects fp
+			LEFT JOIN project_memberships fpm ON fpm.project_id = fp.id AND fpm.user_id = u.id
+			WHERE fp.organization_id = $1`
+		if q.Project != "" {
+			args = append(args, q.Project)
+			filter += fmt.Sprintf(" AND fp.slug = $%d", len(args))
+		}
+		filter += " AND (m.role IN ('owner', 'admin') OR fpm.user_id IS NOT NULL)"
+		if q.ProjectRole != "" {
+			args = append(args, q.ProjectRole)
+			filter += fmt.Sprintf(" AND ((m.role IN ('owner', 'admin') AND $%[1]d::project_role = 'lead'::project_role) OR fpm.role = $%[1]d::project_role)", len(args))
+		}
+		filter += ")"
+		where = append(where, filter)
+	}
 	cond := strings.Join(where, " AND ")
 	page := membersPage{Members: []memberResponse{}, Page: q.Page, PageSize: q.PageSize}
 	if err := s.DB.QueryRow(ctx,
@@ -269,9 +295,9 @@ func (s *Store) OrgMembers(ctx context.Context, orgID uuid.UUID, q ListQuery) (m
 	return page, rows.Err()
 }
 
-// MemberProjects lists the projects a member can access through explicit
-// project membership inside one organization. Returns nil (not found) when
-// the target is not a member of the organization.
+// MemberProjects lists the projects a member can access, including inherited
+// lead-level access for organization owners and admins. Returns nil (not
+// found) when the target is not a member of the organization.
 func (s *Store) MemberProjects(ctx context.Context, orgID, userID uuid.UUID) ([]memberProjectResponse, error) {
 	var memberRole string
 	err := s.DB.QueryRow(ctx,
@@ -283,11 +309,21 @@ func (s *Store) MemberProjects(ctx context.Context, orgID, userID uuid.UUID) ([]
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.Query(ctx,
-		`SELECT p.id::text, p.slug, p.name, p.is_default, pm.role, pm.created_at
-		 FROM project_memberships pm JOIN projects p ON p.id = pm.project_id
-		 WHERE p.organization_id = $1 AND pm.user_id = $2 ORDER BY p.name, p.slug`,
-		orgID, userID)
+	var rows pgx.Rows
+	if tenancy.IsOrgAdmin(memberRole) {
+		rows, err = s.DB.Query(ctx,
+			`SELECT p.id::text, p.slug, p.name, p.is_default, pm.role, COALESCE(pm.created_at, p.created_at)
+			 FROM projects p
+			 LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = $2
+			 WHERE p.organization_id = $1 ORDER BY p.name, p.slug`,
+			orgID, userID)
+	} else {
+		rows, err = s.DB.Query(ctx,
+			`SELECT p.id::text, p.slug, p.name, p.is_default, pm.role, pm.created_at
+			 FROM project_memberships pm JOIN projects p ON p.id = pm.project_id
+			 WHERE p.organization_id = $1 AND pm.user_id = $2 ORDER BY p.name, p.slug`,
+			orgID, userID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -296,9 +332,21 @@ func (s *Store) MemberProjects(ctx context.Context, orgID, userID uuid.UUID) ([]
 	for rows.Next() {
 		var p memberProjectResponse
 		var created time.Time
-		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.IsDefault, &p.Role, &created); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.IsDefault, &p.AssignedRole, &created); err != nil {
 			return nil, err
 		}
+		if p.AssignedRole != nil {
+			p.Role = *p.AssignedRole
+			p.AccessSource = "project"
+		} else {
+			p.Role = "lead"
+			p.AccessSource = "organization"
+		}
+		if tenancy.IsOrgAdmin(memberRole) {
+			p.Role = "lead"
+			p.AccessSource = "organization"
+		}
+		p.Permissions = tenancy.EffectiveProjectPermissions(memberRole, p.Role).Strings()
 		p.CreatedAt = wireTime(created)
 		out = append(out, p)
 	}
@@ -306,11 +354,69 @@ func (s *Store) MemberProjects(ctx context.Context, orgID, userID uuid.UUID) ([]
 }
 
 // ProjectMembers lists the project roster ordered by email.
-func (s *Store) ProjectMembers(ctx context.Context, projectID uuid.UUID) ([]memberResponse, error) {
-	return s.members(ctx,
-		`SELECT u.id::text, u.email, u.username, u.name, m.role, m.created_at
-		 FROM users u JOIN project_memberships m ON m.user_id = u.id
-		 WHERE m.project_id = $1 ORDER BY u.email`, projectID)
+func (s *Store) ProjectMembers(ctx context.Context, projectID uuid.UUID, q ListQuery) (membersPage, error) {
+	joins := ` FROM projects p
+		 JOIN organization_memberships om ON om.organization_id = p.organization_id
+		 JOIN users u ON u.id = om.user_id
+		 LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = u.id`
+	where := []string{"p.id = $1", "(om.role IN ('owner', 'admin') OR pm.user_id IS NOT NULL)"}
+	args := []any{projectID}
+	if q.Q != "" {
+		args = append(args, likePattern(q.Q))
+		p := fmt.Sprintf("$%d", len(args))
+		where = append(where, fmt.Sprintf("(u.email ILIKE %[1]s OR u.username ILIKE %[1]s OR u.name ILIKE %[1]s)", p))
+	}
+	if q.Role != "" {
+		args = append(args, q.Role)
+		where = append(where, fmt.Sprintf("(CASE WHEN om.role IN ('owner', 'admin') THEN 'lead' ELSE pm.role::text END) = $%d", len(args)))
+	}
+	cond := strings.Join(where, " AND ")
+	page := membersPage{Members: []memberResponse{}, Page: q.Page, PageSize: q.PageSize}
+	if err := s.DB.QueryRow(ctx, "SELECT count(*)"+joins+" WHERE "+cond, args...).Scan(&page.Total); err != nil {
+		return membersPage{}, err
+	}
+	args = append(args, q.PageSize, q.offset())
+	sql := fmt.Sprintf(
+		`SELECT u.id::text, u.email, u.username, u.name, om.role, pm.role, COALESCE(pm.created_at, om.created_at)
+		 %s WHERE %s ORDER BY %s %s, u.id ASC LIMIT $%d OFFSET $%d`,
+		joins, cond, projectMemberSortKeys[q.Sort], q.direction(), len(args)-1, len(args))
+	rows, err := s.DB.Query(ctx, sql, args...)
+	if err != nil {
+		return membersPage{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m memberResponse
+		var orgRole string
+		var assignedRole *string
+		var created time.Time
+		if err := rows.Scan(&m.ID, &m.Email, &m.Username, &m.Name, &orgRole, &assignedRole, &created); err != nil {
+			return membersPage{}, err
+		}
+		m.OrgRole = &orgRole
+		m.AssignedRole = assignedRole
+		if tenancy.IsOrgAdmin(orgRole) {
+			m.Role = "lead"
+			m.AccessSource = "organization"
+		} else if assignedRole != nil {
+			m.Role = *assignedRole
+			m.AccessSource = "project"
+		}
+		m.Permissions = tenancy.EffectiveProjectPermissions(orgRole, m.Role).Strings()
+		w := wireTime(created)
+		m.CreatedAt = &w
+		page.Members = append(page.Members, m)
+	}
+	return page, rows.Err()
+}
+
+// projectMemberSortKeys whitelists the project roster sort keys.
+var projectMemberSortKeys = map[string]string{
+	"email":    "u.email",
+	"name":     "COALESCE(u.name, u.username, u.email)",
+	"joined":   "COALESCE(pm.created_at, om.created_at)",
+	"role":     "CASE WHEN om.role IN ('owner', 'admin') THEN 'lead' ELSE pm.role::text END",
+	"org_role": "om.role",
 }
 
 // projectSortKeys whitelists the project-listing sort keys.
@@ -324,7 +430,14 @@ var projectSortKeys = map[string]string{
 // memberships, or every project for org owners and admins.
 func (s *Store) Projects(ctx context.Context, org *Org, userID uuid.UUID, q ListQuery) (projectsPage, error) {
 	joins := ` FROM projects p
-	        LEFT JOIN (SELECT project_id, count(*) AS count FROM project_memberships GROUP BY project_id) mc
+	        LEFT JOIN (
+	          SELECT p2.id AS project_id, count(DISTINCT om.user_id) AS count
+	          FROM projects p2
+	          JOIN organization_memberships om ON om.organization_id = p2.organization_id
+	          LEFT JOIN project_memberships pm ON pm.project_id = p2.id AND pm.user_id = om.user_id
+	          WHERE om.role IN ('owner', 'admin') OR pm.user_id IS NOT NULL
+	          GROUP BY p2.id
+	        ) mc
 	          ON mc.project_id = p.id
 	        LEFT JOIN (SELECT project_id, role FROM project_memberships WHERE user_id = $2) my
 	          ON my.project_id = p.id`
@@ -369,7 +482,11 @@ func (s *Store) Projects(ctx context.Context, org *Org, userID uuid.UUID, q List
 func (s *Store) ProjectDetail(ctx context.Context, p *Project) (projectResponse, error) {
 	var memberCount int
 	if err := s.DB.QueryRow(ctx,
-		`SELECT count(*) FROM project_memberships WHERE project_id = $1`, p.ID).Scan(&memberCount); err != nil {
+		`SELECT count(DISTINCT om.user_id)
+		 FROM projects p
+		 JOIN organization_memberships om ON om.organization_id = p.organization_id
+		 LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = om.user_id
+		 WHERE p.id = $1 AND (om.role IN ('owner', 'admin') OR pm.user_id IS NOT NULL)`, p.ID).Scan(&memberCount); err != nil {
 		return projectResponse{}, err
 	}
 	return projectWire(p, p.OrgRole, p.Role, &memberCount), nil
@@ -382,7 +499,6 @@ var resourceTables = []struct{ typeName, table string }{
 	{"skill", "skill_listings"},
 	{"hook", "hook_listings"},
 	{"prompt", "prompt_listings"},
-	{"sandbox", "sandbox_listings"},
 }
 
 // ProjectResources lists everything the project owns across resource types.
@@ -391,8 +507,7 @@ func (s *Store) ProjectResources(ctx context.Context, projectID uuid.UUID) (reso
 	for _, t := range resourceTables {
 		rows, err := s.DB.Query(ctx,
 			`SELECT id::text, name, namespace || '/' || slug,
-			 CASE WHEN ownership_scope = 'private' THEN 'private'
-			      WHEN is_private THEN 'project' ELSE 'public' END
+			 CASE WHEN ownership_scope = 'private' THEN 'private' ELSE 'project' END
 			 FROM `+t.table+` WHERE project_id = $1 ORDER BY slug`, projectID)
 		if err != nil {
 			return resourcesResponse{}, err
@@ -411,7 +526,7 @@ func (s *Store) ProjectResources(ctx context.Context, projectID uuid.UUID) (reso
 		}
 	}
 	rows, err := s.DB.Query(ctx,
-		`SELECT id::text, url, CASE WHEN is_public THEN 'public' ELSE 'project' END
+		`SELECT id::text, url, 'project'
 		 FROM component_sources WHERE project_id = $1 ORDER BY url`, projectID)
 	if err != nil {
 		return resourcesResponse{}, err

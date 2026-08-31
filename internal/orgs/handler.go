@@ -198,12 +198,55 @@ func parseListQuery(w http.ResponseWriter, r *http.Request, sortKeys map[string]
 	return q, true
 }
 
+func parseOrgMemberListQuery(w http.ResponseWriter, r *http.Request) (ListQuery, bool) {
+	query, ok := parseListQuery(w, r, orgMemberSortKeys, "email", []string{"owner", "admin", "member"})
+	if !ok {
+		return ListQuery{}, false
+	}
+	values := r.URL.Query()
+	if raw := strings.TrimSpace(values.Get("project")); raw != "" {
+		if _, err := tenancy.Slugify(raw); err != nil || !projectSlugRe.MatchString(raw) {
+			httpapi.WriteError(w, http.StatusUnprocessableEntity, "project is not a valid project id")
+			return ListQuery{}, false
+		}
+		query.Project = raw
+	}
+	if raw := values.Get("project_role"); raw != "" {
+		if raw != "lead" && raw != "user" {
+			httpapi.WriteError(w, http.StatusUnprocessableEntity, "project_role is not a valid filter")
+			return ListQuery{}, false
+		}
+		query.ProjectRole = raw
+	}
+	return query, true
+}
+
+func parseInvitationListQuery(w http.ResponseWriter, r *http.Request) (InvitationListQuery, bool) {
+	values := r.URL.Query()
+	query := InvitationListQuery{Q: strings.TrimSpace(values.Get("q"))}
+	if raw := values.Get("role"); raw != "" {
+		if raw != "admin" && raw != "member" {
+			httpapi.WriteError(w, http.StatusUnprocessableEntity, "role is not a valid filter")
+			return InvitationListQuery{}, false
+		}
+		query.Role = raw
+	}
+	if raw := values.Get("state"); raw != "" {
+		if !slices.Contains([]string{"pending", "accepted", "expired", "revoked"}, raw) {
+			httpapi.WriteError(w, http.StatusUnprocessableEntity, "state is not a valid filter")
+			return InvitationListQuery{}, false
+		}
+		query.State = raw
+	}
+	return query, true
+}
+
 func (h *Handler) orgMembers(w http.ResponseWriter, r *http.Request) {
 	org, ok := h.org(w, r)
 	if !ok || !requireOrgPermission(w, org, tenancy.PermissionOrgMembersManage) {
 		return
 	}
-	query, ok := parseListQuery(w, r, orgMemberSortKeys, "email", []string{"owner", "admin", "member"})
+	query, ok := parseOrgMemberListQuery(w, r)
 	if !ok {
 		return
 	}
@@ -270,11 +313,15 @@ func (h *Handler) projectDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) projectMembers(w http.ResponseWriter, r *http.Request) {
-	project, ok := h.project(w, r)
+	project, _, _, ok := h.projectForWrite(w, r, true)
 	if !ok {
 		return
 	}
-	out, err := h.Store.ProjectMembers(r.Context(), project.ID)
+	query, ok := parseListQuery(w, r, projectMemberSortKeys, "email", []string{"lead", "user"})
+	if !ok {
+		return
+	}
+	out, err := h.Store.ProjectMembers(r.Context(), project.ID, query)
 	if err != nil {
 		writeErr(w, r, err)
 		return

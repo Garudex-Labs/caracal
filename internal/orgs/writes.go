@@ -99,8 +99,8 @@ func (s *Store) ResolveUser(ctx context.Context, userID *uuid.UUID, email, usern
 
 // CreateOrg creates an organization; the creator becomes its sole owner and
 // the protected default project is created alongside it. The default project
-// carries no membership rows: owner/admin access flows through the org role,
-// while plain members need explicit project membership.
+// starts with a real membership row so roster counts and access maps reflect
+// the protected project's initial membership state.
 func (s *Store) CreateOrg(ctx context.Context, tx TxBeginner, userID uuid.UUID, slug, name string, description *string) (*Org, *Project, error) {
 	var taken uuid.UUID
 	err := s.DB.QueryRow(ctx, `SELECT id FROM organizations WHERE slug = $1`, slug).Scan(&taken)
@@ -125,12 +125,18 @@ func (s *Store) CreateOrg(ctx context.Context, tx TxBeginner, userID uuid.UUID, 
 			`INSERT INTO organization_memberships (id, organization_id, user_id, role, created_at)
 			 VALUES ($1, $2, $3, 'owner', now())`, uuid.New(), org.ID, userID)
 	}
-	def := Project{ID: uuid.New(), OrganizationID: org.ID, Slug: org.Slug, Name: org.Name, IsDefault: true}
+	role := "lead"
+	def := Project{ID: uuid.New(), OrganizationID: org.ID, Slug: org.Slug, Name: org.Name, IsDefault: true, Role: &role}
 	if err == nil {
 		err = t.QueryRow(ctx,
 			`INSERT INTO projects (id, organization_id, slug, name, created_by, is_default, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, true, now(), now()) RETURNING created_at`,
 			def.ID, org.ID, def.Slug, def.Name, userID).Scan(&def.CreatedAt)
+	}
+	if err == nil {
+		_, err = t.Exec(ctx,
+			`INSERT INTO project_memberships (id, project_id, organization_id, user_id, role, created_at)
+			 VALUES ($1, $2, $3, $4, 'lead', now())`, uuid.New(), def.ID, org.ID, userID)
 	}
 	if err == nil {
 		err = t.Commit(ctx)
@@ -278,6 +284,24 @@ func (s *Store) deleteOrg(ctx context.Context, tx TxBeginner, org *Org, requireS
 	return nil
 }
 
+func defaultProjectMemberRole(orgRole string) string {
+	if tenancy.IsOrgAdmin(orgRole) {
+		return "lead"
+	}
+	return "user"
+}
+
+func (s *Store) ensureDefaultProjectMembership(ctx context.Context, orgID, userID uuid.UUID, orgRole string) error {
+	_, err := execRow(ctx, s.DB,
+		`INSERT INTO project_memberships (id, project_id, organization_id, user_id, role, created_at)
+		 SELECT $1, p.id, p.organization_id, $2, $3::project_role, now()
+		 FROM projects p
+		 WHERE p.organization_id = $4 AND p.is_default
+		 ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role
+		 RETURNING id`, uuid.New(), userID, defaultProjectMemberRole(orgRole), orgID)
+	return err
+}
+
 // UpsertOrgMember adds a member or changes a role; the owner row is
 // untouchable here.
 func (s *Store) UpsertOrgMember(ctx context.Context, orgID uuid.UUID, target *TargetUser, role string) error {
@@ -292,12 +316,18 @@ func (s *Store) UpsertOrgMember(ctx context.Context, orgID uuid.UUID, target *Ta
 		_, err = execRow(ctx, s.DB,
 			`UPDATE organization_memberships SET role = $1 WHERE organization_id = $2 AND user_id = $3 RETURNING id`,
 			role, orgID, target.ID)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.ensureDefaultProjectMembership(ctx, orgID, target.ID, role)
 	case errors.Is(err, pgx.ErrNoRows):
 		_, err = execRow(ctx, s.DB,
 			`INSERT INTO organization_memberships (id, organization_id, user_id, role, created_at)
 			 VALUES ($1, $2, $3, $4, now()) RETURNING id`, uuid.New(), orgID, target.ID, role)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.ensureDefaultProjectMembership(ctx, orgID, target.ID, role)
 	default:
 		return err
 	}
@@ -379,6 +409,17 @@ func (s *Store) TransferOwnership(ctx context.Context, tx TxBeginner, orgID, own
 			return nil, &tenancy.Error{Status: 409, Detail: "Ownership changed concurrently; retry"}
 		}
 		return nil, err
+	}
+	for _, id := range []uuid.UUID{ownerID, targetID} {
+		if _, err := t.Exec(ctx,
+			`INSERT INTO project_memberships (id, project_id, organization_id, user_id, role, created_at)
+			 SELECT $1, p.id, p.organization_id, $2, 'lead', now()
+			 FROM projects p
+			 WHERE p.organization_id = $3 AND p.is_default
+			 ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'lead'`,
+			uuid.New(), id, orgID); err != nil {
+			return nil, err
+		}
 	}
 	if err := t.Commit(ctx); err != nil {
 		if isUnique(err) {
@@ -513,6 +554,9 @@ func (s *Store) UpsertProjectMember(ctx context.Context, p *Project, target *Tar
 	if err != nil {
 		return err
 	}
+	if tenancy.IsOrgAdmin(orgRole) && role != "lead" {
+		return &tenancy.Error{Status: 409, Detail: "Organization owners and admins inherit project lead access"}
+	}
 	var existing string
 	err = s.DB.QueryRow(ctx,
 		`SELECT role FROM project_memberships WHERE project_id = $1 AND user_id = $2`,
@@ -535,7 +579,17 @@ func (s *Store) UpsertProjectMember(ctx context.Context, p *Project, target *Tar
 
 // RemoveProjectMember removes one membership row.
 func (s *Store) RemoveProjectMember(ctx context.Context, p *Project, userID uuid.UUID) error {
-	_, err := execRow(ctx, s.DB,
+	var orgRole string
+	err := s.DB.QueryRow(ctx,
+		`SELECT role FROM organization_memberships WHERE organization_id = $1 AND user_id = $2`,
+		p.OrganizationID, userID).Scan(&orgRole)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if tenancy.IsOrgAdmin(orgRole) {
+		return &tenancy.Error{Status: 409, Detail: "Organization owner/admin project access is inherited and cannot be removed"}
+	}
+	_, err = execRow(ctx, s.DB,
 		`DELETE FROM project_memberships WHERE project_id = $1 AND user_id = $2 RETURNING id`, p.ID, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return &tenancy.Error{Status: 404, Detail: "Membership not found"}
