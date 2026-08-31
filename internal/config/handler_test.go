@@ -275,9 +275,36 @@ func TestHarnessesCatalog(t *testing.T) {
 			if models := entry["supported_models"].([]any); len(models) < 900 {
 				t.Fatalf("pi supported_models = %d", len(models))
 			}
+			if entry["hook_support"] != "unsupported" {
+				t.Fatalf("pi hook_support = %v, want unsupported", entry["hook_support"])
+			}
+		}
+		if entry["name"] == "claude-code" && entry["hook_support"] != "native" {
+			t.Fatalf("claude-code hook_support = %v, want native", entry["hook_support"])
 		}
 		if _, ok := entry["supported_models"].([]any); !ok {
 			t.Fatalf("%s supported_models missing", entry["name"])
+		}
+		if _, ok := entry["hook_support"].(string); !ok {
+			t.Fatalf("%s hook_support missing", entry["name"])
+		}
+		if _, ok := entry["skill_support"].(string); !ok {
+			t.Fatalf("%s skill_support missing", entry["name"])
+		}
+		if entry["name"] == "claude-code" && entry["skill_support"] != "native" {
+			t.Fatalf("claude-code skill_support = %v, want native", entry["skill_support"])
+		}
+		if entry["name"] == "codex" && entry["skill_support"] != "unsupported" {
+			t.Fatalf("codex skill_support = %v, want unsupported", entry["skill_support"])
+		}
+		if _, ok := entry["prompt_support"].(string); !ok {
+			t.Fatalf("%s prompt_support missing", entry["name"])
+		}
+		if entry["name"] == "claude-code" && entry["prompt_support"] != "native" {
+			t.Fatalf("claude-code prompt_support = %v, want native", entry["prompt_support"])
+		}
+		if entry["name"] == "kiro" && entry["prompt_support"] != "compatible" {
+			t.Fatalf("kiro prompt_support = %v, want compatible", entry["prompt_support"])
 		}
 	}
 }

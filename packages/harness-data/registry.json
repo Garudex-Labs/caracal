@@ -2,6 +2,21 @@
   "harnesses": {
     "cursor": {
       "display_name": "Cursor",
+      "agent_support": "compatible",
+      "agent_mechanism": "cursor_agent_markdown",
+      "agent_multi": true,
+      "skill_support": "unsupported",
+      "skill_mechanism": "cursor_rule",
+      "hook_support": "native",
+      "hook_mechanism": "command_json",
+      "prompts": {
+        "mode": "native",
+        "format": "cursor_command",
+        "path": {
+          "project": ".cursor/commands/{name}.md",
+          "user": "~/.cursor/commands/{name}.md"
+        }
+      },
       "capabilities": [
         "hooks",
         "mcp_servers"
@@ -53,9 +68,20 @@
     },
     "kiro": {
       "display_name": "Kiro",
+      "agent_support": "native",
+      "agent_mechanism": "agent_json",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "native",
+      "hook_mechanism": "agent_profile_json",
+      "prompts": {
+        "mode": "embedded"
+      },
       "capabilities": [
         "hooks",
-        "mcp_servers"
+        "mcp_servers",
+        "skills"
       ],
       "session_parser": "kiro",
       "scopes": [
@@ -104,6 +130,21 @@
     },
     "claude-code": {
       "display_name": "Claude Code",
+      "agent_support": "native",
+      "agent_mechanism": "subagent_markdown",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "native",
+      "hook_mechanism": "settings_json",
+      "prompts": {
+        "mode": "native",
+        "format": "claude_command",
+        "path": {
+          "project": ".claude/commands/{name}.md",
+          "user": "~/.claude/commands/{name}.md"
+        }
+      },
       "capabilities": [
         "hooks",
         "mcp_servers",
@@ -159,10 +200,24 @@
     },
     "codex": {
       "display_name": "Codex",
+      "agent_support": "compatible",
+      "agent_mechanism": "codex_agent_toml",
+      "agent_multi": true,
+      "skill_support": "unsupported",
+      "skill_mechanism": "codex_prompt",
+      "hook_support": "native",
+      "hook_mechanism": "command_json",
+      "prompts": {
+        "mode": "native",
+        "format": "codex_prompt",
+        "path": {
+          "project": "~/.codex/prompts/{name}.md",
+          "user": "~/.codex/prompts/{name}.md"
+        }
+      },
       "capabilities": [
         "hooks",
-        "mcp_servers",
-        "skills"
+        "mcp_servers"
       ],
       "session_parser": "codex",
       "scopes": [
@@ -210,10 +265,23 @@
     },
     "copilot": {
       "display_name": "Copilot",
+      "agent_support": "native",
+      "agent_mechanism": "vscode_custom_agent",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "native",
+      "hook_mechanism": "command_json",
+      "prompts": {
+        "mode": "native",
+        "format": "copilot_prompt",
+        "path": {
+          "project": ".github/prompts/{name}.prompt.md"
+        }
+      },
       "capabilities": [
         "hooks",
         "mcp_servers",
-        "prompts",
         "skills"
       ],
       "session_parser": "copilot-cli",
@@ -259,10 +327,19 @@
     },
     "copilot-cli": {
       "display_name": "Copilot CLI",
+      "agent_support": "native",
+      "agent_mechanism": "vscode_custom_agent",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "native",
+      "hook_mechanism": "command_json",
+      "prompts": {
+        "mode": "embedded"
+      },
       "capabilities": [
         "hooks",
         "mcp_servers",
-        "prompts",
         "skills"
       ],
       "session_parser": "copilot-cli",
@@ -307,6 +384,16 @@
     },
     "opencode": {
       "display_name": "OpenCode",
+      "agent_support": "native",
+      "agent_mechanism": "opencode_agent_markdown",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "compatible",
+      "hook_mechanism": "plugin",
+      "prompts": {
+        "mode": "embedded"
+      },
       "session_parser": "opencode",
       "capabilities": [
         "hooks",
@@ -358,6 +445,16 @@
     },
     "antigravity": {
       "display_name": "Antigravity",
+      "agent_support": "compatible",
+      "agent_mechanism": "antigravity_agent_json",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "unsupported",
+      "hook_mechanism": "",
+      "prompts": {
+        "mode": "embedded"
+      },
       "capabilities": [
         "hooks",
         "mcp_servers",
@@ -409,6 +506,16 @@
     },
     "goose": {
       "display_name": "Goose",
+      "agent_support": "compatible",
+      "agent_mechanism": "goose_agent_markdown",
+      "agent_multi": true,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "compatible",
+      "hook_mechanism": "plugin",
+      "prompts": {
+        "mode": "embedded"
+      },
       "capabilities": [
         "hooks",
         "mcp_servers",
@@ -463,6 +570,16 @@
     },
     "pi": {
       "display_name": "Pi",
+      "agent_support": "compatible",
+      "agent_mechanism": "pi_agents_md",
+      "agent_multi": false,
+      "skill_support": "native",
+      "skill_mechanism": "agent_skill",
+      "hook_support": "unsupported",
+      "hook_mechanism": "",
+      "prompts": {
+        "mode": "embedded"
+      },
       "capabilities": [
         "hooks",
         "mcp_servers",

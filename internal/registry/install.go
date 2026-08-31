@@ -204,6 +204,10 @@ const skillSourceColumns = `version, description, slash_command, git_url, skill_
 // InstallSkill renders the skill telemetry-and-file snippet.
 func (s *Store) InstallSkill(ctx context.Context, identifier string, body installBody, viewer *Viewer, serverURL string) (*installResponse, error) {
 	f := Families["skills"]
+	if !harnessgen.SupportsSkill(body.Harness) {
+		return nil, &apiError{Status: 422,
+			Detail: fmt.Sprintf("Skills are not supported for the '%s' harness.", body.Harness)}
+	}
 	row, err := s.resolveInstallable(ctx, f, identifier, viewer)
 	if err != nil {
 		return nil, err
@@ -388,6 +392,14 @@ func (s *Store) InstallHook(ctx context.Context, identifier string, body install
 			body.Harness, strings.Join(harnessgen.RegistryHarnessNames(), ", "))}
 		return resp, nil
 	}
+	// Hard server-side gate: a harness that cannot materialize a Registry Hook
+	// (telemetry-only or unsupported) is rejected here regardless of what the
+	// UI or CLI allow, so a manipulated request can never install a hook the
+	// target harness will not consume.
+	if !spec.SupportsRegistryHooks() {
+		return nil, &apiError{Status: 400, Detail: fmt.Sprintf(
+			"%s does not support hooks and cannot be a target for this resource.", spec.DisplayName)}
+	}
 
 	event := rowStr(source, "event", "")
 	ideEvent := spec.HookEventsMap[event]
@@ -462,6 +474,13 @@ func (s *Store) InstallHook(ctx context.Context, identifier string, body install
 			"target_dir": spec.HookScriptsDir + "/" + hookName,
 		}
 		actualCommand = fmt.Sprintf("%s/%s/%s", spec.HookScriptsDir, hookName, command)
+	}
+	// Command-based harnesses have no native HTTP hook type, so an HTTP handler
+	// is delivered as a curl POST of the event payload to the configured URL.
+	if handlerType == "http" {
+		if hookURL, _ := handlerConfig["url"].(string); hookURL != "" {
+			actualCommand = fmt.Sprintf("curl -s -X POST -H 'Content-Type: application/json' -d @- %s", hookURL)
+		}
 	}
 	resp.ConfigSnippet = harnessgen.HookInstallSnippet(body.Harness, ideEvent, handlerType, actualCommand, timeout)
 	if len(spec.Hooks) > 0 {

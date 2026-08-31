@@ -223,6 +223,15 @@ func (h *Handler) harnesses(w http.ResponseWriter, r *http.Request) {
 			"display_name":     spec.DisplayName,
 			"capabilities":     capabilities,
 			"supported_models": models,
+			"skill_support":    spec.SkillSupport,
+			"skill_mechanism":  spec.SkillMechanism,
+			"hook_support":     spec.HookSupport,
+			"hook_mechanism":   spec.HookMechanism,
+			"prompt_support":   spec.PromptSupport(),
+			"prompt_mechanism": spec.PromptMechanism(),
+			"agent_support":    spec.AgentSupport,
+			"agent_mechanism":  spec.AgentMechanism,
+			"agent_multi":      spec.AgentMulti,
 		})
 		available[name] = true
 	}

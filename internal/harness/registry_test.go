@@ -50,6 +50,34 @@ func TestSessionParserMapping(t *testing.T) {
 	}
 }
 
+// TestSkillCapabilityMatchesMechanism guards the two skill representations from
+// drifting: the "skills" capability must be present exactly when the harness
+// materializes a native Agent Skill (SKILL.md).
+func TestSkillCapabilityMatchesMechanism(t *testing.T) {
+	r := MustLoad()
+	for _, name := range r.Names() {
+		spec, _ := r.Spec(name)
+		if spec.HasCapability(CapSkills) != spec.EmitsSkillMd() {
+			t.Errorf("%s: capabilities.skills=%v but EmitsSkillMd=%v (skill_mechanism=%q)",
+				name, spec.HasCapability(CapSkills), spec.EmitsSkillMd(), spec.SkillMechanism)
+		}
+		// skill_support is the human label; it must be one of the two honest
+		// states and agree with the materialization gate.
+		switch spec.SkillSupport {
+		case "native":
+			if !spec.EmitsSkillMd() {
+				t.Errorf("%s: skill_support=native but does not emit SKILL.md", name)
+			}
+		case "unsupported":
+			if spec.EmitsSkillMd() {
+				t.Errorf("%s: skill_support=unsupported but emits SKILL.md", name)
+			}
+		default:
+			t.Errorf("%s: skill_support=%q must be native or unsupported", name, spec.SkillSupport)
+		}
+	}
+}
+
 func TestSpecFields(t *testing.T) {
 	r := MustLoad()
 
@@ -66,16 +94,16 @@ func TestSpecFields(t *testing.T) {
 					t.Errorf("missing capability %q", c)
 				}
 			}
-			if s.HasCapability(CapPrompts) {
-				t.Error("claude-code must not have prompts capability")
+			if s.PromptMode() != PromptNative {
+				t.Errorf("claude-code prompt mode = %q, want native", s.PromptMode())
 			}
 			if s.Hooks["user"] != "~/.claude/settings.json" {
 				t.Errorf("Hooks[user] = %q", s.Hooks["user"])
 			}
 		}},
 		{"copilot-cli", func(t *testing.T, s *Spec) {
-			if !s.HasCapability(CapPrompts) {
-				t.Error("copilot-cli must have prompts capability")
+			if s.PromptMode() != PromptEmbedded {
+				t.Errorf("copilot-cli prompt mode = %q, want embedded", s.PromptMode())
 			}
 			if got := s.HookEventsMap["Stop"]; got != "sessionEnd" {
 				t.Errorf("HookEventsMap[Stop] = %q, want sessionEnd", got)
