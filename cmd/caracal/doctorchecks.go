@@ -139,7 +139,7 @@ type lockfileChange struct {
 }
 
 var reconcileItemTypes = map[string]bool{
-	"agent": true, "mcp": true, "skill": true, "hook": true, "prompt": true, "sandbox": true,
+	"agent": true, "mcp": true, "skill": true, "hook": true, "prompt": true,
 }
 
 // planLockfileReconciliation fetches canonical metadata for lockfile refs.
@@ -725,7 +725,9 @@ func missingCaracalSkillHarnesses(home string) []string {
 	missing := []string{}
 	for _, name := range registry.Names() {
 		spec, _ := registry.Spec(name)
-		if spec == nil || spec.Skills == nil || spec.Skills["user"] == "" {
+		// A harness that does not consume native Agent Skills can never be
+		// "missing" the core skill; skip it rather than report a false gap.
+		if spec == nil || !spec.EmitsSkillMd() || spec.Skills == nil || spec.Skills["user"] == "" {
 			continue
 		}
 		installed := false

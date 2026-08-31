@@ -472,6 +472,34 @@ func patchAntigravity(home string, dryRun bool) (bool, error) {
 	return true, nil
 }
 
+// cleanupAntigravity removes the managed caracal-telemetry hook group from the
+// Antigravity hooks file, dropping the file entirely when nothing else remains.
+func cleanupAntigravity(home string, dryRun bool) (bool, error) {
+	dir := antigravityConfigDir(home)
+	if dir == "" {
+		return false, nil
+	}
+	path := filepath.Join(dir, "hooks.json")
+	existing := loadJSONObjectQuiet(path)
+	if existing == nil || !existing.has("caracal-telemetry") {
+		return false, nil
+	}
+	if dryRun {
+		return true, nil
+	}
+	existing.remove("caracal-telemetry")
+	if existing.len() == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+		return true, nil
+	}
+	if err := writeDoctorJSON(path, existing); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func patchGoose(home string, dryRun bool) (bool, error) {
 	if !gooseDetected(home) {
 		return false, nil
@@ -881,6 +909,8 @@ func adapterChange(target, action string, dryRun bool) (bool, *clierr.Error) {
 	case "antigravity":
 		if patch {
 			changed, err = patchAntigravity(home, dryRun)
+		} else {
+			changed, err = cleanupAntigravity(home, dryRun)
 		}
 	case "goose":
 		if patch {

@@ -864,7 +864,33 @@ func markerIn(haystack string) bool {
 func detectHooksFor(name, home, homeDir string) string {
 	switch name {
 	case "cursor":
-		return "none"
+		doc := loadJSONCFile(filepath.Join(home, ".cursor", "hooks.json"))
+		if doc == nil {
+			doc = loadOrderedFile(filepath.Join(home, ".cursor", "hooks.json"))
+		}
+		if doc == nil {
+			return "missing"
+		}
+		hooks := doc.object("hooks")
+		if hooks == nil || hooks.len() == 0 {
+			return "missing"
+		}
+		found := 0
+		for _, event := range []string{"beforeSubmitPrompt", "stop"} {
+			for _, rawEntry := range hooks.array(event) {
+				if entry, ok := rawEntry.(*omap); ok && markerIn(entry.str("command")) {
+					found++
+					break
+				}
+			}
+		}
+		if found >= 2 {
+			return "installed"
+		}
+		if found > 0 {
+			return "partial"
+		}
+		return "missing"
 	case "pi":
 		if info, err := os.Stat(filepath.Join(homeDir, "extensions", "caracal.ts")); err == nil && !info.IsDir() {
 			return "installed"

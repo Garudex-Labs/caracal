@@ -34,7 +34,9 @@ func syncBundledSkills(home string, installMissing bool) []string {
 	updated := []string{}
 	for _, name := range registry.Names() {
 		spec, _ := registry.Spec(name)
-		if spec == nil || spec.Skills == nil || spec.Skills["user"] == "" {
+		// Skip harnesses whose Skill does not materialize as a native Agent
+		// Skill: writing SKILL.md there produces files the runtime never reads.
+		if spec == nil || !spec.EmitsSkillMd() || spec.Skills == nil || spec.Skills["user"] == "" {
 			continue
 		}
 		installed := false
