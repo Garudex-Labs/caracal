@@ -23,10 +23,10 @@ test("cleanFilters drops blank and whitespace-only values", () => {
 });
 
 test("activityRequestParams omits defaults and includes only active controls", () => {
-	assert.deepEqual(activityRequestParams({ sort: "desc", filters: {}, cursor: null }), {});
+	assert.deepEqual(activityRequestParams({ sort: "newest", filters: {}, cursor: null, pageSize: 20 }), {});
 	assert.deepEqual(
-		activityRequestParams({ sort: "asc", filters: { action: "publish", outcome: "" }, cursor: "abc" }),
-		{ dir: "asc", action: "publish", cursor: "abc" },
+		activityRequestParams({ sort: "oldest", filters: { action: "publish", outcome: "" }, cursor: "abc", pageSize: 50 }),
+		{ sort: "oldest", page_size: "50", action: "publish", cursor: "abc" },
 	);
 });
 
@@ -65,15 +65,18 @@ test("advance/goBack do not mutate the source stack", () => {
 });
 
 test("activityStateFromSearch reads only known filter keys", () => {
-	const search = new URLSearchParams("dir=asc&action=publish&evil=1&cursor=abc");
+	const search = new URLSearchParams("sort=slowest&action=publish&page_size=100&evil=1&cursor=abc");
 	const state = activityStateFromSearch(search, ["action", "outcome"]);
-	assert.deepEqual(state, { sort: "asc", filters: { action: "publish" }, cursor: "abc" });
+	assert.deepEqual(state, { sort: "newest", filters: { action: "publish" }, cursor: "abc", pageSize: 100 });
+	assert.equal(activityStateFromSearch(search, ["action"], ["newest", "oldest", "slowest"]).sort, "slowest");
 	// An unknown or invalid direction falls back to the default descending sort.
-	assert.equal(activityStateFromSearch(new URLSearchParams("dir=sideways"), []).sort, "desc");
+	assert.equal(activityStateFromSearch(new URLSearchParams("dir=sideways"), []).sort, "newest");
+	assert.equal(activityStateFromSearch(new URLSearchParams("dir=asc"), []).sort, "oldest");
+	assert.equal(activityStateFromSearch(new URLSearchParams("page_size=25"), []).pageSize, 20);
 });
 
 test("activityStateToSearch round-trips through activityStateFromSearch", () => {
-	const state: ActivityQueryState = { sort: "asc", filters: { action: "publish", actor: "dev@x.io" }, cursor: "c9" };
+	const state: ActivityQueryState = { sort: "oldest", filters: { action: "publish", actor: "dev@x.io" }, cursor: "c9", pageSize: 50 };
 	const restored = activityStateFromSearch(activityStateToSearch(state), ["action", "actor"]);
 	assert.deepEqual(restored, state);
 });

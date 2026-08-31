@@ -8,7 +8,11 @@
  * mirrored into the URL so a page is shareable and survives a reload.
  */
 
-export type ActivitySort = "desc" | "asc";
+export type ActivitySort = "newest" | "oldest" | "slowest" | "status_desc" | "event_type" | "outcome";
+
+export const ACTIVITY_PAGE_SIZES = [20, 50, 100] as const;
+export type ActivityPageSize = (typeof ACTIVITY_PAGE_SIZES)[number];
+export const DEFAULT_ACTIVITY_PAGE_SIZE: ActivityPageSize = 20;
 
 /** Active equality filters keyed by their API query-parameter name. */
 export type ActivityFilters = Record<string, string>;
@@ -17,6 +21,7 @@ export interface ActivityQueryState {
 	sort: ActivitySort;
 	filters: ActivityFilters;
 	cursor: string | null;
+	pageSize: ActivityPageSize;
 }
 
 /** Drops blank filter values so the URL and request stay minimal. */
@@ -32,10 +37,16 @@ export function cleanFilters(filters: ActivityFilters): ActivityFilters {
 /** Builds the API request query params for one page. */
 export function activityRequestParams(state: ActivityQueryState): Record<string, string> {
 	const params: Record<string, string> = {};
-	if (state.sort === "asc") params.dir = "asc";
+	if (state.sort !== "newest") params.sort = state.sort;
+	if (state.pageSize !== DEFAULT_ACTIVITY_PAGE_SIZE) params.page_size = String(state.pageSize);
 	for (const [key, value] of Object.entries(cleanFilters(state.filters))) params[key] = value;
 	if (state.cursor) params.cursor = state.cursor;
 	return params;
+}
+
+export function normalizeActivityPageSize(value: string | null | undefined): ActivityPageSize {
+	const parsed = Number(value);
+	return ACTIVITY_PAGE_SIZES.includes(parsed as ActivityPageSize) ? (parsed as ActivityPageSize) : DEFAULT_ACTIVITY_PAGE_SIZE;
 }
 
 /**
@@ -73,16 +84,22 @@ export function goBack(stack: CursorStack): CursorStack {
  * the known filter keys are read, so a crafted query cannot inject arbitrary
  * request parameters.
  */
-export function activityStateFromSearch(search: URLSearchParams, filterKeys: readonly string[]): ActivityQueryState {
+export function activityStateFromSearch(
+	search: URLSearchParams,
+	filterKeys: readonly string[],
+	sortValues: readonly ActivitySort[] = ["newest", "oldest"],
+): ActivityQueryState {
 	const filters: ActivityFilters = {};
 	for (const key of filterKeys) {
 		const value = search.get(key);
 		if (value) filters[key] = value;
 	}
+	const rawSort = search.get("sort") as ActivitySort | null;
 	return {
-		sort: search.get("dir") === "asc" ? "asc" : "desc",
+		sort: rawSort && sortValues.includes(rawSort) ? rawSort : search.get("dir") === "asc" ? "oldest" : "newest",
 		filters,
 		cursor: search.get("cursor"),
+		pageSize: normalizeActivityPageSize(search.get("page_size")),
 	};
 }
 
