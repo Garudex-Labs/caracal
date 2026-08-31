@@ -84,9 +84,12 @@ import type {
 	OrgMemberUpsertBody,
 	OrgInvitation,
 	OrgInvitationCreateBody,
+	OrgInvitationListParams,
 	OnboardingSnapshot,
 	Project,
 	ProjectMember,
+	ProjectMemberListParams,
+	ProjectMembersPage,
 	ProjectCreateBody,
 	ProjectMemberUpsertBody,
 	ProjectResources,
@@ -543,8 +546,7 @@ export type RegistryType =
 	| "agents"
 	| "skills"
 	| "hooks"
-	| "prompts"
-	| "sandboxes";
+	| "prompts";
 
 // GET /registry/resolve takes the singular form of each registry type.
 const SINGULAR_REGISTRY_TYPE: Record<RegistryType, string> = {
@@ -553,7 +555,6 @@ const SINGULAR_REGISTRY_TYPE: Record<RegistryType, string> = {
 	skills: "skill",
 	hooks: "hook",
 	prompts: "prompt",
-	sandboxes: "sandbox",
 };
 
 export const registry = {
@@ -584,8 +585,8 @@ export const registry = {
 	validate: (body: {
 		components: { component_type: string; component_id: string }[];
 		project_id?: string;
-		// Mirrors the server's Visibility literal (schemas/constants.py).
-		visibility?: "public" | "team" | "private";
+		// Mirrors the server's Visibility literal: project or private.
+		visibility?: "project" | "private";
 	}) => post<ValidationResult>("/agents/validate", body),
 	previewConfig: (body: {
 		name: string;
@@ -724,8 +725,18 @@ export const users = {
 // Path identity is the slug; the server validates membership on every
 // request and answers 404 for organizations the caller cannot see.
 
-/** Query string for the paginated org listings; omits empty values. */
-function listQuery(params?: OrgListParams): string {
+/** Query string for bounded list endpoints; omits empty values. */
+function listQuery(params?: OrgListParams | ProjectMemberListParams): string {
+	if (!params) return "";
+	const qs = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value !== undefined && value !== null && `${value}` !== "") qs.set(key, `${value}`);
+	}
+	const s = qs.toString();
+	return s ? `?${s}` : "";
+}
+
+function invitationListQuery(params?: OrgInvitationListParams): string {
 	if (!params) return "";
 	const qs = new URLSearchParams();
 	for (const [key, value] of Object.entries(params)) {
@@ -770,8 +781,8 @@ export const orgs = {
 		patch<Project>(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}`, body),
 	deleteProject: (slug: string, project: string) =>
 		del(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}`),
-	projectMembers: (slug: string, project: string) =>
-		get<ProjectMember[]>(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}/members`),
+	projectMembers: (slug: string, project: string, params?: ProjectMemberListParams) =>
+		get<ProjectMembersPage>(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}/members${listQuery(params)}`),
 	upsertProjectMember: (slug: string, project: string, body: ProjectMemberUpsertBody) =>
 		post<ProjectMember>(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}/members`, body),
 	removeProjectMember: (slug: string, project: string, userId: string) =>
@@ -782,7 +793,8 @@ export const orgs = {
 		get<ResourceRetentionPolicy>(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}/retention-policy`),
 	updateResourceRetentionPolicy: (slug: string, project: string, body: ResourceRetentionPolicyUpdate, preview = false) =>
 		put<ResourceRetentionPolicy>(`/orgs/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project)}/retention-policy${preview ? "?preview=true" : ""}`, body),
-	invitations: (slug: string) => get<OrgInvitation[]>(`/orgs/${encodeURIComponent(slug)}/invitations`),
+	invitations: (slug: string, params?: OrgInvitationListParams) =>
+		get<OrgInvitation[]>(`/orgs/${encodeURIComponent(slug)}/invitations${invitationListQuery(params)}`),
 	createInvitation: (slug: string, body: OrgInvitationCreateBody) =>
 		post<OrgInvitation>(`/orgs/${encodeURIComponent(slug)}/invitations`, body),
 	revokeInvitation: (slug: string, id: string) =>
@@ -1213,6 +1225,20 @@ export interface HarnessEntry {
 	display_name: string;
 	capabilities: string[];
 	supported_models: string[];
+	/** Registry Skill support level: "native" or "unsupported". */
+	skill_support?: string;
+	/** Native representation a Registry Skill maps to, e.g. "agent_skill". */
+	skill_mechanism?: string;
+	/** Registry Hook support level: "native", "compatible", or "unsupported". */
+	hook_support?: string;
+	/** Native representation a Registry Hook maps to, e.g. "command_json", "plugin". */
+	hook_mechanism?: string;
+	/** Agent support level: "native", "compatible", or "unsupported". */
+	agent_support?: string;
+	/** Native representation a Caracal Agent maps to, e.g. "subagent_markdown". */
+	agent_mechanism?: string;
+	/** Whether the harness natively supports multiple independently selectable agents. */
+	agent_multi?: boolean;
 }
 
 interface HarnessesResponse {

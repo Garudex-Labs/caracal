@@ -16,7 +16,6 @@ const docModules = import.meta.glob<string>([
 	"../../../docs/registry-mcp-helper.md",
 	"../../../docs/registry-skill-helper.md",
 	"../../../docs/registry-hook-helper.md",
-	"../../../docs/registry-sandbox-helper.md",
 	"../../../docs/self-hosting/authentication.md",
 	"../../../docs/self-hosting/deployment-settings.md",
 	"../../../docs/self-hosting/token-expiry.md",

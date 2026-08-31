@@ -19,7 +19,7 @@ export interface RegistryItem {
 	slug?: string;
 	qualified_name?: string;
 	project_id?: string | null;
-	visibility?: "public" | "team" | "project" | "private";
+	visibility?: "project" | "private";
 	is_private?: boolean;
 	description?: string;
 	status?: string;
@@ -54,7 +54,7 @@ export interface AgentDetail {
 	owner?: string;
 	user_permission?: string;
 	project_id?: string | null;
-	visibility?: "public" | "team" | "project" | "private";
+	visibility?: "project" | "private";
 	is_private?: boolean;
 	description?: string;
 	prompt?: string;
@@ -194,20 +194,11 @@ export interface ComponentVersionSummary {
 	category?: string;
 	template?: string;
 	variables?: unknown[];
-	model_hints?: Record<string, unknown>;
 	tags?: string[];
-	// MCP/Sandbox fields
+	// MCP source fields
 	source_url?: string;
 	source_ref?: string;
 	resolved_sha?: string;
-	// Sandbox fields
-	runtime_type?: string;
-	image?: string;
-	resource_limits?: Record<string, unknown>;
-	network_policy?: string;
-	entrypoint?: string;
-	runtime_config?: Record<string, unknown>;
-	sandbox_path?: string;
 }
 
 export interface ComponentVersionsResponse {
@@ -348,16 +339,8 @@ export interface ReviewItem {
 	category?: string;
 	template?: string;
 	variables?: unknown[];
-	model_hints?: Record<string, unknown>;
 	tags?: string[];
 
-	// Sandbox-specific
-	runtime_type?: string;
-	image?: string;
-	resource_limits?: Record<string, unknown>;
-	network_policy?: string;
-	entrypoint?: string;
-	sandbox_path?: string;
 	validated_at?: string;
 
 	// Agent-specific
@@ -375,7 +358,7 @@ export interface ReviewItem {
 
 export interface ProjectResource {
 	id: string;
-	resource_type: "agents" | "mcps" | "skills" | "hooks" | "prompts" | "sandboxes";
+	resource_type: "agents" | "mcps" | "skills" | "hooks" | "prompts";
 	name: string;
 	namespace: string;
 	slug: string;
@@ -383,8 +366,8 @@ export interface ProjectResource {
 	description?: string | null;
 	status?: string | null;
 	version?: string | null;
-	visibility?: "public" | "team" | "private";
-	ownership_scope?: "private" | "team";
+	visibility?: "project" | "private";
+	ownership_scope?: "private" | "project";
 	owner?: string | null;
 	project_id?: string | null;
 	downloads?: number | null;

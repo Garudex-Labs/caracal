@@ -113,7 +113,6 @@ export const INBOX_SUBJECT_LABELS: Record<string, string> = {
 	skill: "Skills",
 	hook: "Hooks",
 	prompt: "Prompts",
-	sandbox: "Sandboxes",
 	insight_report: "Insight reports",
 	system: "System",
 };

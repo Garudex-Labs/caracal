@@ -152,9 +152,7 @@ export type RegistryRouteType =
 	| "hook"
 	| "hooks"
 	| "prompt"
-	| "prompts"
-	| "sandbox"
-	| "sandboxes";
+	| "prompts";
 
 const COMPONENT_ROUTE_TYPE: Record<Exclude<RegistryRouteType, "agent" | "agents">, string> = {
 	mcp: "mcps",
@@ -165,8 +163,6 @@ const COMPONENT_ROUTE_TYPE: Record<Exclude<RegistryRouteType, "agent" | "agents"
 	hooks: "hooks",
 	prompt: "prompts",
 	prompts: "prompts",
-	sandbox: "sandboxes",
-	sandboxes: "sandboxes",
 };
 
 /** Canonical web path when possible, otherwise the always-resolvable UUID path. */
