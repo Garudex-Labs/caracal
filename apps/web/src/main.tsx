@@ -7,6 +7,17 @@ import { RouterProvider, createRouter, Navigate } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { canonicalProjectFreePath, firstSegmentsFromPaths, initTenant } from "@/lib/tenant-host";
 
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  if (sessionStorage.getItem("caracal_chunk_reload") === "1") return;
+  sessionStorage.setItem("caracal_chunk_reload", "1");
+  window.location.reload();
+});
+
+window.addEventListener("load", () => {
+  sessionStorage.removeItem("caracal_chunk_reload");
+});
+
 // {org}.{host}/{project}/... - the project prefix becomes the router basepath.
 // Project links include that prefix; organization/account/operator routes are
 // absolute and canonicalized outside it. A throwaway router resolves route
