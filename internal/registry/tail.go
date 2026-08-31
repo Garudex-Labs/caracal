@@ -23,7 +23,7 @@ import (
 // ── Registry reconcile ──────────────────────────────────────────────────
 
 // reconcileTypes maps request item types onto their storage.
-var reconcileTypes = map[string]bool{"agent": true, "mcp": true, "skill": true, "hook": true, "prompt": true, "sandbox": true}
+var reconcileTypes = map[string]bool{"agent": true, "mcp": true, "skill": true, "hook": true, "prompt": true}
 
 // ReconcileItems returns canonical metadata for installed registry ids,
 // bounded to one query per type and filtered by row visibility.
@@ -37,8 +37,8 @@ func (s *Store) ReconcileItems(ctx context.Context, items []map[string]any, view
 		rawID, _ := item["id"].(string)
 		if !reconcileTypes[itemType] {
 			errs = append(errs, fieldError{Type: "literal_error", Loc: []string{"body", "items", fmt.Sprint(i), "type"},
-				Msg: "Input should be 'agent', 'mcp', 'skill', 'hook', 'prompt' or 'sandbox'", Input: item["type"],
-				Ctx: map[string]any{"expected": "'agent', 'mcp', 'skill', 'hook', 'prompt' or 'sandbox'"}})
+				Msg: "Input should be 'agent', 'mcp', 'skill', 'hook' or 'prompt'", Input: item["type"],
+				Ctx: map[string]any{"expected": "'agent', 'mcp', 'skill', 'hook' or 'prompt'"}})
 			continue
 		}
 		parsed, err := uuid.Parse(rawID)
@@ -138,12 +138,11 @@ var transferEntities = map[string]struct {
 	listingTable, versionTable, singular string
 	isAgent                              bool
 }{
-	"mcps":      {"mcp_listings", "mcp_versions", "mcp", false},
-	"skills":    {"skill_listings", "skill_versions", "skill", false},
-	"hooks":     {"hook_listings", "hook_versions", "hook", false},
-	"prompts":   {"prompt_listings", "prompt_versions", "prompt", false},
-	"sandboxes": {"sandbox_listings", "sandbox_versions", "sandbox", false},
-	"agents":    {"agents", "agent_versions", "agent", true},
+	"mcps":    {"mcp_listings", "mcp_versions", "mcp", false},
+	"skills":  {"skill_listings", "skill_versions", "skill", false},
+	"hooks":   {"hook_listings", "hook_versions", "hook", false},
+	"prompts": {"prompt_listings", "prompt_versions", "prompt", false},
+	"agents":  {"agents", "agent_versions", "agent", true},
 }
 
 // TransferOwnership moves a listing or agent to another user.

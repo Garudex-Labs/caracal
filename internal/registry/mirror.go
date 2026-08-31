@@ -34,7 +34,7 @@ type SettingsReader interface {
 type DiscoveredComponent struct {
 	Name          string
 	Path          string // relative to the repository root
-	ComponentType string // mcp, skill, hook, prompt, sandbox
+	ComponentType string // mcp, skill, hook, prompt
 	Description   string
 }
 
@@ -167,25 +167,23 @@ func commitSHA(dir string) string {
 }
 
 // componentTypeOrder fixes the discovery order across component families.
-var componentTypeOrder = []string{"mcp", "skill", "hook", "prompt", "sandbox"}
+var componentTypeOrder = []string{"mcp", "skill", "hook", "prompt"}
 
 // manifestKeys maps component families to their manifest list keys.
 var manifestKeys = map[string]string{
-	"mcp":     "mcps",
-	"skill":   "skills",
-	"hook":    "hooks",
-	"prompt":  "prompts",
-	"sandbox": "sandboxes",
+	"mcp":    "mcps",
+	"skill":  "skills",
+	"hook":   "hooks",
+	"prompt": "prompts",
 }
 
 // conventionDirs lists the directories scanned per family when no manifest
 // is present.
 var conventionDirs = map[string][]string{
-	"mcp":     {"src", "mcps", "servers"},
-	"skill":   {"skills"},
-	"hook":    {"hooks"},
-	"prompt":  {"prompts"},
-	"sandbox": {"sandboxes"},
+	"mcp":    {"src", "mcps", "servers"},
+	"skill":  {"skills"},
+	"hook":   {"hooks"},
+	"prompt": {"prompts"},
 }
 
 // discoverComponents finds components via the manifest, falling back to a
@@ -282,8 +280,6 @@ func hasComponentMarker(ctype, dir string) bool {
 		md, _ := filepath.Glob(filepath.Join(dir, "*.md"))
 		txt, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
 		return len(md) > 0 || len(txt) > 0
-	case "sandbox":
-		return fileExists(filepath.Join(dir, "Dockerfile"))
 	}
 	return true
 }

@@ -47,9 +47,6 @@ func TestRecommendSearchFieldsPerFamily(t *testing.T) {
 			t.Errorf("%s fields = %v", prefix, fields)
 		}
 	}
-	if got := recommendSearchFields(Families["sandboxes"]); len(got) != 2 {
-		t.Errorf("sandbox fields = %v", got)
-	}
 }
 
 func TestCandidateCategorySourceColumn(t *testing.T) {
@@ -62,9 +59,6 @@ func TestCandidateCategorySourceColumn(t *testing.T) {
 	}
 	if got := candidateCategory(Families["hooks"], row); got == nil || *got != "PreToolUse" {
 		t.Errorf("hook category = %v", got)
-	}
-	if got := candidateCategory(Families["sandboxes"], row); got != nil {
-		t.Errorf("sandbox category = %v", got)
 	}
 }
 

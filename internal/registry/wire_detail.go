@@ -178,25 +178,6 @@ type promptDetail struct {
 	UserPermission *string `json:"user_permission"`
 }
 
-type sandboxDetail struct {
-	detailCore
-	Description string `json:"description"`
-	summaryTail
-	RuntimeType        string         `json:"runtime_type"`
-	Image              string         `json:"image"`
-	ResourceLimits     map[string]any `json:"resource_limits"`
-	NetworkPolicy      string         `json:"network_policy"`
-	Entrypoint         *string        `json:"entrypoint"`
-	RuntimeConfig      map[string]any `json:"runtime_config"`
-	SourceURL          *string        `json:"source_url"`
-	SourceRef          *string        `json:"source_ref"`
-	ResolvedSha        *string        `json:"resolved_sha"`
-	SandboxPath        *string        `json:"sandbox_path"`
-	SupportedHarnesses []any          `json:"supported_harnesses"`
-	detailTrail
-	UserPermission *string `json:"user_permission"`
-}
-
 // detail renders one resolved row as its family's show shape; a nil
 // permission stays null on the wire (draft creation never computes one).
 func detail(f Family, row map[string]any, perm *string, validations []map[string]any) any {
@@ -289,23 +270,6 @@ func detail(f Family, row map[string]any, perm *string, validations []map[string
 			UserPermission:     perm,
 		}
 	default:
-		return sandboxDetail{
-			detailCore:         detailCoreOf(row),
-			Description:        rowStr(row, "description", ""),
-			summaryTail:        tailOf(row),
-			RuntimeType:        rowStr(row, "runtime_type", ""),
-			Image:              rowStr(row, "image", ""),
-			ResourceLimits:     rowDict(row, "resource_limits"),
-			NetworkPolicy:      rowStr(row, "network_policy", "none"),
-			Entrypoint:         rowNStr(row, "entrypoint"),
-			RuntimeConfig:      rowDict(row, "runtime_config"),
-			SourceURL:          rowNStr(row, "source_url"),
-			SourceRef:          rowNStr(row, "source_ref"),
-			ResolvedSha:        rowNStr(row, "resolved_sha"),
-			SandboxPath:        rowNStr(row, "sandbox_path"),
-			SupportedHarnesses: rowList(row, "supported_harnesses"),
-			detailTrail:        detailTrailOf(row),
-			UserPermission:     perm,
-		}
+		return nil
 	}
 }

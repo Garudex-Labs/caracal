@@ -201,8 +201,6 @@ func TestDiscoverComponents(t *testing.T) {
 			"hooks/pre/hook.json":       "{}",
 			"hooks/bare/readme.md":      "no marker",
 			"prompts/daily/daily.md":    "prompt",
-			"sandboxes/py/Dockerfile":   "FROM python",
-			"sandboxes/none/readme.md":  "no marker",
 		}
 		for rel, content := range files {
 			full := filepath.Join(dir, rel)
@@ -242,11 +240,10 @@ func TestDiscoverComponents(t *testing.T) {
 			byType[comp.ComponentType] = append(byType[comp.ComponentType], comp.Name)
 		}
 		expect := map[string][]string{
-			"mcp":     {"alpha"},
-			"skill":   {"reviewer"},
-			"hook":    {"pre"},
-			"prompt":  {"daily"},
-			"sandbox": {"py"},
+			"mcp":    {"alpha"},
+			"skill":  {"reviewer"},
+			"hook":   {"pre"},
+			"prompt": {"daily"},
 		}
 		for family, names := range expect {
 			if strings.Join(byType[family], ",") != strings.Join(names, ",") {

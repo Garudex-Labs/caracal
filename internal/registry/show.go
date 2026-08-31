@@ -71,10 +71,6 @@ func detailColumns(f Family) string {
 			"v.handler_config", "v.scope", "v.script_content", "v.script_filename")
 	case "prompts":
 		cols = append(cols, "v.category", "v.template", "v.variables", "v.tags")
-	case "sandboxes":
-		cols = append(cols, "v.runtime_type", "v.image", "v.resource_limits", "v.network_policy",
-			"v.entrypoint", "v.runtime_config", "v.source_url", "v.source_ref", "v.resolved_sha",
-			"v.sandbox_path")
 	}
 	return strings.Join(cols, ", ")
 }
