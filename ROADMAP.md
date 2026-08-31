@@ -13,7 +13,7 @@ This roadmap begins with the current repository. It does not treat planned polic
 
 ### Resource lifecycle
 
-The registry currently presents Agents, MCP servers, Skills, Hooks, Prompts, and Sandboxes through a unified Resource read model. A Resource has canonical `namespace/slug` identity, an owning Project, owner and co-author metadata, visibility, lifecycle activity, and version history.
+The registry currently presents Agents, MCP servers, Skills, Hooks, and Prompts through a unified Resource read model. A Resource has canonical `namespace/slug` identity, an owning Project, owner and co-author metadata, visibility, lifecycle activity, and version history.
 
 Versions carry the distributable payload and move through `draft`, `pending`, `approved`, `rejected`, and `archived` states. The product presents proposed and decided Versions as Changes inside each Resource workspace. Reviews include scoped approval or rejection, version diffs, review issues, comments, and Inbox notifications. Public work is reviewed by deployment reviewers; project-scoped work is reviewed by Project leads; private work remains creator-only.
 
@@ -89,7 +89,7 @@ Expand permissions from broad Resource read/write administration into actions su
 
 **Builds on.** The authoritative Resource lifecycle, verifiable distribution, Trace evidence, workforce subjects, existing permissions, Reviews, audit logs, security events, and settings.
 
-**Engineering outcome.** Add versioned policy objects with inheritance across Organization, Project, Team, role, and User scopes. Policies should target Harnesses, Agents, Resources, MCP servers, individual tools, service connections, and Sandboxes, and decide concrete actions such as discovery, installation, update, execution, Trace access, or credential use.
+**Engineering outcome.** Add versioned policy objects with inheritance across Organization, Project, Team, role, and User scopes. Policies should target Harnesses, Agents, Resources, MCP servers, individual tools, and service connections, and decide concrete actions such as discovery, installation, update, execution, Trace access, or credential use.
 
 Build one explainable decision service used by the API, CLI, web UI, config generation, and synchronization. Define deterministic precedence for inherited rules and exceptions. Add simulation, impact previews, staged activation, and decision logs. Connect approval requirements to policy and evidence, including provenance, new tool exposure, network access, secret requirements, risk classification, and requested audience.
 
@@ -101,11 +101,11 @@ The first enforcement points should be operations Caracal already owns: registry
 
 **Why it matters.** Installation policy cannot protect company systems after a harness starts running. Long-lived credentials copied into local config also exceed the identity and lifetime of the Agent action that needs them.
 
-**Builds on.** Policy decisions, exact installed-state evidence, short-lived identity, harness Hooks, MCP metadata, service ownership, Sandboxes, audit events, and revocation.
+**Builds on.** Policy decisions, exact installed-state evidence, short-lived identity, harness Hooks, MCP metadata, service ownership, audit events, and revocation.
 
 **Engineering outcome.** Model company services and infrastructure connections as governed Resources. Add a credential broker that issues short-lived credentials scoped to the principal, Project, Harness, Agent, tool, service, and approved action. Registry content and Traces must contain references and redacted metadata, never credential values.
 
-For harnesses with trustworthy pre-tool, MCP, or execution interception points, call the policy service before access and fail according to the Organization's configured availability policy. Carry the decision and credential scope into audit and security events. Strengthen Sandboxes with enforceable network, mount, resource, secret, and egress policies. Add immediate response actions for disabling a Version, revoking credentials, blocking a tool, and removing managed configuration.
+For harnesses with trustworthy pre-tool, MCP, or execution interception points, call the policy service before access and fail according to the Organization's configured availability policy. Carry the decision and credential scope into audit and security events. Strengthen local execution runtimes with enforceable network, mount, resource, secret, and egress policies. Add immediate response actions for disabling a Version, revoking credentials, blocking a tool, and removing managed configuration.
 
 Harnesses without an adequate enforcement point must be labeled detect-only or distribution-only. Caracal should not claim equivalent runtime protection where the integration cannot provide it.
 
@@ -129,7 +129,7 @@ Expand Intelligence from current Project and Agent signals into Organization-lev
 
 **Builds on.** Governed Resources, verifiable distribution, workforce identity, policy decisions, runtime enforcement, scoped credentials, reliable Traces, and versioned evaluation.
 
-**Engineering outcome.** Model repeatable workflows that compose Agents, component Resources, service access, Sandboxes, evaluation checks, and approval gates. Allow Agents to request tools or credentials through policy rather than receiving standing access. Autonomous maintenance should create evidence-backed Changes with expected impact, required reviewers, rollout scope, and rollback plans.
+**Engineering outcome.** Model repeatable workflows that compose Agents, component Resources, service access, evaluation checks, and approval gates. Allow Agents to request tools or credentials through policy rather than receiving standing access. Autonomous maintenance should create evidence-backed Changes with expected impact, required reviewers, rollout scope, and rollback plans.
 
 Introduce progressive rollout only for policy-approved, low-risk Changes. Monitor live evidence against declared success and safety criteria; pause or revert automatically when thresholds are crossed. Human approval remains mandatory wherever policy, impact, evidence quality, or integration capability requires it.
 

@@ -13,7 +13,7 @@ Caracal is an agent-centric registry and observability platform for AI coding ag
 2. **Web UI** (`apps/web/`): browse the registry, view traces, manage users, admin dashboard
 3. **Caracal skill** (bundled, auto-installed on login): lets the LLM inside any harness drive Caracal commands directly (e.g. "create an agent that uses the github MCP")
 
-Agents are the primary entity. Each agent bundles 5 component types: MCP servers, skills, hooks, prompts, and sandboxes. When a user runs `caracal agent pull <agent>`, the platform resolves all components and writes harness-specific config files.
+Agents are the primary entity. Each agent bundles 4 component types: MCP servers, skills, hooks, and prompts. When a user runs `caracal agent pull <agent>`, the platform resolves all components and writes harness-specific config files.
 
 ## harness capability support
 
@@ -46,7 +46,7 @@ cmd/caracal/           Go CLI (cobra command groups: scancmd.go, doctorcmd.go, p
   assets/skills/       Bundled skills embedded in the binary, installed on login (caracal, caracal-admin, etc.)
 cmd/caracal-server/    Go API server (route wiring, init container entry, health)
 internal/              Go packages (harness registry, auth, ingest, sessions, telemetry, config, alerts, audit)
-  cli/                 CLI internals (clierr, config, api, outbox, sessions, ref, lockfile, migrate, sandbox)
+  cli/                 CLI internals (clierr, config, api, outbox, sessions, ref, lockfile, migrate)
 
 packages/harness-data/ Canonical harness registry + model catalogs (shared by all components)
 packages/pi-extension/ Pi telemetry extension (npm: caracal-pi)
@@ -137,7 +137,6 @@ caracal
 │   ├── skill                #   submit, list, show, install, edit, delete, co-authors
 │   ├── hook                 #   submit, list, show, install, edit, delete, co-authors
 │   ├── prompt               #   submit, list, show, edit, render, delete, co-authors
-│   ├── sandbox              #   submit, list, show, edit, delete, co-authors
 │   ├── models               #   inspect registry-backed harness model data
 │   ├── version              #   component version commands
 │   ├── recommend            #   components recommended from your own sessions
@@ -160,7 +159,7 @@ caracal
 
 REST at `/api/v1/`. GraphQL at `/api/v1/graphql` (read-only telemetry layer with subscriptions).
 
-Key route groups, all served by the Go `caracal-server` (`cmd/caracal-server`): `/api/v1/ingest/`, `/api/v1/sessions`, `/api/v1/telemetry`, `/api/v1/dashboard`, `/api/v1/config`, `/api/v1/alerts`, `/api/v1/audit`, `/api/v1/operator/*` (deployment control plane: overview, orgs, audit-log, logs, retention, users, settings, status, resources, AI engine, migrate, restart), `/api/v1/graphql`, `/api/v1/overview`, `/api/v1/exec` (including AI insight generation), `/api/v1/support`, `/api/v1/agents` (reads, writes, drafts, versions, install, harness config generation, and per-agent insight reports), `/api/v1/layer-snapshots`, `/api/v1/insights` (reads, deletions, generation, HTML export, and suggestion application - `internal/insights` + `internal/insightsgen`), the component family prefixes (`/api/v1/mcps`, `/api/v1/skills`, `/api/v1/hooks`, `/api/v1/prompts`, `/api/v1/sandboxes`), `/api/v1/registry`, `/api/v1/review`, `/api/v1/resources`, `/api/v1/recommendations`, `/api/v1/component-sources`, and `/api/v1/bulk`. Backing packages live under `internal/` (`ingest`, `sessions`, `traceview`, `telemetry`, `config`, `alerts`, `livewire`, `overview`, `execdash`, `logring`, `retention`, `support`, `agents`, `harnessgen`, `layers`, `insights`, `insightsgen`, `registry`, `adminops`, `operatorops`, `adminmigrate`, `llm`).
+Key route groups, all served by the Go `caracal-server` (`cmd/caracal-server`): `/api/v1/ingest/`, `/api/v1/sessions`, `/api/v1/telemetry`, `/api/v1/dashboard`, `/api/v1/config`, `/api/v1/alerts`, `/api/v1/audit`, `/api/v1/operator/*` (deployment control plane: overview, orgs, audit-log, logs, retention, users, settings, status, resources, AI engine, migrate, restart), `/api/v1/graphql`, `/api/v1/overview`, `/api/v1/exec` (including AI insight generation), `/api/v1/support`, `/api/v1/agents` (reads, writes, drafts, versions, install, harness config generation, and per-agent insight reports), `/api/v1/layer-snapshots`, `/api/v1/insights` (reads, deletions, generation, HTML export, and suggestion application - `internal/insights` + `internal/insightsgen`), the component family prefixes (`/api/v1/mcps`, `/api/v1/skills`, `/api/v1/hooks`, `/api/v1/prompts`), `/api/v1/registry`, `/api/v1/review`, `/api/v1/resources`, `/api/v1/recommendations`, `/api/v1/component-sources`, and `/api/v1/bulk`. Backing packages live under `internal/` (`ingest`, `sessions`, `traceview`, `telemetry`, `config`, `alerts`, `livewire`, `overview`, `execdash`, `logring`, `retention`, `support`, `agents`, `harnessgen`, `layers`, `insights`, `insightsgen`, `registry`, `adminops`, `operatorops`, `adminmigrate`, `llm`).
 
 Deployment vs tenant authority: `/api/v1/operator/*` is the deployment control plane for the team hosting Caracal (platform statistics, tenant lifecycle metadata, service health, telemetry/AI engine config, deployment users). It is gated by `RequireRole("operator")` and is the ONLY place the `operator` deployment role grants authority. Organization administration (`/api/v1/orgs/{org}/*`, served by `internal/orgs`) is tenant-scoped: owner/admin/member roles in `organization_memberships`, resolved by membership JOIN keyed on `user_id` alone. The two never imply each other - an operator is a non-member (404) on org routes, and org owner/admin (deployment role `user`) can administer their org without any operator privilege. Operator does NOT hold implicit ownership of tenant content (agents, insight reports, alert secrets); those stay owner/co-author scoped. Boundary regression tests: `internal/orgs/boundary_test.go` and `internal/operatorops/handler_test.go`.
 
