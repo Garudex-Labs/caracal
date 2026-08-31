@@ -16,6 +16,7 @@ import (
 	"github.com/garudex-labs/caracal/internal/cli/api"
 	"github.com/garudex-labs/caracal/internal/cli/clierr"
 	"github.com/garudex-labs/caracal/internal/cli/ref"
+	"github.com/garudex-labs/caracal/internal/promptcat"
 )
 
 func validationErr(message, operation, resource, remediation string) *clierr.Error {
@@ -50,6 +51,23 @@ func requireHarnesses(harnesses []string, operation string) *clierr.Error {
 				Category: clierr.Validation, Message: fmt.Sprintf("Unknown harness: %s.", name),
 				Operation: operation, Resource: "supported harnesses",
 				Remediation: "Choose from: " + strings.Join(validHarnesses, ", ") + ".",
+			}
+		}
+	}
+	return nil
+}
+
+// requireRegistryHookHarnesses rejects a hook submission that targets a harness
+// which cannot materialize a Registry Hook, matching the server-side gate so an
+// unsupported harness is refused before the submission is sent.
+func requireRegistryHookHarnesses(harnesses []string, operation string) *clierr.Error {
+	for _, name := range harnesses {
+		if !harnessSupportsRegistryHooks(name) {
+			return &clierr.Error{
+				Category:  clierr.Validation,
+				Message:   fmt.Sprintf("%s does not support hooks and cannot be a target for this resource.", name),
+				Operation: operation, Resource: "supported harnesses",
+				Remediation: "Remove unsupported harnesses. Run caracal doctor to see per-harness capabilities.",
 			}
 		}
 	}
@@ -128,7 +146,7 @@ func skillSubmitCommand() *cobra.Command {
 	harnesses := cmd.Flags().StringArray("harness", nil, "Supported harnesses (repeat for multiple)")
 	draft := cmd.Flags().Bool("draft", false, "Save as a draft instead of submitting")
 	submitDraft := cmd.Flags().String("submit", "", "Submit a draft for review (skill ID)")
-	visibility := cmd.Flags().String("visibility", "", "Visibility: public or project")
+	visibility := cmd.Flags().String("visibility", "", "Visibility: project or private")
 	mode := outputFlag(cmd)
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		const op = "Submit skill"
@@ -377,7 +395,7 @@ func hookSubmitCommand() *cobra.Command {
 	executionMode := cmd.Flags().String("execution-mode", "", "Execution mode: async, sync, or blocking")
 	scope := cmd.Flags().String("scope", "", "Scope: agent, session, or global")
 	harnesses := cmd.Flags().StringArray("harness", nil, "Supported harnesses (repeat for multiple)")
-	visibility := cmd.Flags().String("visibility", "", "Visibility: public or project")
+	visibility := cmd.Flags().String("visibility", "", "Visibility: project or private")
 	mode := outputFlag(cmd)
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		const op = "Submit hook"
@@ -447,6 +465,9 @@ func hookSubmitCommand() *cobra.Command {
 				}
 			}
 			if cerr := requireHarnesses(*harnesses, op); cerr != nil {
+				return cerr
+			}
+			if cerr := requireRegistryHookHarnesses(*harnesses, op); cerr != nil {
 				return cerr
 			}
 			if *name == "" || *description == "" || *event == "" {
@@ -586,7 +607,7 @@ func promptSubmitCommand() *cobra.Command {
 	template := cmd.Flags().StringP("template", "t", "", "Template text")
 	draft := cmd.Flags().Bool("draft", false, "Save as a draft instead of submitting")
 	submitDraft := cmd.Flags().String("submit", "", "Submit a draft for review (prompt ID)")
-	visibility := cmd.Flags().String("visibility", "", "Visibility: public or project")
+	visibility := cmd.Flags().String("visibility", "", "Visibility: project or private")
 	mode := outputFlag(cmd)
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		const op = "Submit prompt"
@@ -659,10 +680,12 @@ func promptSubmitCommand() *cobra.Command {
 			}
 		}
 		if categoryValue, ok := payload["category"].(string); ok && categoryValue != "" {
-			if !contains(validPromptCategories, categoryValue) {
-				return validationErr(fmt.Sprintf("Unknown prompt category: %s.", categoryValue), op, "category",
-					"Choose one of: "+strings.Join(validPromptCategories, ", ")+".")
+			norm, valid := promptcat.Normalize(categoryValue)
+			if !valid {
+				return validationErr(fmt.Sprintf("Invalid prompt category: %s.", categoryValue), op, "category",
+					"Use lowercase letters, digits, and hyphens (max 32 characters), or one of: "+strings.Join(validPromptCategories, ", ")+".")
 			}
+			payload["category"] = norm
 		}
 		if versionValue, ok := payload["version"].(string); ok {
 			if cerr := requireVersion(versionValue, "The prompt version is invalid.", op); cerr != nil {
@@ -729,10 +752,12 @@ func promptEditCommand() *cobra.Command {
 				"Provide an update file or one or more field options.")
 		}
 		if categoryValue, ok := updates["category"].(string); ok && categoryValue != "" {
-			if !contains(validPromptCategories, categoryValue) {
-				return validationErr(fmt.Sprintf("Unknown prompt category: %s.", categoryValue), op, "category",
-					"Choose one of: "+strings.Join(validPromptCategories, ", ")+".")
+			norm, valid := promptcat.Normalize(categoryValue)
+			if !valid {
+				return validationErr(fmt.Sprintf("Invalid prompt category: %s.", categoryValue), op, "category",
+					"Use lowercase letters, digits, and hyphens (max 32 characters), or one of: "+strings.Join(validPromptCategories, ", ")+".")
 			}
+			updates["category"] = norm
 		}
 		if versionValue, ok := updates["version"].(string); ok {
 			if cerr := requireVersion(versionValue, "The prompt version is invalid.", op); cerr != nil {
@@ -740,236 +765,6 @@ func promptEditCommand() *cobra.Command {
 			}
 		}
 		return startEditAndPutDraft(client, "prompts", resolved, updates, op, "prompt registry", *mode)
-	}
-	return cmd
-}
-
-// ── sandbox submit / edit ──────────────────────────────────────────
-
-func parseJSONObjectFlag(value, label, operation string) (map[string]any, *clierr.Error) {
-	if value == "" {
-		return nil, nil
-	}
-	var parsed any
-	if err := json.Unmarshal([]byte(value), &parsed); err != nil {
-		return nil, validationErr(fmt.Sprintf("The %s value is not valid JSON.", label), operation, label,
-			"Provide a JSON object and retry.")
-	}
-	object, ok := parsed.(map[string]any)
-	if !ok {
-		return nil, validationErr(fmt.Sprintf("The %s value must be a JSON object.", label), operation, label,
-			"Provide a JSON object and retry.")
-	}
-	return object, nil
-}
-
-func sandboxSubmitCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "submit", Short: "Submit a sandbox to the registry", Args: cobra.NoArgs}
-	fromFile := cmd.Flags().StringP("from-file", "f", "", "Load submission from JSON file")
-	name := cmd.Flags().StringP("name", "n", "", "Sandbox name")
-	version := cmd.Flags().StringP("version", "v", "", "Version")
-	description := cmd.Flags().StringP("description", "d", "", "Description")
-	runtimeType := cmd.Flags().StringP("runtime-type", "r", "", "Runtime type")
-	image := cmd.Flags().StringP("image", "i", "", "Image reference")
-	resourceLimits := cmd.Flags().String("resource-limits", "", "Resource limits JSON")
-	runtimeConfig := cmd.Flags().String("runtime-config", "", "Runtime config JSON")
-	networkPolicy := cmd.Flags().String("network-policy", "", "Network policy")
-	entrypoint := cmd.Flags().String("entrypoint", "", "Entrypoint")
-	harnesses := cmd.Flags().StringArray("harness", nil, "Supported harnesses (repeat for multiple)")
-	sourceURL := cmd.Flags().String("source-url", "", "Source repository URL")
-	sourceRef := cmd.Flags().String("source-ref", "", "Source reference")
-	sandboxPath := cmd.Flags().String("sandbox-path", "", "Path within the source repository")
-	draft := cmd.Flags().Bool("draft", false, "Save as a draft instead of submitting")
-	submitDraft := cmd.Flags().String("submit", "", "Submit a draft for review (sandbox ID)")
-	visibility := cmd.Flags().String("visibility", "", "Visibility: public or project")
-	mode := outputFlag(cmd)
-	cmd.RunE = func(c *cobra.Command, _ []string) error {
-		const op = "Submit sandbox"
-		if *draft && *submitDraft != "" {
-			return draftSubmitConflict(op)
-		}
-		client, cerr := newClient()
-		if cerr != nil {
-			return cerr
-		}
-		if *submitDraft != "" {
-			return submitDraftReference(client, "sandbox", "sandboxes", *submitDraft, op, "sandbox registry", *mode)
-		}
-		var payload map[string]any
-		if *fromFile != "" {
-			payload, cerr = loadJSONObjectFile(*fromFile, op, "sandbox submission file")
-			if cerr != nil {
-				return cerr
-			}
-			if _, has := payload["owner"]; !has {
-				payload["owner"] = configUsername()
-			}
-		} else {
-			flagMode := *name != "" || *version != "" || *description != "" || *runtimeType != "" ||
-				*image != "" || *resourceLimits != "" || *runtimeConfig != "" || *networkPolicy != "" ||
-				*entrypoint != "" || len(*harnesses) > 0
-			if !flagMode {
-				return validationErr("JSON mode requires explicit sandbox fields.", op, "submit options",
-					"Provide name, description, runtime type, image, and JSON configuration options.")
-			}
-			limits, cerr := parseJSONObjectFlag(*resourceLimits, "resource limits", op)
-			if cerr != nil {
-				return cerr
-			}
-			if limits == nil {
-				limits = map[string]any{}
-			}
-			runtime, cerr := parseJSONObjectFlag(*runtimeConfig, "runtime config", op)
-			if cerr != nil {
-				return cerr
-			}
-			if runtime == nil {
-				runtime = map[string]any{}
-			}
-			payload = map[string]any{
-				"name":                *name,
-				"version":             orDefault(*version, "1.0.0"),
-				"description":         *description,
-				"owner":               configUsername(),
-				"runtime_type":        *runtimeType,
-				"image":               *image,
-				"resource_limits":     limits,
-				"runtime_config":      runtime,
-				"network_policy":      orDefault(*networkPolicy, "none"),
-				"supported_harnesses": anyList(*harnesses),
-			}
-			if *entrypoint != "" {
-				payload["entrypoint"] = *entrypoint
-			}
-			if *sourceURL != "" {
-				payload["source_url"] = *sourceURL
-				payload["source_ref"] = orDefault(*sourceRef, "main")
-			}
-			if *sandboxPath != "" {
-				payload["sandbox_path"] = *sandboxPath
-			}
-		}
-		if cerr := validateSandboxFields(payload, op, true); cerr != nil {
-			return cerr
-		}
-		if cerr := addPublishTarget(payload, *visibility, "registry sandbox submit"); cerr != nil {
-			return cerr
-		}
-		return postSubmission(client, "sandboxes", payload, *draft, op, "sandbox registry", *mode,
-			"Sandbox submitted!", "Draft saved!")
-	}
-	return cmd
-}
-
-func validateSandboxFields(payload map[string]any, operation string, requireQuad bool) *clierr.Error {
-	if requireQuad {
-		nameValue, _ := payload["name"].(string)
-		descValue, _ := payload["description"].(string)
-		runtimeValue, _ := payload["runtime_type"].(string)
-		imageValue, _ := payload["image"].(string)
-		if nameValue == "" || descValue == "" || runtimeValue == "" || imageValue == "" {
-			return validationErr("Sandbox name, description, runtime type, and image are required.", operation,
-				"sandbox payload", "Provide the required fields and retry.")
-		}
-	}
-	if runtimeValue, ok := payload["runtime_type"].(string); ok && runtimeValue != "" {
-		if !contains(validSandboxRuntimeTypes, runtimeValue) {
-			return validationErr(fmt.Sprintf("Unknown sandbox runtime type: %s.", runtimeValue), operation,
-				"runtime type", "Choose one of: "+strings.Join(validSandboxRuntimeTypes, ", ")+".")
-		}
-	}
-	if policyValue, ok := payload["network_policy"].(string); ok && policyValue != "" {
-		if !contains(validSandboxNetworkPolicies, policyValue) {
-			return validationErr(fmt.Sprintf("Unknown sandbox network policy: %s.", policyValue), operation,
-				"network policy", "Choose one of: "+strings.Join(validSandboxNetworkPolicies, ", ")+".")
-		}
-	}
-	if harnesses, ok := payload["supported_harnesses"].([]any); ok {
-		names := make([]string, 0, len(harnesses))
-		for _, raw := range harnesses {
-			if name, ok := raw.(string); ok {
-				names = append(names, name)
-			}
-		}
-		if cerr := requireHarnesses(names, operation); cerr != nil {
-			return cerr
-		}
-	}
-	if versionValue, ok := payload["version"].(string); ok {
-		if cerr := requireVersion(versionValue, "The sandbox version is invalid.", operation); cerr != nil {
-			return cerr
-		}
-	}
-	return nil
-}
-
-func sandboxEditCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "edit NAME", Short: "Edit a draft, rejected, or pending sandbox submission", Args: cobra.ExactArgs(1)}
-	fromFile := cmd.Flags().StringP("from-file", "f", "", "Load updates from JSON file")
-	name := cmd.Flags().StringP("name", "n", "", "New listing name")
-	description := cmd.Flags().StringP("description", "d", "", "New description")
-	version := cmd.Flags().StringP("version", "v", "", "New version string")
-	runtimeType := cmd.Flags().StringP("runtime-type", "r", "", "New runtime type")
-	image := cmd.Flags().StringP("image", "i", "", "New image reference")
-	resourceLimits := cmd.Flags().String("resource-limits", "", "Resource limits JSON")
-	runtimeConfig := cmd.Flags().String("runtime-config", "", "Runtime config JSON")
-	networkPolicy := cmd.Flags().String("network-policy", "", "New network policy")
-	entrypoint := cmd.Flags().String("entrypoint", "", "New entrypoint")
-	mode := outputFlag(cmd)
-	cmd.RunE = func(c *cobra.Command, args []string) error {
-		const op = "Edit sandbox"
-		client, cerr := newClient()
-		if cerr != nil {
-			return cerr
-		}
-		resolved, cerr := ref.ResolveRegistryReference(client, "sandbox", args[0], op, "sandbox registry")
-		if cerr != nil {
-			return cerr
-		}
-		var updates map[string]any
-		if *fromFile != "" {
-			updates, cerr = loadJSONObjectFile(*fromFile, op, "sandbox update file")
-			if cerr != nil {
-				return cerr
-			}
-		} else {
-			updates = map[string]any{}
-			for key, pair := range map[string]struct {
-				flag  *string
-				fname string
-			}{
-				"name": {name, "name"}, "description": {description, "description"},
-				"version": {version, "version"}, "runtime_type": {runtimeType, "runtime-type"},
-				"image": {image, "image"}, "network_policy": {networkPolicy, "network-policy"},
-				"entrypoint": {entrypoint, "entrypoint"},
-			} {
-				if c.Flags().Changed(pair.fname) {
-					updates[key] = *pair.flag
-				}
-			}
-			if *resourceLimits != "" {
-				limits, cerr := parseJSONObjectFlag(*resourceLimits, "resource limits", op)
-				if cerr != nil {
-					return cerr
-				}
-				updates["resource_limits"] = limits
-			}
-			if *runtimeConfig != "" {
-				runtime, cerr := parseJSONObjectFlag(*runtimeConfig, "runtime config", op)
-				if cerr != nil {
-					return cerr
-				}
-				updates["runtime_config"] = runtime
-			}
-		}
-		if len(updates) == 0 {
-			return validationErr("No sandbox changes were provided.", op, args[0],
-				"Provide an update file or one or more field options.")
-		}
-		if cerr := validateSandboxFields(updates, op, false); cerr != nil {
-			return cerr
-		}
-		return startEditAndPutDraft(client, "sandboxes", resolved, updates, op, "sandbox registry", *mode)
 	}
 	return cmd
 }

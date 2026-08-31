@@ -16,16 +16,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/garudex-labs/caracal/internal/cli/clierr"
+	"github.com/garudex-labs/caracal/internal/cli/config"
 	"github.com/garudex-labs/caracal/internal/cli/lockfile"
 	"github.com/garudex-labs/caracal/internal/cli/ref"
+	"github.com/garudex-labs/caracal/internal/harness"
 )
 
 // ── shared install helpers ─────────────────────────────────────────
-
-var hookCapableHarnesses = map[string]bool{
-	"cursor": true, "kiro": true, "claude-code": true, "codex": true, "copilot": true,
-	"copilot-cli": true, "opencode": true, "antigravity": true, "goose": true, "pi": true,
-}
 
 func rawJSONModeConflict(operation string) *clierr.Error {
 	return &clierr.Error{
@@ -250,15 +247,6 @@ func mcpInstallCommand() *cobra.Command {
 
 // ── skill install ──────────────────────────────────────────────────
 
-var userSkillDirs = map[string]string{
-	"claude-code": "~/.claude/skills",
-	"kiro":        "~/.kiro/skills",
-	"opencode":    "~/.config/opencode/skills",
-	"cursor":      "~/.cursor/rules",
-	"copilot":     "~/.copilot/skills",
-	"pi":          "~/.pi/agent/skills",
-}
-
 var harnessSkillDirs = []struct{ harness, dir string }{
 	{"claude-code", ".claude"}, {"cursor", ".cursor"}, {"kiro", ".kiro"}, {"opencode", ".opencode"},
 }
@@ -276,13 +264,23 @@ func sanitizeName(name string) string {
 	return name
 }
 
-func userSkillDest(harness, skillName string) string {
-	base, ok := userSkillDirs[strings.ReplaceAll(harness, "_", "-")]
-	if !ok {
-		base = "~/.agents/skills"
+// userSkillDest resolves the user-scope skill directory for a harness from the
+// canonical harness registry, so the CLI writes exactly where the harness looks
+// for skills. Harnesses that declare no user skill path fall back to the shared
+// ~/.agents/skills tree.
+func userSkillDest(harnessName, skillName string) string {
+	template := "~/.agents/skills/{name}/SKILL.md"
+	if spec, ok := harness.MustLoad().Spec(strings.ReplaceAll(harnessName, "_", "-")); ok {
+		if p := spec.Skills["user"]; p != "" {
+			template = p
+		}
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(strings.Replace(base, "~", home, 1), skillName)
+	dir := strings.TrimSuffix(strings.ReplaceAll(template, "{name}", skillName), "/SKILL.md")
+	if strings.HasPrefix(dir, "~/") {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, dir[2:])
+	}
+	return dir
 }
 
 func isPathSafe(path, base string) bool {
@@ -470,10 +468,40 @@ func symlinkForHarnesses(cwd, canonical, skillName string) {
 	}
 }
 
+// activeProjectContext returns the selected Caracal Org/Project, requiring one
+// so every install binds to a Project and can never leak across Projects.
+func activeProjectContext(op string) (string, string, *clierr.Error) {
+	cfg, cerr := config.Load()
+	if cerr != nil {
+		return "", "", cerr
+	}
+	org := config.Str(cfg, "default_org")
+	project := config.Str(cfg, "default_project")
+	if org == "" || project == "" {
+		return "", "", &clierr.Error{
+			Category:  clierr.Validation,
+			Message:   "No active Caracal Project is selected.",
+			Operation: op, Resource: "project context",
+			Remediation: "Run caracal use ORG/PROJECT to bind installs to a Project, then retry.",
+		}
+	}
+	return org, project, nil
+}
+
+// selectedProject returns the active Caracal Org/Project, or empty strings when
+// none is selected, for flows that may run without a Project.
+func selectedProject() (string, string) {
+	cfg, cerr := config.Load()
+	if cerr != nil {
+		return "", ""
+	}
+	return config.Str(cfg, "default_org"), config.Str(cfg, "default_project")
+}
+
 func skillInstallCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "install NAME", Short: "Install a skill into a harness", Args: cobra.ExactArgs(1)}
 	harness := cmd.Flags().StringP("harness", "i", "", "Target harness")
-	scope := cmd.Flags().StringP("scope", "s", "user", "Install scope: user or project")
+	scope := cmd.Flags().StringP("scope", "s", "project", "Install scope (skills always bind to the active Project's workspace)")
 	rawFlag := cmd.Flags().Bool("raw", false, "Print the raw config snippet")
 	noWrite := cmd.Flags().Bool("no-write", false, "Skip local file writes")
 	version := cmd.Flags().StringP("version", "V", "", "Version to install")
@@ -483,18 +511,26 @@ func skillInstallCommand() *cobra.Command {
 		if *rawFlag && *mode == "json" {
 			return rawJSONModeConflict(op)
 		}
-		if *scope != "user" && *scope != "project" {
+		if *scope == "user" {
+			return &clierr.Error{
+				Category:  clierr.Validation,
+				Message:   "Skills install into the active Project's workspace, never a user-global location.",
+				Operation: op, Resource: "scope",
+				Remediation: "Drop --scope user; skills are always project-scoped.",
+			}
+		}
+		if *scope != "project" {
 			return &clierr.Error{
 				Category: clierr.Validation, Message: fmt.Sprintf("Unknown skill scope: %s.", *scope),
 				Operation: op, Resource: "scope",
-				Remediation: "Choose user or project.",
+				Remediation: "Skills are always project-scoped; omit --scope.",
 			}
 		}
 		if !contains(validHarnesses, *harness) || !harnessSupportsSkills(*harness) {
 			return &clierr.Error{
-				Category: clierr.Validation, Message: fmt.Sprintf("Harness %s does not support skills.", *harness),
+				Category: clierr.Validation, Message: fmt.Sprintf("Skills are not supported for the %s harness.", *harness),
 				Operation: op, Resource: "harness",
-				Remediation: "Choose a harness with skill support.",
+				Remediation: "Skills are not supported for this resource on that harness; choose a skill-capable harness.",
 			}
 		}
 		if *version != "" && !pep440Re.MatchString(*version) {
@@ -521,10 +557,21 @@ func skillInstallCommand() *cobra.Command {
 			Slug      string `json:"slug"`
 		}
 		_ = json.Unmarshal(listingRaw, &listing)
-		directory := ""
 		cwd, _ := os.Getwd()
-		if *scope == "project" {
-			directory = cwd
+		directory := cwd
+		activeOrg, activeProject, cerr := activeProjectContext(op)
+		if cerr != nil {
+			return cerr
+		}
+		if boundOrg, boundProject, ok := lockfile.WorkspaceProject(directory); ok &&
+			(boundOrg != activeOrg || boundProject != activeProject) {
+			return &clierr.Error{
+				Category:  clierr.Validation,
+				Message:   fmt.Sprintf("This workspace already holds resources for Project %s/%s.", boundOrg, boundProject),
+				Operation: op, Resource: directory,
+				Remediation: fmt.Sprintf("Materialize %s/%s in a separate workspace, or run caracal use %s/%s here.",
+					activeOrg, activeProject, boundOrg, boundProject),
+			}
 		}
 		localName, err := lockfile.LocalRegistryName(*harness, "skill", listing.Namespace, listing.Slug, *scope, directory)
 		if err != nil {
@@ -599,7 +646,7 @@ func skillInstallCommand() *cobra.Command {
 			if err := lockfile.UpsertStandalone(*harness, lockfile.Entry{
 				Type: "skill", Name: skillInfo.str("name"), ID: componentID, Version: versionPtr,
 				Scope: *scope, Directory: directory, Namespace: listing.Namespace, Slug: listing.Slug,
-				LocalName: localName,
+				LocalName: localName, Org: activeOrg, Project: activeProject,
 			}); err != nil {
 				category := clierr.Unavailable
 				remediation := "Check local storage and retry."
@@ -644,11 +691,18 @@ func hookInstallCommand() *cobra.Command {
 		if *rawFlag && *mode == "json" {
 			return rawJSONModeConflict(op)
 		}
-		if !hookCapableHarnesses[*harness] {
+		if !contains(validHarnesses, *harness) {
 			return &clierr.Error{
-				Category: clierr.Validation, Message: fmt.Sprintf("Harness %s does not support hooks.", *harness),
+				Category: clierr.Validation, Message: fmt.Sprintf("Unknown harness: %s.", *harness),
 				Operation: op, Resource: "harness",
-				Remediation: "Choose a harness with hook support.",
+				Remediation: "Choose one of: " + strings.Join(validHarnesses, ", ") + ".",
+			}
+		}
+		if !harnessSupportsRegistryHooks(*harness) {
+			return &clierr.Error{
+				Category: clierr.Validation, Message: fmt.Sprintf("%s does not support hooks and cannot be a target for this resource.", *harness),
+				Operation: op, Resource: "harness",
+				Remediation: "Choose a harness that supports hooks. Run caracal doctor to see per-harness capabilities.",
 			}
 		}
 		if *platform != "" && *platform != "win32" && *platform != "darwin" && *platform != "linux" {

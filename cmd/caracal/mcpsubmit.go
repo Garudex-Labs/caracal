@@ -78,7 +78,7 @@ func mcpSubmitCommand() *cobra.Command {
 	_ = cmd.Flags().MarkHidden("config")
 	draft := cmd.Flags().Bool("draft", false, "Save as a draft instead of submitting")
 	submitDraft := cmd.Flags().String("submit", "", "Submit a draft for review (MCP ID)")
-	visibility := cmd.Flags().String("visibility", "", "Visibility: public or project")
+	visibility := cmd.Flags().String("visibility", "", "Visibility: project or private")
 	mode := outputFlag(cmd)
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		_ = configFlag

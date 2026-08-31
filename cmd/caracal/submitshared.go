@@ -24,10 +24,10 @@ import (
 func addPublishTarget(payload map[string]any, visibility, cmdPath string) *clierr.Error {
 	target := strings.ToLower(strings.TrimSpace(visibility))
 	if target == "" {
-		target = "public"
+		target = "project"
 	}
-	if target != "public" && target != "project" {
-		return usageError(cmdPath, "Invalid value for visibility: visibility must be 'public' or 'project'")
+	if target != "project" && target != "private" {
+		return usageError(cmdPath, "Invalid value for visibility: visibility must be 'project' or 'private'")
 	}
 	payload["visibility"] = target
 	return nil

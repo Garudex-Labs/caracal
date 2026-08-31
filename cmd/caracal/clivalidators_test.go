@@ -63,6 +63,29 @@ func TestRequireHarnesses(t *testing.T) {
 	}
 }
 
+func TestRequireRegistryHookHarnesses(t *testing.T) {
+	for _, h := range []string{"claude-code", "cursor", "codex", "copilot", "copilot-cli", "opencode", "goose"} {
+		if !harnessSupportsRegistryHooks(h) {
+			t.Errorf("%s should support registry hooks", h)
+		}
+	}
+	for _, h := range []string{"pi", "antigravity"} {
+		if harnessSupportsRegistryHooks(h) {
+			t.Errorf("%s must not support registry hooks", h)
+		}
+	}
+	if cerr := requireRegistryHookHarnesses([]string{"claude-code", "codex"}, "op"); cerr != nil {
+		t.Errorf("supported harnesses must pass: %v", cerr)
+	}
+	cerr := requireRegistryHookHarnesses([]string{"claude-code", "pi"}, "op")
+	if cerr == nil {
+		t.Fatal("unsupported harness must fail")
+	}
+	if !strings.Contains(cerr.Message, "does not support hooks") {
+		t.Errorf("message must explain the rejection: %s", cerr.Message)
+	}
+}
+
 func TestValidateSkillFields(t *testing.T) {
 	ok := map[string]any{
 		"task_type":           "code-review",
@@ -99,54 +122,12 @@ func TestValidateHookTimeout(t *testing.T) {
 	}
 }
 
-func TestValidateSandboxFields(t *testing.T) {
-	full := map[string]any{
-		"name": "s", "description": "d", "runtime_type": "docker", "image": "img",
-		"network_policy": "none", "version": "1.0.0",
-	}
-	if cerr := validateSandboxFields(full, "op", true); cerr != nil {
-		t.Errorf("valid sandbox rejected: %v", cerr)
-	}
-	if cerr := validateSandboxFields(map[string]any{"name": "s"}, "op", true); cerr == nil {
-		t.Error("missing required quad must fail")
-	}
-	if cerr := validateSandboxFields(map[string]any{"runtime_type": "vm"}, "op", false); cerr == nil {
-		t.Error("unknown runtime type must fail")
-	}
-	if cerr := validateSandboxFields(map[string]any{"network_policy": "wild"}, "op", false); cerr == nil {
-		t.Error("unknown network policy must fail")
-	}
-	if cerr := validateSandboxFields(map[string]any{"version": "x.y"}, "op", false); cerr == nil {
-		t.Error("invalid version must fail")
-	}
-}
-
 func TestJSONPayloadFile(t *testing.T) {
 	if !jsonPayloadFile(map[string]any{"owner": "me"}) {
 		t.Error("payload with owner is a JSON payload file")
 	}
 	if jsonPayloadFile(map[string]any{"name": "x"}) {
 		t.Error("payload without owner is not a JSON payload file")
-	}
-}
-
-func TestParseJSONObjectFlag(t *testing.T) {
-	obj, cerr := parseJSONObjectFlag(`{"cpu": 2}`, "resource limits", "op")
-	if cerr != nil {
-		t.Fatalf("valid object rejected: %v", cerr)
-	}
-	if obj["cpu"].(float64) != 2 {
-		t.Errorf("parsed object wrong: %v", obj)
-	}
-	obj, cerr = parseJSONObjectFlag("", "resource limits", "op")
-	if cerr != nil || obj != nil {
-		t.Errorf("empty flag must return nil, nil: %v %v", obj, cerr)
-	}
-	if _, cerr := parseJSONObjectFlag("{bad", "resource limits", "op"); cerr == nil {
-		t.Error("invalid JSON must fail")
-	}
-	if _, cerr := parseJSONObjectFlag("[1,2]", "resource limits", "op"); cerr == nil {
-		t.Error("non-object JSON must fail")
 	}
 }
 
@@ -175,7 +156,7 @@ func TestAddPublishTarget(t *testing.T) {
 	if cerr := addPublishTarget(payload, "", "registry mcp submit"); cerr != nil {
 		t.Fatalf("empty visibility must default: %v", cerr)
 	}
-	if payload["visibility"] != "public" {
+	if payload["visibility"] != "project" {
 		t.Errorf("default visibility = %v", payload["visibility"])
 	}
 	if cerr := addPublishTarget(payload, "project", "registry mcp submit"); cerr != nil {
@@ -183,6 +164,12 @@ func TestAddPublishTarget(t *testing.T) {
 	}
 	if payload["visibility"] != "project" {
 		t.Errorf("visibility = %v", payload["visibility"])
+	}
+	if cerr := addPublishTarget(payload, "private", "registry mcp submit"); cerr != nil || payload["visibility"] != "private" {
+		t.Fatalf("private visibility must pass: %v / %v", cerr, payload["visibility"])
+	}
+	if cerr := addPublishTarget(payload, "public", "registry mcp submit"); cerr == nil {
+		t.Error("public visibility must fail")
 	}
 	if cerr := addPublishTarget(payload, "secret", "registry mcp submit"); cerr == nil {
 		t.Error("unknown visibility must fail")

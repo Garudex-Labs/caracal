@@ -416,11 +416,11 @@ func agentAddCommand() *cobra.Command {
 	cmd.RunE = func(_ *cobra.Command, args []string) error {
 		const op = "Add agent component"
 		componentType := strings.ToLower(strings.TrimSpace(args[0]))
-		if !contains([]string{"mcp", "skill", "hook", "prompt", "sandbox"}, componentType) {
+		if !contains([]string{"mcp", "skill", "hook", "prompt"}, componentType) {
 			return &clierr.Error{
 				Category: clierr.Validation, Message: fmt.Sprintf("Unknown agent component type: %s.", args[0]),
 				Operation: op, Resource: "agent component type",
-				Remediation: "Choose from: hook, mcp, prompt, sandbox, skill.",
+				Remediation: "Choose from: hook, mcp, prompt, skill.",
 			}
 		}
 		parsed, err := uuid.Parse(args[1])
@@ -478,7 +478,7 @@ func agentAddCommand() *cobra.Command {
 func agentBuildCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "build", Short: "Validate the agent definition against the registry", Args: cobra.NoArgs}
 	dirFlag := cmd.Flags().StringP("dir", "d", ".", "Target directory")
-	visibility := cmd.Flags().String("visibility", "", "Agent visibility: public or project")
+	visibility := cmd.Flags().String("visibility", "", "Agent visibility: project or private")
 	mode := outputFlag(cmd)
 	cmd.RunE = func(_ *cobra.Command, _ []string) error {
 		const op = "Validate agent"
@@ -634,7 +634,7 @@ func agentPublishCommand() *cobra.Command {
 	draft := cmd.Flags().Bool("draft", false, "Save as a draft instead of submitting")
 	submitDraft := cmd.Flags().String("submit", "", "Submit a draft agent for review (agent ID)")
 	bump := cmd.Flags().String("bump", "", "Version bump type: patch, minor, or major (skips prompt)")
-	visibility := cmd.Flags().String("visibility", "", "Visibility: public or project")
+	visibility := cmd.Flags().String("visibility", "", "Visibility: project or private")
 	mode := outputFlag(cmd)
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		const op = "Publish agent"
