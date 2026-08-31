@@ -252,7 +252,7 @@ func TestValidateRejectsUnknownComponentType(t *testing.T) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 	out := rec.Body.String()
-	if !strings.Contains(out, "literal_error") || !strings.Contains(out, "'mcp', 'skill', 'hook', 'prompt' or 'sandbox'") {
+	if !strings.Contains(out, "literal_error") || !strings.Contains(out, "'mcp', 'skill', 'hook' or 'prompt'") {
 		t.Errorf("literal error shape: %s", out)
 	}
 }

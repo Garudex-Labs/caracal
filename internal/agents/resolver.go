@@ -70,9 +70,8 @@ func familyExtraColumns(name string) string {
 			" NULL::text AS git_url, NULL::text AS git_ref"
 	case "prompt":
 		return ", v.template, v.variables, v.category, NULL::text AS git_url, NULL::text AS git_ref"
-	default: // sandbox
-		return ", v.runtime_type, v.image, v.resource_limits, v.network_policy, v.entrypoint," +
-			" v.runtime_config, v.sandbox_path, v.source_url AS git_url, v.source_ref AS git_ref"
+	default:
+		return ""
 	}
 }
 
@@ -122,19 +121,8 @@ func extractExtra(row map[string]any, componentType string) map[string]any {
 			"variables": rowList(row, "variables"),
 			"category":  rowStr(row, "category", ""),
 		}
-	default: // sandbox
-		extra := map[string]any{
-			"runtime_type":    rowStr(row, "runtime_type", ""),
-			"image":           rowStr(row, "image", ""),
-			"resource_limits": rowDict(row, "resource_limits"),
-			"network_policy":  rowStr(row, "network_policy", "none"),
-			"entrypoint":      row["entrypoint"],
-			"runtime_config":  rowDict(row, "runtime_config"),
-		}
-		if rowStr(row, "sandbox_path", "") != "" {
-			extra["sandbox_path"] = row["sandbox_path"]
-		}
-		return extra
+	default:
+		return map[string]any{}
 	}
 }
 
@@ -339,7 +327,7 @@ type componentRef struct {
 
 var manifestTypeOrder = []struct{ Singular, Plural string }{
 	{"mcp", "mcps"}, {"skill", "skills"}, {"hook", "hooks"},
-	{"prompt", "prompts"}, {"sandbox", "sandboxes"},
+	{"prompt", "prompts"},
 }
 
 // compositionSummary renders the lightweight composition view.
@@ -421,17 +409,6 @@ func manifestComponent(c resolvedComponent) map[string]any {
 		setIfTruthyStr(out, "template", c.Extra["template"])
 		if vars, ok := c.Extra["variables"].([]any); ok && len(vars) > 0 {
 			out["variables"] = vars
-		}
-	case "sandbox":
-		out["image"] = c.Extra["image"]
-		out["runtime_type"] = c.Extra["runtime_type"]
-		if limits, ok := c.Extra["resource_limits"].(map[string]any); ok && len(limits) > 0 {
-			out["resource_limits"] = limits
-		}
-		setIfTruthyStr(out, "network_policy", c.Extra["network_policy"])
-		setIfTruthyStr(out, "entrypoint", c.Extra["entrypoint"])
-		if cfg, ok := c.Extra["runtime_config"].(map[string]any); ok && len(cfg) > 0 {
-			out["runtime_config"] = cfg
 		}
 	}
 	return out

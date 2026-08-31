@@ -179,17 +179,7 @@ func TestExtractExtraHookConditionalKeys(t *testing.T) {
 	}
 }
 
-func TestExtractExtraSandboxAndPrompt(t *testing.T) {
-	sandbox := extractExtra(map[string]any{
-		"runtime_type": "docker", "image": "alpine", "network_policy": "egress",
-		"sandbox_path": "/sb",
-	}, "sandbox")
-	if sandbox["image"] != "alpine" || sandbox["sandbox_path"] != "/sb" {
-		t.Errorf("sandbox extras: %v", sandbox)
-	}
-	if noPath := extractExtra(map[string]any{"image": "alpine"}, "sandbox"); noPath["sandbox_path"] != nil {
-		t.Errorf("sandbox path leaked: %v", noPath)
-	}
+func TestExtractExtraPrompt(t *testing.T) {
 	prompt := extractExtra(map[string]any{
 		"template": "Hi {{name}}", "variables": []any{"name"}, "category": "greet",
 	}, "prompt")
@@ -216,23 +206,6 @@ func TestManifestComponentTypeBranches(t *testing.T) {
 	})
 	if prompt["template"] != "T" || len(prompt["variables"].([]any)) != 1 {
 		t.Errorf("prompt manifest: %v", prompt)
-	}
-
-	sandbox := manifestComponent(resolvedComponent{
-		ComponentType: "sandbox", Name: "sb", Version: "1.0.0",
-		ConfigOverride: map[string]any{"cpus": 2},
-		Extra: map[string]any{
-			"image": "alpine", "runtime_type": "docker",
-			"resource_limits": map[string]any{"mem": "1g"},
-			"network_policy":  "none", "entrypoint": "/bin/sh",
-			"runtime_config": map[string]any{"tty": true},
-		},
-	})
-	if sandbox["image"] != "alpine" || sandbox["network_policy"] != "none" || sandbox["entrypoint"] != "/bin/sh" {
-		t.Errorf("sandbox manifest: %v", sandbox)
-	}
-	if sandbox["config_override"].(map[string]any)["cpus"] != 2 {
-		t.Errorf("override lost: %v", sandbox)
 	}
 }
 

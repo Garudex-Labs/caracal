@@ -56,6 +56,12 @@ func (h *Handler) install() http.Handler {
 			return
 		}
 
+		if !harnessgen.SupportsAgent(req.Harness) {
+			httpapi.WriteError(w, http.StatusUnprocessableEntity,
+				"Agents are not supported for the '"+req.Harness+"' harness.")
+			return
+		}
+
 		row, err := h.Store.Load(r.Context(), agentID, viewer, true)
 		var ambiguous *ErrAmbiguous
 		if errors.As(err, &ambiguous) {
@@ -141,7 +147,6 @@ func (h *Handler) install() http.Handler {
 			SkillListings:  inputs.Families["skill"],
 			HookListings:   inputs.Families["hook"],
 			PromptListings: inputs.Families["prompt"],
-			SandboxLists:   inputs.Families["sandbox"],
 			ComponentNames: inputs.NameMap,
 			EnvValues:      req.EnvValues,
 			HeaderValues:   req.HeaderValues,
@@ -157,7 +162,7 @@ func (h *Handler) install() http.Handler {
 		}
 
 		warnings := []string{}
-		for _, familyName := range []string{"mcp", "skill", "hook", "prompt", "sandbox"} {
+		for _, familyName := range []string{"mcp", "skill", "hook", "prompt"} {
 			label := familyName
 			if familyName == "mcp" {
 				label = "MCP"

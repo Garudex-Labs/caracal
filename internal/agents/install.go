@@ -36,9 +36,8 @@ func familyInstallColumns(name string) string {
 		return base + `, v.event, v.handler_type, v.handler_config, v.script_filename, v.script_content`
 	case "prompt":
 		return base + `, v.template`
-	default: // sandbox
-		return base + `, v.version, v.runtime_type, v.image, v.resource_limits, v.network_policy,
-			v.entrypoint, v.runtime_config, v.sandbox_path`
+	default:
+		return base
 	}
 }
 
@@ -78,7 +77,7 @@ func (s *Store) installListings(ctx context.Context, familyName string, ids []st
 
 // InstallInputs assembles everything a generation run needs for one agent
 // and version: the effective version row, its components, and the loaded
-// listings with sandbox version pinning applied.
+// listings.
 type InstallInputs struct {
 	VersionRow map[string]any
 	Links      []map[string]any
@@ -144,7 +143,7 @@ func (s *Store) InstallInputs(ctx context.Context, agentRow map[string]any, view
 		byType[t] = append(byType[t], rowStr(link, "component_id", ""))
 	}
 	families := map[string]map[string]harnessgen.Listing{}
-	for _, name := range []string{"mcp", "skill", "hook", "prompt", "sandbox"} {
+	for _, name := range []string{"mcp", "skill", "hook", "prompt"} {
 		listings, err := s.installListings(ctx, name, byType[name], viewer, targetProjectID)
 		if err != nil {
 			return nil, err
@@ -153,38 +152,6 @@ func (s *Store) InstallInputs(ctx context.Context, agentRow map[string]any, view
 			return nil, &errInstall{404, "Agent contains a component unavailable to this agent target"}
 		}
 		families[name] = listings
-	}
-
-	// Sandbox pins: overlay a specific released version when requested.
-	for _, link := range links {
-		if rowStr(link, "component_type", "") != "sandbox" {
-			continue
-		}
-		id := rowStr(link, "component_id", "")
-		listing := families["sandbox"][id]
-		pinned := rowStr(link, "resolved_version", "")
-		current, _ := listing["version"].(string)
-		if pinned == "" || pinned == "latest" || pinned == current {
-			continue
-		}
-		rows, err := s.DB.Query(ctx, `SELECT version, description, runtime_type, image,
-			resource_limits, network_policy, entrypoint, runtime_config, sandbox_path
-			FROM sandbox_versions WHERE listing_id = $1 AND version = $2`, id, pinned)
-		if err != nil {
-			return nil, err
-		}
-		collected := registry.CollectRows(rows)
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		if len(collected) == 0 {
-			return nil, &errInstall{404, fmt.Sprintf("Sandbox %s version '%s' not found",
-				listing["name"], pinned)}
-		}
-		for k, v := range collected[0] {
-			listing[k] = v
-		}
 	}
 
 	nameMap := map[string]string{}

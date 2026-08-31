@@ -51,7 +51,7 @@ func validateVersionCreateBody(body *versionCreateBody, rawBody map[string]json.
 	}
 	for i, c := range body.Components {
 		if _, known := registry.Families[c.ComponentType+"s"]; !known {
-			const expected = "'mcp', 'skill', 'hook', 'prompt' or 'sandbox'"
+			const expected = "'mcp', 'skill', 'hook' or 'prompt'"
 			errs = append(errs, map[string]any{
 				"type": "literal_error", "loc": []any{"body", "components", i, "component_type"},
 				"msg": "Input should be " + expected, "input": c.ComponentType,
