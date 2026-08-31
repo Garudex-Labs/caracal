@@ -695,11 +695,6 @@ func pullCommand() *cobra.Command {
 				return cerr
 			}
 		}
-		if steering := snippet.object("steering_file"); steering != nil && steering.str("path") != "" {
-			if cerr := writeChecked(steering.str("path"), steering.get("content"), isUserScope, false); cerr != nil {
-				return cerr
-			}
-		}
 		var managedPromptPaths []string
 		for _, listKey := range []string{"hook_files", "prompt_files", "skills"} {
 			for _, rawEntry := range snippet.array(listKey) {
