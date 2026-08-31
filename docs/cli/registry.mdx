@@ -6,7 +6,7 @@ title: "caracal registry"
 description: "Publish, browse, install, and version components; models, recommendations, and bulk submission"
 ---
 
-Manages the five component types: MCP servers, skills, hooks, prompts, and sandboxes. Task-oriented walkthrough: [Publish components](/guides/publish-components).
+Manages the four component types: MCP servers, skills, hooks, and prompts. Task-oriented walkthrough: [Publish components](/guides/publish-components).
 
 ```
 caracal registry <type> <action> [args]
@@ -20,11 +20,10 @@ caracal registry <type> <action> [args]
 | `skill` | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
 | `hook` | ✓ | ✓ | – | ✓ | ✓ | – | ✓ |
 | `prompt` | ✓ | ✓ | ✓ | ✓ | – | ✓ | ✓ |
-| `sandbox` | ✓ | ✓ | – | ✓ | – | – | ✓ |
 
 Every type also supports `archive`, `unarchive`, `transfer-owner`, and `co-authors` (same semantics as [agents](/cli/agent#governance)). References accept UUIDs, `namespace/slug`, unique bare names, row numbers from the latest same-type list (humans only), and `@aliases`.
 
-Visibility applies on submit: `--visibility public|project` publishes an item publicly or shares it with the active Project's members. On lists, `--namespace` restricts to one namespace. Non-members get the same not-found response for private items as for unknown items.
+Visibility applies on submit: `--visibility project|private` shares an item with the active Project's members or keeps it to you within the Project (project is the default). On lists, `--namespace` restricts to one namespace. Non-members get the same not-found response for private items as for unknown items.
 
 ## MCP servers
 
@@ -58,12 +57,12 @@ caracal registry skill submit --git-url https://github.com/org/repo
 caracal registry skill submit --skill-md ./SKILL.md --name review \
   --description "Review code" --task-type code-review
 caracal registry skill list --task-type code-review --search refactor
-caracal registry skill install my-skill --harness claude-code            # user scope (default)
-caracal registry skill install my-skill --harness kiro --scope project   # .agents/skills/ + symlinks
+caracal registry skill install my-skill --harness claude-code            # active Project's workspace
+caracal registry skill install my-skill --harness kiro                   # bound to the selected Project
 caracal registry skill edit my-skill --git-url https://github.com/org/new-repo
 ```
 
-`skill install` clones the skill directory via sparse checkout into the harness skill path. `--raw` and `--no-write` skip file writes and installation tracking. Task types: `code-review`, `code-generation`, `testing`, `documentation`, `debugging`, `refactoring`, `deployment`, `security-audit`, `performance`, `general`.
+`skill install` materializes the skill into the active Project's workspace (never a user-global location) and records it against the selected Project, so switching Projects gives a separate local set. `--raw` and `--no-write` skip file writes and installation tracking. Task types: `code-review`, `code-generation`, `testing`, `documentation`, `debugging`, `refactoring`, `deployment`, `security-audit`, `performance`, `general`.
 
 ## Hooks
 
@@ -87,16 +86,6 @@ caracal registry prompt edit my-prompt --template "New template: {{ var }}"
 ```
 
 `render` performs server-side variable substitution - use it to verify a template before sharing.
-
-## Sandboxes
-
-```bash
-caracal registry sandbox submit --from-file sandbox.json
-caracal registry sandbox list --runtime docker
-caracal registry sandbox edit my-sandbox --image node:20-alpine
-```
-
-No standalone install: attach sandboxes to agents (`caracal agent add sandbox <uuid>`); they install with the agent pull.
 
 ## version - component releases
 

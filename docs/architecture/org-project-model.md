@@ -26,7 +26,7 @@ flowchart LR
 - **User:** a global identity row provisioned from the Better Auth identity service. Deployment role is one of `operator`, `reviewer`, or `user`.
 - **Organization:** the tenant boundary. Members have Organization roles: `owner`, `admin`, or `member`.
 - **Project:** the working scope inside an Organization. Members have Project roles: `lead` or `user`.
-- **Resource:** an Agent, MCP server, Skill, Hook, Prompt, or Sandbox listing owned by a Project and addressed by `namespace/slug` or UUID.
+- **Resource:** an Agent, MCP server, Skill, Hook, or Prompt listing owned by a Project and addressed by `namespace/slug` or UUID.
 - **Session:** telemetry is scoped by Project, User, Harness, and Session ID. Ingest and tenant reads resolve the authorized Project server-side.
 
 ## Role Boundaries
@@ -35,7 +35,7 @@ Deployment roles and tenant roles are deliberately separate.
 
 | Layer | Roles | Authority |
 | --- | --- | --- |
-| Deployment | `operator`, `reviewer`, `user` | Instance operation, public registry review, settings, audit/security reads, diagnostics |
+| Deployment | `operator`, `reviewer`, `user` | Instance operation, deployment-wide registry review, settings, audit/security reads, diagnostics |
 | Organization | `owner`, `admin`, `member` | Organization membership, projects, organization audit/security reads |
 | Project | `lead`, `user` | Project membership, Project Resources, project-scoped review, Project Intelligence |
 
@@ -51,15 +51,14 @@ Deployment roles and tenant roles are deliberately separate.
 
 ## Resource Visibility
 
-Registry Resources use three visibility values:
+Registry Resources use two visibility values:
 
 | Visibility | Stored behavior | Audience |
 | --- | --- | --- |
-| `public` | `ownership_scope='project'`, `is_private=false` | Everyone after review approval |
 | `project` | `ownership_scope='project'`, `is_private=true` | Members of the owning Project and authorized reviewers |
 | `private` | `ownership_scope='private'`, `is_private=true` | Creator-only; auto-approved |
 
-Public submissions are reviewed by global reviewers (`reviewer` and `operator`). Project-scoped submissions are reviewed by Project leads. Private submissions do not enter the review queue because their audience is the creator.
+Every Resource is owned by a Project; there is no public scope. Project-scoped submissions enter the review queue and are reviewed by the owning Project's leads. Private submissions do not enter the review queue because their audience is the creator.
 
 ## Data Model Invariants
 

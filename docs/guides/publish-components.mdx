@@ -3,7 +3,7 @@
 
 ---
 title: "Publish components"
-description: "Submit MCP servers, skills, hooks, prompts, and sandboxes to the registry"
+description: "Submit MCP servers, skills, hooks, and prompts to the registry"
 ---
 
 Components are the building blocks agents are composed of. Any signed-in user can publish them; review controls what appears in the public listing, but your own submissions are usable by you immediately.
@@ -11,7 +11,7 @@ Components are the building blocks agents are composed of. Any signed-in user ca
 All submissions follow the same shape:
 
 ```bash
-caracal registry <type> submit [options]      # type: mcp | skill | hook | prompt | sandbox
+caracal registry <type> submit [options]      # type: mcp | skill | hook | prompt
 ```
 
 Every type supports `--draft` (save without submitting), `--submit <id>` (submit a saved draft), and `--from-file` (JSON input for automation).
@@ -79,23 +79,15 @@ Templates use `{{variable}}` substitution. Verify rendering before you share:
 caracal registry prompt render my-prompt --var lang=python --var task=refactor
 ```
 
-## Sandboxes
-
-```bash
-caracal registry sandbox submit --from-file sandbox.json
-```
-
-A sandbox defines a Docker runtime (image, resource limits) for agent-generated code. Sandboxes have no standalone install - attach them to an agent (`caracal agent add sandbox <uuid>`) and they install with the agent pull.
-
 ## Project visibility
 
-Add `--visibility public|project` to any submit. The owning Project comes from your active Organization/Project context (set with `caracal use`):
+Add `--visibility project|private` to any submit. The owning Project comes from your active Organization/Project context (set with `caracal use`):
 
 ```bash
 caracal registry skill submit --skill-md ./SKILL.md --visibility project
 ```
 
-`project` items are visible only to the Project's members and authorized reviewers; `public` items are visible to everyone once approved. See [Projects and visibility](/concepts/registry#projects-and-visibility).
+`project` items are visible to the Project's members and authorized reviewers; `private` items stay visible only to you, inside the Project. There is no public scope. See [Projects and visibility](/concepts/registry#projects-and-visibility).
 
 ## After submission
 

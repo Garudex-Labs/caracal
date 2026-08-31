@@ -7,8 +7,8 @@ Once multiple developers are authoring Agents and MCP servers, you need a single
 
 ## What changes at organization scale
 
-* **Discovery**: members browse the same approved Agents, MCPs, Skills, Hooks, Prompts, and Sandboxes.
-* **Review**: public submissions go to global reviewers; project-scoped submissions go to Project leads. Authors' own items remain usable by the author according to visibility rules.
+* **Discovery**: members browse the same approved Agents, MCPs, Skills, Hooks, and Prompts.
+* **Review**: project-scoped submissions go to the owning Project's leads; global reviewers can review across the deployment. Authors' own items remain usable by the author according to visibility rules.
 * **Governance**: deployment roles (`operator`, `reviewer`, `user`) are separate from Organization roles (`owner`, `admin`, `member`) and Project roles (`lead`, `user`).
 * **Visibility**: project-scoped traces and Project Intelligence replace ad hoc questions about which version is installed or why a session failed.
 
@@ -42,7 +42,7 @@ Current authority is split by scope.
 
 | Scope | Roles | Used for |
 | --- | --- | --- |
-| Deployment | `operator`, `reviewer`, `user` | Instance operation and public registry review |
+| Deployment | `operator`, `reviewer`, `user` | Instance operation and deployment-wide registry review |
 | Organization | `owner`, `admin`, `member` | Organization membership and Project administration |
 | Project | `lead`, `user` | Project Resources, project-scoped review, traces, and intelligence |
 

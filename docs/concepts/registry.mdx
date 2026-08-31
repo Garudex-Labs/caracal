@@ -50,7 +50,7 @@ Caracal has two role layers:
 
 | Layer | Roles | Scope |
 | --- | --- |
-| Deployment | `user`, `reviewer`, `operator` | Instance operation, public registry review, user administration, audit/security-event reads, settings, diagnostics |
+| Deployment | `user`, `reviewer`, `operator` | Instance operation, deployment-wide registry review, user administration, audit/security-event reads, settings, diagnostics |
 | Organization | `owner`, `admin`, `member` | Tenant membership, organization settings, projects, organization audit/security reads |
 | Project | `lead`, `user` | Project membership, project resources, project-scoped review, Project Intelligence |
 
@@ -62,11 +62,10 @@ Every published item carries a **visibility** that fixes its audience:
 
 | Visibility | Who can see it |
 | --- | --- |
-| `public` | Everyone, after review approval |
 | `project` | Members of the owning project |
 | `private` | Only the submitter |
 
-Project-scoped and public submissions enter the review queue. A project's **leads** review that project's shared items; **global reviewers** (`reviewer` and `operator`) review public content registry-wide; **operators** can operate the deployment but do not automatically own tenant Resources. Organizations, their projects, members, and roles are managed in the web UI - see the [Organization → Project model](/architecture/org-project-model).
+There is no public scope: every item is owned by a project. Project-scoped submissions enter the review queue - a project's **leads** review that project's shared items, and **global reviewers** (`reviewer` and `operator`) can review across the deployment. Private submissions skip review because their audience is the submitter alone. **Operators** can operate the deployment but do not automatically own tenant Resources. Organizations, their projects, members, and roles are managed in the web UI - see the [Organization → Project model](/architecture/org-project-model).
 
 ## Versions
 

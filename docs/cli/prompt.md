@@ -38,7 +38,7 @@ caracal registry prompt submit --submit acme/review --output json
 
 JSON mode never prompts. A plain template file requires explicit name, description, and category options. A JSON file may contain the complete payload.
 
-Valid categories are `system-prompt`, `code-review`, `code-generation`, `testing`, `documentation`, `debugging`, and `general`.
+Recommended categories are `general`, `code-review`, `code-generation`, `debugging`, `documentation`, and `testing`. You may also supply a custom category: any value is normalized to a slug (lowercase letters, digits, and hyphens, up to 32 characters), so `Code Review`, `code_review`, and `code-review` all resolve to the same stored value. The server normalizes and remains authoritative.
 
 ## List and show
 

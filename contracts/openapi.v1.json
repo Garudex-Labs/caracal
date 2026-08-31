@@ -333,10 +333,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -663,10 +663,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -888,10 +888,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -1105,8 +1105,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "public",
-                  "team"
+                  "private",
+                  "project"
                 ],
                 "type": "string"
               },
@@ -1131,10 +1131,10 @@
             "type": "array"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -2416,8 +2416,7 @@
               "mcp",
               "skill",
               "hook",
-              "prompt",
-              "sandbox"
+              "prompt"
             ],
             "title": "Component Type",
             "type": "string"
@@ -2445,7 +2444,7 @@
       "ComponentSourceCreate": {
         "properties": {
           "component_type": {
-            "pattern": "^(mcp|skill|hook|prompt|sandbox)$",
+            "pattern": "^(mcp|skill|hook|prompt)$",
             "title": "Component Type",
             "type": "string"
           },
@@ -2456,10 +2455,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -2544,8 +2543,8 @@
           },
           "visibility": {
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -3620,10 +3619,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -3901,10 +3900,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -4009,10 +4008,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -4173,10 +4172,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -4407,8 +4406,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "public",
-                  "team"
+                  "private",
+                  "project"
                 ],
                 "type": "string"
               },
@@ -6320,10 +6319,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -6734,10 +6733,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -6842,10 +6841,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -7055,10 +7054,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -7293,8 +7292,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "public",
-                  "team"
+                  "private",
+                  "project"
                 ],
                 "type": "string"
               },
@@ -7903,18 +7902,6 @@
             "title": "Description",
             "type": "string"
           },
-          "model_hints": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Hints"
-          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -7960,10 +7947,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -8091,10 +8078,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -8193,10 +8180,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -8260,18 +8247,6 @@
             "title": "Description",
             "type": "string"
           },
-          "model_hints": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Hints"
-          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -8314,10 +8289,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -8357,18 +8332,6 @@
               }
             ],
             "title": "Description"
-          },
-          "model_hints": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Hints"
           },
           "name": {
             "anyOf": [
@@ -8461,8 +8424,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "public",
-                  "team"
+                  "private",
+                  "project"
                 ],
                 "type": "string"
               },
@@ -8755,8 +8718,7 @@
               "mcp",
               "skill",
               "hook",
-              "prompt",
-              "sandbox"
+              "prompt"
             ],
             "title": "Type",
             "type": "string"
@@ -8869,8 +8831,7 @@
               "mcp",
               "skill",
               "hook",
-              "prompt",
-              "sandbox"
+              "prompt"
             ],
             "title": "Type",
             "type": "string"
@@ -9064,929 +9025,6 @@
           "refresh_token"
         ],
         "title": "RevokeRequest",
-        "type": "object"
-      },
-      "SandboxDraftRequest": {
-        "properties": {
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "entrypoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Entrypoint"
-          },
-          "image": {
-            "default": "",
-            "title": "Image",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "network_policy": {
-            "default": "none",
-            "title": "Network Policy",
-            "type": "string"
-          },
-          "owner": {
-            "default": "",
-            "title": "Owner",
-            "type": "string"
-          },
-          "resource_limits": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Resource Limits",
-            "type": "object"
-          },
-          "runtime_config": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Runtime Config",
-            "type": "object"
-          },
-          "runtime_type": {
-            "default": "docker",
-            "title": "Runtime Type",
-            "type": "string"
-          },
-          "sandbox_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sandbox Path"
-          },
-          "source_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Ref"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          },
-          "supported_harnesses": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Supported Harnesses",
-            "type": "array"
-          },
-          "version": {
-            "default": "0.1.0",
-            "title": "Version",
-            "type": "string"
-          },
-          "visibility": {
-            "default": "public",
-            "enum": [
-              "public",
-              "team"
-            ],
-            "title": "Visibility",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "SandboxDraftRequest",
-        "type": "object"
-      },
-      "SandboxListingResponse": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "entrypoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Entrypoint"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "image": {
-            "title": "Image",
-            "type": "string"
-          },
-          "is_private": {
-            "default": false,
-            "title": "Is Private",
-            "type": "boolean"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "namespace": {
-            "title": "Namespace",
-            "type": "string"
-          },
-          "network_policy": {
-            "title": "Network Policy",
-            "type": "string"
-          },
-          "owner": {
-            "title": "Owner",
-            "type": "string"
-          },
-          "qualified_name": {
-            "title": "Qualified Name",
-            "type": "string"
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
-          },
-          "resolved_sha": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resolved Sha"
-          },
-          "resource_limits": {
-            "additionalProperties": true,
-            "title": "Resource Limits",
-            "type": "object"
-          },
-          "runtime_config": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Runtime Config",
-            "type": "object"
-          },
-          "runtime_type": {
-            "title": "Runtime Type",
-            "type": "string"
-          },
-          "sandbox_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sandbox Path"
-          },
-          "slug": {
-            "title": "Slug",
-            "type": "string"
-          },
-          "source_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Ref"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          },
-          "status": {
-            "$ref": "#/components/schemas/ListingStatus"
-          },
-          "submitted_by": {
-            "format": "uuid",
-            "title": "Submitted By",
-            "type": "string"
-          },
-          "supported_harnesses": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Supported Harnesses",
-            "type": "array"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          },
-          "user_permission": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "User Permission"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          },
-          "visibility": {
-            "default": "public",
-            "enum": [
-              "public",
-              "team"
-            ],
-            "title": "Visibility",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "namespace",
-          "slug",
-          "qualified_name",
-          "version",
-          "description",
-          "owner",
-          "runtime_type",
-          "image",
-          "resource_limits",
-          "network_policy",
-          "supported_harnesses",
-          "status",
-          "submitted_by",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "SandboxListingResponse",
-        "type": "object"
-      },
-      "SandboxListingSummary": {
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "entrypoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Entrypoint"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "image": {
-            "default": "",
-            "title": "Image",
-            "type": "string"
-          },
-          "is_private": {
-            "default": false,
-            "title": "Is Private",
-            "type": "boolean"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "namespace": {
-            "title": "Namespace",
-            "type": "string"
-          },
-          "network_policy": {
-            "default": "none",
-            "title": "Network Policy",
-            "type": "string"
-          },
-          "owner": {
-            "title": "Owner",
-            "type": "string"
-          },
-          "qualified_name": {
-            "title": "Qualified Name",
-            "type": "string"
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
-          },
-          "resource_limits": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Resource Limits",
-            "type": "object"
-          },
-          "runtime_config": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Runtime Config",
-            "type": "object"
-          },
-          "runtime_type": {
-            "title": "Runtime Type",
-            "type": "string"
-          },
-          "sandbox_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sandbox Path"
-          },
-          "slug": {
-            "title": "Slug",
-            "type": "string"
-          },
-          "source_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Ref"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          },
-          "status": {
-            "$ref": "#/components/schemas/ListingStatus"
-          },
-          "supported_harnesses": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Supported Harnesses",
-            "type": "array"
-          },
-          "updated_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated At"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          },
-          "visibility": {
-            "default": "public",
-            "enum": [
-              "public",
-              "team"
-            ],
-            "title": "Visibility",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "namespace",
-          "slug",
-          "qualified_name",
-          "version",
-          "description",
-          "runtime_type",
-          "owner",
-          "supported_harnesses",
-          "status"
-        ],
-        "title": "SandboxListingSummary",
-        "type": "object"
-      },
-      "SandboxRun": {
-        "properties": {
-          "cpu_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cpu Ms"
-          },
-          "duration_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duration Ms"
-          },
-          "exit_code": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Exit Code"
-          },
-          "memory_mb": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Memory Mb"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "oom": {
-            "title": "Oom",
-            "type": "boolean"
-          },
-          "span_id": {
-            "title": "Span Id",
-            "type": "string"
-          },
-          "timestamp": {
-            "title": "Timestamp",
-            "type": "string"
-          }
-        },
-        "required": [
-          "span_id",
-          "name",
-          "exit_code",
-          "duration_ms",
-          "memory_mb",
-          "cpu_ms",
-          "oom",
-          "timestamp"
-        ],
-        "title": "SandboxRun",
-        "type": "object"
-      },
-      "SandboxStats": {
-        "properties": {
-          "avg_exit_code": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Exit Code"
-          },
-          "cpu_over_time": {
-            "items": {
-              "$ref": "#/components/schemas/DateAvg"
-            },
-            "title": "Cpu Over Time",
-            "type": "array"
-          },
-          "memory_over_time": {
-            "items": {
-              "$ref": "#/components/schemas/DateAvg"
-            },
-            "title": "Memory Over Time",
-            "type": "array"
-          },
-          "oom_count": {
-            "title": "Oom Count",
-            "type": "integer"
-          },
-          "oom_rate": {
-            "title": "Oom Rate",
-            "type": "number"
-          },
-          "recent_runs": {
-            "items": {
-              "$ref": "#/components/schemas/SandboxRun"
-            },
-            "title": "Recent Runs",
-            "type": "array"
-          },
-          "timeout_count": {
-            "title": "Timeout Count",
-            "type": "integer"
-          },
-          "timeout_rate": {
-            "title": "Timeout Rate",
-            "type": "number"
-          },
-          "total_runs": {
-            "title": "Total Runs",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "total_runs",
-          "oom_count",
-          "oom_rate",
-          "timeout_count",
-          "timeout_rate",
-          "avg_exit_code",
-          "recent_runs",
-          "cpu_over_time",
-          "memory_over_time"
-        ],
-        "title": "SandboxStats",
-        "type": "object"
-      },
-      "SandboxSubmitRequest": {
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "entrypoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Entrypoint"
-          },
-          "image": {
-            "title": "Image",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "network_policy": {
-            "default": "none",
-            "title": "Network Policy",
-            "type": "string"
-          },
-          "owner": {
-            "title": "Owner",
-            "type": "string"
-          },
-          "resource_limits": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Resource Limits",
-            "type": "object"
-          },
-          "runtime_config": {
-            "additionalProperties": true,
-            "default": {},
-            "title": "Runtime Config",
-            "type": "object"
-          },
-          "runtime_type": {
-            "title": "Runtime Type",
-            "type": "string"
-          },
-          "sandbox_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sandbox Path"
-          },
-          "source_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Ref"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          },
-          "supported_harnesses": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Supported Harnesses",
-            "type": "array"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          },
-          "visibility": {
-            "default": "public",
-            "enum": [
-              "public",
-              "team"
-            ],
-            "title": "Visibility",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "version",
-          "description",
-          "owner",
-          "runtime_type",
-          "image"
-        ],
-        "title": "SandboxSubmitRequest",
-        "type": "object"
-      },
-      "SandboxUpdateRequest": {
-        "properties": {
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "entrypoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Entrypoint"
-          },
-          "image": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "network_policy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Network Policy"
-          },
-          "owner": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Owner"
-          },
-          "resource_limits": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resource Limits"
-          },
-          "runtime_config": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Runtime Config"
-          },
-          "runtime_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Runtime Type"
-          },
-          "sandbox_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sandbox Path"
-          },
-          "source_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Ref"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          },
-          "supported_harnesses": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Supported Harnesses"
-          },
-          "version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Version"
-          },
-          "visibility": {
-            "anyOf": [
-              {
-                "enum": [
-                  "public",
-                  "team"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Visibility"
-          }
-        },
-        "title": "SandboxUpdateRequest",
         "type": "object"
       },
       "SessionCheckpointResponse": {
@@ -10391,10 +9429,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -10663,10 +9701,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -10771,10 +9809,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -10911,10 +9949,10 @@
             "type": "string"
           },
           "visibility": {
-            "default": "public",
+            "default": "project",
             "enum": [
-              "public",
-              "team"
+              "private",
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -11107,8 +10145,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "public",
-                  "team"
+                  "private",
+                  "project"
                 ],
                 "type": "string"
               },
@@ -12419,8 +11457,7 @@
         "properties": {
           "visibility": {
             "enum": [
-              "public",
-              "team"
+              "project"
             ],
             "title": "Visibility",
             "type": "string"
@@ -12706,16 +11743,6 @@
                 }
               ],
               "title": "Category"
-            }
-          },
-          {
-            "in": "query",
-            "name": "public_only",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Public Only",
-              "type": "boolean"
             }
           },
           {
@@ -17256,55 +16283,6 @@
         ]
       }
     },
-    "/api/v1/dashboard/sandbox-metrics": {
-      "get": {
-        "operationId": "sandbox_metrics_api_v1_dashboard_sandbox_metrics_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxStats"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Sandbox Metrics",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
     "/api/v1/dashboard/tokens": {
       "get": {
         "operationId": "token_stats_api_v1_dashboard_tokens_get",
@@ -18576,16 +17554,6 @@
                 }
               ],
               "title": "Search"
-            }
-          },
-          {
-            "in": "query",
-            "name": "public_only",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Public Only",
-              "type": "boolean"
             }
           },
           {
@@ -21483,16 +20451,6 @@
                 }
               ],
               "title": "Search"
-            }
-          },
-          {
-            "in": "query",
-            "name": "public_only",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Public Only",
-              "type": "boolean"
             }
           },
           {
@@ -26646,16 +25604,6 @@
           },
           {
             "in": "query",
-            "name": "public_only",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Public Only",
-              "type": "boolean"
-            }
-          },
-          {
-            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -27934,7 +26882,7 @@
             "name": "type",
             "required": true,
             "schema": {
-              "pattern": "^(agent|mcp|skill|hook|prompt|sandbox)$",
+              "pattern": "^(agent|mcp|skill|hook|prompt)$",
               "title": "Type",
               "type": "string"
             }
@@ -28010,8 +26958,7 @@
                 "mcp",
                 "skill",
                 "hook",
-                "prompt",
-                "sandbox"
+                "prompt"
               ],
               "title": "Item Type",
               "type": "string"
@@ -28722,1063 +27669,6 @@
         "summary": "Get Related Skills",
         "tags": [
           "review"
-        ]
-      }
-    },
-    "/api/v1/sandboxes": {
-      "get": {
-        "operationId": "list_sandboxes_api_v1_sandboxes_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "runtime_type",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Runtime Type"
-            }
-          },
-          {
-            "in": "query",
-            "name": "namespace",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Namespace"
-            }
-          },
-          {
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Search"
-            }
-          },
-          {
-            "in": "query",
-            "name": "public_only",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Public Only",
-              "type": "boolean"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SandboxListingSummary"
-                  },
-                  "title": "Response List Sandboxes Api V1 Sandboxes Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Sandboxes",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/draft": {
-      "post": {
-        "operationId": "save_sandbox_draft_api_v1_sandboxes_draft_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SandboxDraftRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxListingResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Save Sandbox Draft",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/my": {
-      "get": {
-        "operationId": "my_sandboxes_api_v1_sandboxes_my_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SandboxListingSummary"
-                  },
-                  "title": "Response My Sandboxes Api V1 Sandboxes My Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "My Sandboxes",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/submit": {
-      "post": {
-        "operationId": "submit_sandbox_api_v1_sandboxes_submit_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SandboxSubmitRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxListingResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Submit Sandbox",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}": {
-      "get": {
-        "operationId": "get_sandbox_api_v1_sandboxes__listing_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxListingResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Sandbox",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/archive": {
-      "patch": {
-        "operationId": "archive_sandbox_api_v1_sandboxes__listing_id__archive_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Archive Sandbox",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/cancel-edit": {
-      "post": {
-        "operationId": "cancel_edit_sandbox_api_v1_sandboxes__listing_id__cancel_edit_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Cancel Edit Sandbox",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/draft": {
-      "put": {
-        "operationId": "update_sandbox_draft_api_v1_sandboxes__listing_id__draft_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SandboxUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxListingResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Sandbox Draft",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/start-edit": {
-      "post": {
-        "operationId": "start_edit_sandbox_api_v1_sandboxes__listing_id__start_edit_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Start Edit Sandbox",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/submit": {
-      "post": {
-        "operationId": "submit_sandbox_draft_api_v1_sandboxes__listing_id__submit_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxListingResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Submit Sandbox Draft",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/unarchive": {
-      "patch": {
-        "operationId": "unarchive_sandbox_api_v1_sandboxes__listing_id__unarchive_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Unarchive Sandbox",
-        "tags": [
-          "sandboxes"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/version-suggestions": {
-      "get": {
-        "operationId": "version_suggestions_api_v1_sandboxes__listing_id__version_suggestions_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Version Suggestions",
-        "tags": [
-          "sandboxes",
-          "sandbox-versions"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/versions": {
-      "get": {
-        "operationId": "list_versions_api_v1_sandboxes__listing_id__versions_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "minimum": 1,
-              "title": "Page",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Page Size",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Versions",
-        "tags": [
-          "sandboxes",
-          "sandbox-versions"
-        ]
-      },
-      "post": {
-        "operationId": "publish_version_api_v1_sandboxes__listing_id__versions_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VersionPublishRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Publish Version",
-        "tags": [
-          "sandboxes",
-          "sandbox-versions"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/versions/{version}": {
-      "get": {
-        "operationId": "get_version_api_v1_sandboxes__listing_id__versions__version__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Version",
-        "tags": [
-          "sandboxes",
-          "sandbox-versions"
-        ]
-      }
-    },
-    "/api/v1/sandboxes/{listing_id}/versions/{version}/review": {
-      "post": {
-        "operationId": "review_version_api_v1_sandboxes__listing_id__versions__version__review_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "listing_id",
-            "required": true,
-            "schema": {
-              "title": "Listing Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VersionReviewRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Review Version",
-        "tags": [
-          "sandboxes",
-          "sandbox-versions"
         ]
       }
     },
@@ -30645,16 +28535,6 @@
                 }
               ],
               "title": "Search"
-            }
-          },
-          {
-            "in": "query",
-            "name": "public_only",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Public Only",
-              "type": "boolean"
             }
           },
           {

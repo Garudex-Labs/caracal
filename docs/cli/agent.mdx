@@ -6,7 +6,7 @@ title: "caracal agent"
 description: "Author, publish, version, and install agents - including pull"
 ---
 
-Agents bundle MCP servers, skills, hooks, prompts, and sandboxes into one versioned registry object. References accept `namespace/slug`, UUIDs, unambiguous bare names, `@aliases`, and row numbers from the latest list.
+Agents bundle MCP servers, skills, hooks, and prompts into one versioned registry object. References accept `namespace/slug`, UUIDs, unambiguous bare names, `@aliases`, and row numbers from the latest list.
 
 | Command | Purpose |
 | --- | --- |
@@ -39,8 +39,8 @@ caracal agent publish --dir ./reviewer
 ```
 
 - `init` writes `caracal-agent.yaml` atomically; refuses to overwrite.
-- `add` accepts types `mcp`, `skill`, `hook`, `prompt`, `sandbox`; duplicate type+UUID → exit 6.
-- `build` validates composition, private-component visibility, and target scope. `publish` supports `--visibility public|project`.
+- `add` accepts types `mcp`, `skill`, `hook`, `prompt`; duplicate type+UUID → exit 6.
+- `build` validates composition, private-component visibility, and target scope. `publish` supports `--visibility project|private`.
 - `publish` variants: `--draft` (save only), `--submit <ref>` (submit a draft), `--update --bump patch|minor|major` (update an existing agent). `--draft` and `--submit` are mutually exclusive; scope changes can't combine with `--update`.
 
 The full workflow with context: [Build and publish an agent](/guides/build-agents).
