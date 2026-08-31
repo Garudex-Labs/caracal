@@ -97,7 +97,7 @@ interface Route {
 	handler: HandlerFn;
 }
 
-const REGISTRY_TYPES: RegistryType[] = ["agents", "mcps", "skills", "hooks", "prompts", "sandboxes"];
+const REGISTRY_TYPES: RegistryType[] = ["agents", "mcps", "skills", "hooks", "prompts"];
 
 // The caller's one in-flight draft per component type; it resolves by id and
 // appears in /resources under include_unpublished so the owner manages it on
@@ -121,7 +121,6 @@ const SINGULAR: Record<string, RegistryType> = {
 	skill: "skills",
 	hook: "hooks",
 	prompt: "prompts",
-	sandbox: "sandboxes",
 };
 
 function json(status: number, body: unknown): MockResponse {
@@ -132,7 +131,7 @@ function notFound(detail: string): MockResponse {
 	return json(404, { detail });
 }
 
-const ACTIVITY_PAGE_SIZE = 50;
+const ACTIVITY_PAGE_SIZES = [20, 50, 100];
 
 interface ActivityRow {
 	event_id: string;
@@ -149,12 +148,50 @@ function paginateOrgList<T>(rows: T[], req: MockRequest, key: "members" | "proje
 	return { [key]: rows.slice(start, start + pageSize), total: rows.length, page, page_size: pageSize };
 }
 
+function projectMemberRole(orgRole: string, assignedRole?: string | null) {
+	return orgRole === "owner" || orgRole === "admin" ? "lead" : (assignedRole ?? "user");
+}
+
+function projectAccessRows(orgSlug: string, projectSlug: string) {
+	const orgMembers = MOCK_ORG_MEMBERS[orgSlug] ?? [];
+	const projectMembers = MOCK_PROJECT_MEMBERS[projectSlug] ?? [];
+	return orgMembers
+		.map((member) => {
+			const assigned = projectMembers.find((candidate) => candidate.id === member.id)?.role ?? null;
+			const inherited = member.role === "owner" || member.role === "admin";
+			if (!inherited && !assigned) return null;
+			const role = projectMemberRole(member.role, assigned);
+			return {
+				id: member.id,
+				email: member.email,
+				username: member.username,
+				name: member.name,
+				role,
+				org_role: member.role,
+				assigned_role: assigned,
+				access_source: inherited ? "organization" : "project",
+				permissions: projectPermissions(member.role, role),
+				created_at: member.created_at ?? new Date().toISOString(),
+			};
+		})
+		.filter((row): row is NonNullable<typeof row> => row !== null);
+}
+
+function syncProjectMemberCounts(orgSlug: string) {
+	for (const project of MOCK_PROJECTS[orgSlug] ?? []) {
+		project.member_count = projectAccessRows(orgSlug, project.slug).length;
+	}
+}
+
 // paginateActivity mirrors the server's cursor pagination: equality filtering
 // at the "data layer", a stable (timestamp, event_id) total order, and an
 // opaque forward-only cursor. filterKeys map a query key to its column
 // (actor -> actor_email).
 function paginateActivity<T extends ActivityRow>(rows: T[], req: MockRequest, filterKeys: string[]) {
-	const asc = req.query.get("dir") === "asc";
+	const sort = req.query.get("sort");
+	const asc = sort === "oldest" || (!sort && req.query.get("dir") === "asc");
+	const requestedPageSize = Number(req.query.get("page_size") ?? "20") || 20;
+	const pageSize = ACTIVITY_PAGE_SIZES.includes(requestedPageSize) ? requestedPageSize : 20;
 	let filtered = rows.filter((row) =>
 		filterKeys.every((key) => {
 			const wanted = req.query.get(key);
@@ -163,6 +200,34 @@ function paginateActivity<T extends ActivityRow>(rows: T[], req: MockRequest, fi
 			return String((row as Record<string, unknown>)[column] ?? "") === wanted;
 		}),
 	);
+	const category = req.query.get("category");
+	if (category) {
+		filtered = filtered.filter((row) => securityEventCategory(String((row as Record<string, unknown>).event_type ?? "")) === category);
+	}
+	const target = (req.query.get("target") ?? "").trim().toLowerCase();
+	if (target) {
+		filtered = filtered.filter((row) =>
+			["target_type", "target_id", "detail"].some((key) =>
+				String((row as Record<string, unknown>)[key] ?? "").toLowerCase().includes(target),
+			),
+		);
+	}
+	const resource = (req.query.get("resource") ?? "").trim().toLowerCase();
+	if (resource) {
+		filtered = filtered.filter((row) =>
+			["resource_type", "resource_id", "resource_name", "http_path"].some((key) =>
+				String((row as Record<string, unknown>)[key] ?? "").toLowerCase().includes(resource),
+			),
+		);
+	}
+	const project = (req.query.get("project") ?? "").trim();
+	if (project) {
+		filtered = filtered.filter((row) => String((row as Record<string, unknown>).http_path ?? "").includes(`/projects/${project}`));
+	}
+	const start = req.query.get("start_date");
+	const end = req.query.get("end_date");
+	if (start) filtered = filtered.filter((row) => row.timestamp >= mockActivityBound(start, false));
+	if (end) filtered = filtered.filter((row) => row.timestamp <= mockActivityBound(end, true));
 	const query = (req.query.get("q") ?? "").trim().toLowerCase();
 	if (query) {
 		filtered = filtered.filter((row) =>
@@ -170,6 +235,19 @@ function paginateActivity<T extends ActivityRow>(rows: T[], req: MockRequest, fi
 		);
 	}
 	filtered = [...filtered].sort((a, b) => {
+		if (sort === "event_type" || sort === "outcome") {
+			const aValue = String((a as Record<string, unknown>)[sort] ?? "");
+			const bValue = String((b as Record<string, unknown>)[sort] ?? "");
+			if (aValue !== bValue) return aValue < bValue ? -1 : 1;
+		}
+		if (sort === "slowest") {
+			const byDuration = Number((a as Record<string, unknown>).duration_ms ?? 0) - Number((b as Record<string, unknown>).duration_ms ?? 0);
+			if (byDuration !== 0) return -byDuration;
+		}
+		if (sort === "status_desc") {
+			const byStatus = Number((a as Record<string, unknown>).status_code ?? 0) - Number((b as Record<string, unknown>).status_code ?? 0);
+			if (byStatus !== 0) return -byStatus;
+		}
 		const byTime = a.timestamp === b.timestamp ? 0 : a.timestamp < b.timestamp ? -1 : 1;
 		const cmp = byTime !== 0 ? byTime : a.event_id < b.event_id ? -1 : a.event_id > b.event_id ? 1 : 0;
 		return asc ? cmp : -cmp;
@@ -178,12 +256,23 @@ function paginateActivity<T extends ActivityRow>(rows: T[], req: MockRequest, fi
 	if (cursor) {
 		let curTs = "";
 		let curId = "";
+		let curSort = "";
 		try {
-			[curTs, curId] = atob(cursor).split("|");
+			[curTs, curId, curSort] = atob(cursor).split("|");
 		} catch {
 			// A malformed cursor falls back to the first page here.
 		}
 		filtered = filtered.filter((row) => {
+			if (sort === "event_type" || sort === "outcome") {
+				const value = String((row as Record<string, unknown>)[sort] ?? "");
+				if (curSort && value !== curSort) return value > curSort;
+			}
+			if (sort === "slowest" || sort === "status_desc") {
+				const key = sort === "slowest" ? "duration_ms" : "status_code";
+				const value = Number((row as Record<string, unknown>)[key] ?? 0);
+				const cursorValue = Number(curSort);
+				if (Number.isFinite(cursorValue) && value !== cursorValue) return value < cursorValue;
+			}
 			const cmp =
 				row.timestamp === curTs
 					? row.event_id < curId
@@ -197,20 +286,43 @@ function paginateActivity<T extends ActivityRow>(rows: T[], req: MockRequest, fi
 			return asc ? cmp > 0 : cmp < 0;
 		});
 	}
-	const hasMore = filtered.length > ACTIVITY_PAGE_SIZE;
-	const events = filtered.slice(0, ACTIVITY_PAGE_SIZE);
+	const hasMore = filtered.length > pageSize;
+	const events = filtered.slice(0, pageSize);
 	const last = events[events.length - 1];
+	const sortCursor = last && (sort === "slowest" || sort === "status_desc" || sort === "event_type" || sort === "outcome")
+		? `|${String((last as Record<string, unknown>)[sort === "slowest" ? "duration_ms" : sort === "status_desc" ? "status_code" : sort] ?? "")}`
+		: "";
 	return {
 		events,
-		next_cursor: hasMore && last ? btoa(`${last.timestamp}|${last.event_id}`) : null,
+		next_cursor: hasMore && last ? btoa(`${last.timestamp}|${last.event_id}${sortCursor}`) : null,
 		has_more: hasMore,
-		page_size: ACTIVITY_PAGE_SIZE,
+		page_size: pageSize,
 	};
+}
+
+function mockActivityBound(raw: string, endOfDay: boolean) {
+	if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw} ${endOfDay ? "23:59:59" : "00:00:00"}`;
+	return raw.replace("T", " ").replace(/Z$/, "");
+}
+
+function securityEventCategory(type: string) {
+	if (type.startsWith("auth.") || type.startsWith("login_") || type.startsWith("token_")) return "auth";
+	if (["org.created", "org.renamed", "org.deleted", "org.ownership.transferred"].includes(type)) return "organization";
+	if (["org.membership.changed", "org.project.membership.changed"].includes(type)) return "membership";
+	if (["org.project.created", "org.project.deleted", "org.project.membership.changed", "org.project.retention.changed"].includes(type)) return "project";
+	if (["org.invitation.created", "org.invitation.revoked", "org.invitation.accepted"].includes(type)) return "invitation";
+	if (type.startsWith("admin.setting.")) return "settings";
+	return "organization";
 }
 
 export interface MockOptions {
 	/** Parsed packages/harness-data/registry.json, or null when unreadable. */
-	harnessRegistry: { harnesses: Record<string, { display_name: string; capabilities: string[] }> } | null;
+	harnessRegistry: {
+		harnesses: Record<
+			string,
+			{ display_name: string; capabilities: string[]; skill_support?: string; skill_mechanism?: string; hook_support?: string; hook_mechanism?: string }
+		>;
+	} | null;
 	/** web/package.json version, echoed as the server version to keep the banner quiet. */
 	appVersion: string;
 }
@@ -228,6 +340,10 @@ export function createRoutes(opts: MockOptions): Route[] {
 			display_name: entry.display_name,
 			capabilities: entry.capabilities,
 			supported_models: GENERIC_MODELS,
+			skill_support: entry.skill_support,
+			skill_mechanism: entry.skill_mechanism,
+			hook_support: entry.hook_support,
+			hook_mechanism: entry.hook_mechanism,
 		}))
 		: FALLBACK_HARNESSES;
 
@@ -276,8 +392,8 @@ export function createRoutes(opts: MockOptions): Route[] {
 					description: item.description ?? null,
 					status: item.status ?? "approved",
 					version: (item.version as string | undefined) ?? "1.0.0",
-					visibility: item.visibility ?? "public",
-					ownership_scope: item.visibility === "private" ? "private" : "team",
+					visibility: item.visibility ?? "project",
+					ownership_scope: item.visibility === "private" ? "private" : "project",
 					owner: (item.owner as string | undefined) ?? item.namespace,
 					project_id: null,
 					downloads: (item as { download_count?: number }).download_count ?? 0,
@@ -857,7 +973,19 @@ export function createRoutes(opts: MockOptions): Route[] {
 		if (!inv) return notFound("Invitation not found");
 		return acceptInvitation(inv);
 	});
-	on("GET", "/orgs/:slug/invitations", (req) => MOCK_ORG_INVITATIONS[req.params.slug] ?? notFound("Organization not found"));
+	on("GET", "/orgs/:slug/invitations", (req) => {
+		const invs = MOCK_ORG_INVITATIONS[req.params.slug];
+		if (!invs) return notFound("Organization not found");
+		const q = (req.query.get("q") ?? "").trim().toLowerCase();
+		const role = req.query.get("role");
+		const state = req.query.get("state");
+		return invs.filter((inv) => {
+			if (q && !inv.email.toLowerCase().includes(q)) return false;
+			if (role && inv.role !== role) return false;
+			if (state && inv.state !== state) return false;
+			return true;
+		});
+	});
 	on("POST", "/orgs/:slug/invitations", (req) => {
 		const invs = MOCK_ORG_INVITATIONS[req.params.slug];
 		const org = orgBySlug(req.params.slug);
@@ -915,14 +1043,15 @@ export function createRoutes(opts: MockOptions): Route[] {
 			name: org.name,
 			description: null,
 			is_default: true,
-			role: null,
-			permissions: projectPermissions("owner", null),
-			member_count: 0,
+			role: "lead" as const,
+			permissions: projectPermissions("owner", "lead"),
+			member_count: 1,
 			created_at: new Date().toISOString(),
 		};
 		MOCK_ORGS.push(org);
 		MOCK_ORG_MEMBERS[org.slug] = [{ ...MOCK_ORG_MEMBERS.primary[0], role: "owner" }];
 		MOCK_PROJECTS[org.slug] = [defaultProject];
+		MOCK_PROJECT_MEMBERS[defaultProject.slug] = [{ ...MOCK_ORG_MEMBERS[org.slug][0], role: "lead" }];
 		MOCK_ORG_INVITATIONS[org.slug] = [];
 		MOCK_PROJECT_RESOURCES[defaultProject.slug] = { total: 0, items: [] };
 		return json(201, { ...org, default_project: defaultProject });
@@ -944,8 +1073,14 @@ export function createRoutes(opts: MockOptions): Route[] {
 		if (!members) return notFound("Organization not found");
 		const q = (req.query.get("q") ?? "").trim().toLowerCase();
 		const role = req.query.get("role");
+		const project = req.query.get("project");
+		const projectRole = req.query.get("project_role");
 		const dir = req.query.get("dir") === "desc" ? -1 : 1;
 		const sort = req.query.get("sort") ?? "email";
+		const projectAccess = (memberId: string, projectSlug?: string | null) =>
+			(MOCK_PROJECTS[req.params.slug] ?? [])
+				.filter((p) => !projectSlug || p.slug === projectSlug)
+				.map((p) => ({ project: p, membership: (MOCK_PROJECT_MEMBERS[p.slug] ?? []).find((m) => m.id === memberId) }));
 		const projectCount = (memberId: string) =>
 			(MOCK_PROJECTS[req.params.slug] ?? []).filter((p) =>
 				(MOCK_PROJECT_MEMBERS[p.slug] ?? []).some((m) => m.id === memberId),
@@ -957,6 +1092,15 @@ export function createRoutes(opts: MockOptions): Route[] {
 			);
 		}
 		if (role) rows = rows.filter((m) => m.role === role);
+		if (project || projectRole) {
+			rows = rows.filter((m) =>
+				projectAccess(m.id, project).some(({ membership }) => {
+					if (m.role === "owner" || m.role === "admin") return !projectRole || projectRole === "lead";
+					if (!membership) return false;
+					return !projectRole || membership.role === projectRole;
+				}),
+			);
+		}
 		const keyOf = (m: (typeof rows)[number]) =>
 			sort === "joined"
 				? (m.created_at ?? "")
@@ -976,18 +1120,22 @@ export function createRoutes(opts: MockOptions): Route[] {
 		}
 		const target = (MOCK_ORG_MEMBERS[req.params.slug] ?? []).find((m) => m.id === req.params.userId);
 		if (!target) return notFound("Member not found");
+		const inherited = target.role === "owner" || target.role === "admin";
 		return (MOCK_PROJECTS[req.params.slug] ?? [])
 			.map((project) => ({
 				project,
 				membership: (MOCK_PROJECT_MEMBERS[project.slug] ?? []).find((m) => m.id === target.id),
 			}))
-			.filter((entry) => entry.membership)
+			.filter((entry) => inherited || entry.membership)
 			.map(({ project, membership }) => ({
 				id: project.id,
 				slug: project.slug,
 				name: project.name,
 				is_default: !!project.is_default,
-				role: membership!.role,
+				role: inherited ? "lead" : membership!.role,
+				assigned_role: membership?.role ?? null,
+				access_source: inherited ? "organization" : "project",
+				permissions: projectPermissions(target.role, inherited ? "lead" : membership!.role),
 				created_at: project.created_at ?? new Date().toISOString(),
 			}));
 	});
@@ -998,6 +1146,14 @@ export function createRoutes(opts: MockOptions): Route[] {
 		const existing = members.find((m) => m.email === body.email || (body.username && m.username === body.username));
 		if (existing) {
 			existing.role = body.role;
+			const defaultProject = (MOCK_PROJECTS[req.params.slug] ?? []).find((project) => project.is_default);
+			if (defaultProject) {
+				const defaultMembers = (MOCK_PROJECT_MEMBERS[defaultProject.slug] ??= []);
+				const assigned = defaultMembers.find((member) => member.id === existing.id);
+				if (assigned) assigned.role = projectMemberRole(body.role);
+				else defaultMembers.push({ ...existing, role: projectMemberRole(body.role) });
+				syncProjectMemberCounts(req.params.slug);
+			}
 			return existing;
 		}
 		const member = {
@@ -1008,6 +1164,11 @@ export function createRoutes(opts: MockOptions): Route[] {
 			role: body.role,
 		};
 		members.push(member);
+		const defaultProject = (MOCK_PROJECTS[req.params.slug] ?? []).find((project) => project.is_default);
+		if (defaultProject) {
+			(MOCK_PROJECT_MEMBERS[defaultProject.slug] ??= []).push({ ...member, role: projectMemberRole(member.role) });
+			syncProjectMemberCounts(req.params.slug);
+		}
 		return member;
 	});
 	on("DELETE", "/orgs/:slug/members/:userId", (req) => {
@@ -1020,6 +1181,7 @@ export function createRoutes(opts: MockOptions): Route[] {
 	on("GET", "/orgs/:slug/projects", (req) => {
 		const projects = MOCK_PROJECTS[req.params.slug];
 		if (!projects) return notFound("Organization not found");
+		syncProjectMemberCounts(req.params.slug);
 		const q = (req.query.get("q") ?? "").trim().toLowerCase();
 		const dir = req.query.get("dir") === "desc" ? -1 : 1;
 		const sort = req.query.get("sort") ?? "name";
@@ -1057,9 +1219,30 @@ export function createRoutes(opts: MockOptions): Route[] {
 		const project = (MOCK_PROJECTS[req.params.slug] ?? []).find((p) => p.slug === req.params.project);
 		return project ?? notFound("Project not found");
 	});
-	on("GET", "/orgs/:slug/projects/:project/members", (req) =>
-		MOCK_PROJECT_MEMBERS[req.params.project] ?? notFound("Project not found"),
-	);
+	on("GET", "/orgs/:slug/projects/:project/members", (req) => {
+		if (!MOCK_PROJECTS[req.params.slug]?.some((project) => project.slug === req.params.project)) {
+			return notFound("Project not found");
+		}
+		const q = (req.query.get("q") ?? "").trim().toLowerCase();
+		const role = req.query.get("role");
+		const dir = req.query.get("dir") === "desc" ? -1 : 1;
+		const sort = req.query.get("sort") ?? "email";
+		let rows = projectAccessRows(req.params.slug, req.params.project);
+		if (q) rows = rows.filter((member) => [member.email, member.username ?? "", member.name ?? ""].some((value) => value.toLowerCase().includes(q)));
+		if (role) rows = rows.filter((member) => member.role === role);
+		const keyOf = (member: (typeof rows)[number]) =>
+			sort === "joined"
+				? (member.created_at ?? "")
+				: sort === "role"
+					? member.role
+					: sort === "org_role"
+						? (member.org_role ?? "")
+						: sort === "name"
+							? (member.name ?? member.username ?? member.email)
+							: member.email;
+		rows.sort((a, b) => (keyOf(a) < keyOf(b) ? -dir : keyOf(a) > keyOf(b) ? dir : 0));
+		return paginateOrgList(rows, req, "members");
+	});
 	on("POST", "/orgs/:slug/projects/:project/members", (req) => {
 		const members = MOCK_PROJECT_MEMBERS[req.params.project];
 		if (!members) return notFound("Project not found");
@@ -1069,20 +1252,30 @@ export function createRoutes(opts: MockOptions): Route[] {
 			(m) => m.email === body.email || (body.username && m.username === body.username),
 		);
 		if (!source) return json(409, { detail: "User must be an organization member first" });
+		if ((source.role === "owner" || source.role === "admin") && body.role !== "lead") {
+			return json(409, { detail: "Organization owners and admins inherit project lead access" });
+		}
 		const existing = members.find((m) => m.id === source.id);
 		if (existing) {
 			existing.role = body.role;
+			syncProjectMemberCounts(req.params.slug);
 			return existing;
 		}
 		const member = { id: source.id, email: source.email, username: source.username, name: source.name, role: body.role };
 		members.push(member);
+		syncProjectMemberCounts(req.params.slug);
 		return member;
 	});
 	on("DELETE", "/orgs/:slug/projects/:project/members/:userId", (req) => {
 		const members = MOCK_PROJECT_MEMBERS[req.params.project];
 		if (!members) return notFound("Project not found");
+		const orgMember = (MOCK_ORG_MEMBERS[req.params.slug] ?? []).find((member) => member.id === req.params.userId);
+		if (orgMember?.role === "owner" || orgMember?.role === "admin") {
+			return json(409, { detail: "Organization owner/admin project access is inherited and cannot be removed" });
+		}
 		const index = members.findIndex((m) => m.id === req.params.userId);
 		if (index >= 0) members.splice(index, 1);
+		syncProjectMemberCounts(req.params.slug);
 		return json(204, undefined);
 	});
 	on("GET", "/orgs/:slug/projects/:project/resources", (req) =>
@@ -1133,7 +1326,7 @@ export function createRoutes(opts: MockOptions): Route[] {
 		if (!(org.permissions ?? []).includes("org.audit.read")) {
 			return json(403, { detail: "Insufficient organization permissions" });
 		}
-		return paginateActivity(MOCK_ORG_AUDIT_LOG, req, ["action", "resource_type", "outcome", "sensitivity", "actor"]);
+		return paginateActivity(MOCK_ORG_AUDIT_LOG, req, ["action", "resource_type", "resource_id", "resource_name", "outcome", "sensitivity", "actor", "request_id", "source", "ip_address", "http_method", "status_code"]);
 	});
 	on("GET", "/orgs/:slug/security-events", (req) => {
 		const org = orgBySlug(req.params.slug);
@@ -1141,7 +1334,7 @@ export function createRoutes(opts: MockOptions): Route[] {
 		if (!(org.permissions ?? []).includes("org.security.read")) {
 			return json(403, { detail: "Insufficient organization permissions" });
 		}
-		return paginateActivity(MOCK_ORG_SECURITY_EVENTS, req, ["event_type", "severity", "outcome", "actor"]);
+		return paginateActivity(MOCK_ORG_SECURITY_EVENTS, req, ["event_type", "severity", "outcome", "actor", "target_type", "target_id", "source_ip"]);
 	});
 
 	// ── Users / recommendations ───────────────────────────────────────

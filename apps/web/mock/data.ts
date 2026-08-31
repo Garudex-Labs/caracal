@@ -155,9 +155,9 @@ export const GENERIC_MODELS = [
 
 // Used when packages/harness-data/registry.json cannot be read.
 export const FALLBACK_HARNESSES: HarnessEntry[] = [
-	{ name: "claude-code", display_name: "Claude Code", capabilities: ["hooks", "mcp_servers", "skills"], supported_models: GENERIC_MODELS },
-	{ name: "kiro", display_name: "Kiro", capabilities: ["hooks", "mcp_servers"], supported_models: GENERIC_MODELS },
-	{ name: "copilot", display_name: "Copilot", capabilities: ["hooks", "mcp_servers", "skills", "prompts"], supported_models: GENERIC_MODELS },
+	{ name: "claude-code", display_name: "Claude Code", capabilities: ["hooks", "mcp_servers", "skills"], supported_models: GENERIC_MODELS, skill_support: "native", skill_mechanism: "agent_skill", hook_support: "native", hook_mechanism: "settings_json", agent_support: "native", agent_mechanism: "subagent_markdown", agent_multi: true },
+	{ name: "kiro", display_name: "Kiro", capabilities: ["hooks", "mcp_servers", "skills"], supported_models: GENERIC_MODELS, skill_support: "native", skill_mechanism: "agent_skill", hook_support: "native", hook_mechanism: "agent_profile_json", agent_support: "native", agent_mechanism: "agent_json", agent_multi: true },
+	{ name: "copilot", display_name: "Copilot", capabilities: ["hooks", "mcp_servers", "skills", "prompts"], supported_models: GENERIC_MODELS, skill_support: "native", skill_mechanism: "agent_skill", hook_support: "native", hook_mechanism: "command_json", agent_support: "native", agent_mechanism: "vscode_custom_agent", agent_multi: true },
 ];
 
 // ── Registry ────────────────────────────────────────────────────────
@@ -178,8 +178,8 @@ function registryBase(
 		namespace: NAMESPACE,
 		slug,
 		qualified_name: `${NAMESPACE}/${slug}`,
-		visibility: "public",
-		is_private: false,
+		visibility: "project",
+		is_private: true,
 		description,
 		status: "approved",
 		version: "1.2.0",
@@ -222,7 +222,6 @@ export const MOCK_REGISTRY: Record<RegistryType, RegistryItem[]> = {
 			model_name: "claude-opus-4-1",
 			components: [
 				{ component_type: "mcp", component_id: "m0000000-0000-4000-8000-000000000003", name: "pytest-mcp" },
-				{ component_type: "sandbox", component_id: "x0000000-0000-4000-8000-000000000001", name: "python-sandbox" },
 			],
 			prompt: "You keep the test suite green.",
 		}),
@@ -276,13 +275,6 @@ export const MOCK_REGISTRY: Record<RegistryType, RegistryItem[]> = {
 			category: "triage",
 			template: "Triage the following bug: {{report}}",
 			variables: [{ name: "report" }],
-		}),
-	],
-	sandboxes: [
-		registryBase(1, "sandboxes", "python-sandbox", "python-sandbox", "Locked-down Python 3.12 runtime for test execution.", {
-			runtime_type: "docker",
-			image: "python:3.12-slim",
-			network_policy: "none",
 		}),
 	],
 };
@@ -1140,7 +1132,7 @@ export const MOCK_PROJECT_RESOURCES: Record<string, ProjectResources> = {
 				type: "mcp",
 				name: MOCK_REGISTRY.mcps[0]?.name ?? "github",
 				qualified_name: MOCK_REGISTRY.mcps[0]?.qualified_name ?? "platform/github",
-				visibility: "public",
+				visibility: "project",
 			},
 			{
 				id: MOCK_REGISTRY.skills[0]?.id ?? "s-1",
@@ -1480,14 +1472,17 @@ export const MOCK_ORG_AUDIT_LOG: AuditLogEntry[] = Array.from({ length: 130 }, (
 });
 
 const ORG_SECURITY_KINDS = [
-	{ event_type: "org.created", detail: "Created organization 'acme'" },
-	{ event_type: "org.membership.changed", detail: "Set role admin for member" },
-	{ event_type: "org.invitation.created", detail: "Invited a new member" },
-	{ event_type: "org.invitation.accepted", detail: "Invitation accepted" },
-	{ event_type: "org.project.membership.changed", detail: "Updated project membership" },
-	{ event_type: "org.renamed", detail: "Organization id changed" },
-	{ event_type: "org.invitation.revoked", detail: "Revoked a pending invitation" },
-	{ event_type: "org.ownership.transferred", detail: "Ownership transferred" },
+	{ event_type: "org.created", severity: "info", outcome: "success", detail: "Created organization 'acme'" },
+	{ event_type: "org.membership.changed", severity: "warning", outcome: "success", detail: "Set richard@caracal.run to admin in 'acme'" },
+	{ event_type: "org.invitation.created", severity: "info", outcome: "success", detail: "Invited teammate@example.com to project 'acme/platform'" },
+	{ event_type: "org.invitation.accepted", severity: "info", outcome: "success", detail: "Invitation accepted for teammate@example.com" },
+	{ event_type: "org.project.membership.changed", severity: "warning", outcome: "success", detail: "Updated project membership for 'acme/payments'" },
+	{ event_type: "org.renamed", severity: "warning", outcome: "success", detail: "Organization id changed from 'caracal' to 'acme'" },
+	{ event_type: "org.invitation.revoked", severity: "warning", outcome: "denied", detail: "Revoked a pending invitation after suspicious forwarding" },
+	{ event_type: "org.ownership.transferred", severity: "critical", outcome: "success", detail: "Ownership transferred to raw@caracal.run" },
+	{ event_type: "org.project.retention.changed", severity: "high", outcome: "success", detail: "Changed resource deletion retention policy for project 'acme/platform'" },
+	{ event_type: "login_failed", severity: "warning", outcome: "failure", detail: "Rejected organization admin sign-in for richard@caracal.run" },
+	{ event_type: "rate_limited", severity: "info", outcome: "throttled", detail: "Blocked burst of organization member edits from one source" },
 ];
 
 export const MOCK_ORG_SECURITY_EVENTS: SecurityEvent[] = Array.from({ length: 130 }, (_, i) => {
@@ -1497,15 +1492,15 @@ export const MOCK_ORG_SECURITY_EVENTS: SecurityEvent[] = Array.from({ length: 13
 		event_id: activityEventId("s1000000", i),
 		timestamp: activityTimestamp(i * 23),
 		event_type: kind.event_type,
-		severity: "info",
+		severity: kind.severity,
 		actor_id: actor.id,
 		actor_email: actor.email ?? "",
 		actor_role: "admin",
 		target_id: "org-acme",
 		target_type: "organization",
-		outcome: "success",
-		source_ip: "",
-		user_agent: "",
+		outcome: kind.outcome,
+		source_ip: i % 4 === 0 ? "10.20.30.40" : "127.0.0.1",
+		user_agent: i % 5 === 0 ? "caracal-cli/1.0" : "Mozilla/5.0 (mock)",
 		detail: kind.detail,
 	};
 });
