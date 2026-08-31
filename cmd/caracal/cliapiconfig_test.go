@@ -190,13 +190,19 @@ func TestDoctorAutoFixInstallsBundledSkills(t *testing.T) {
 	if !contains(doc.SkillMissing, "Claude Code") {
 		t.Errorf("seeded home must report the missing skill: %v", doc.SkillMissing)
 	}
-	// The fix mirrors every bundled skill into each detected harness dir.
+	// The fix mirrors every bundled skill into each detected harness that
+	// consumes native Agent Skills. Cursor is skill-unsupported, so it must be
+	// left untouched: Caracal never writes files a harness cannot read.
 	for _, skill := range []string{"caracal", "caracal-agents", "caracal-registry", "caracal-ops", "caracal-advanced"} {
-		for _, harnessDir := range []string{".claude", ".kiro", ".cursor"} {
+		for _, harnessDir := range []string{".claude", ".kiro"} {
 			path := filepath.Join(home, harnessDir, "skills", skill, "SKILL.md")
 			if _, statErr := os.Stat(path); statErr != nil {
 				t.Errorf("skill not installed: %s", path)
 			}
+		}
+		cursorPath := filepath.Join(home, ".cursor", "skills", skill, "SKILL.md")
+		if _, statErr := os.Stat(cursorPath); statErr == nil {
+			t.Errorf("skill must not be installed for skill-unsupported Cursor: %s", cursorPath)
 		}
 	}
 }

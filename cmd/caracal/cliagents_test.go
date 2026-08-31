@@ -211,7 +211,7 @@ func TestAgentBuildValidatesComponentsAgainstRegistry(t *testing.T) {
 	if !ok {
 		t.Fatalf("validate never posted: %v", rec.lines())
 	}
-	if !strings.Contains(validate.Body, mcpUUID) || !strings.Contains(validate.Body, `"visibility":"public"`) {
+	if !strings.Contains(validate.Body, mcpUUID) || !strings.Contains(validate.Body, `"visibility":"project"`) {
 		t.Errorf("validate body = %s", validate.Body)
 	}
 }

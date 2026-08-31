@@ -138,7 +138,7 @@ func TestParseStdinJSON(t *testing.T) {
 func TestNormalizeRecommendType(t *testing.T) {
 	cases := map[string]string{
 		"mcp": "mcp", "mcps": "mcp", "SKILL": "skill", "skills": "skill",
-		"hook": "hook", "prompts": "prompt", "sandbox": "sandbox",
+		"hook": "hook", "prompts": "prompt",
 	}
 	for in, want := range cases {
 		got, cerr := normalizeRecommendType(in, "op")
@@ -208,8 +208,16 @@ func TestHarnessSupportsSkills(t *testing.T) {
 	if !harnessSupportsSkills("claude-code") {
 		t.Error("claude-code supports skills")
 	}
+	// Kiro adopted the Agent Skills standard (.kiro/skills/<name>/SKILL.md).
+	if !harnessSupportsSkills("kiro") {
+		t.Error("kiro natively supports Agent Skills")
+	}
 	if harnessSupportsSkills("cursor") {
-		t.Error("cursor does not support skills")
+		t.Error("cursor uses rules, not SKILL.md")
+	}
+	// Codex consumes AGENTS.md and prompts, not a SKILL.md agent skill.
+	if harnessSupportsSkills("codex") {
+		t.Error("codex does not consume SKILL.md")
 	}
 	if harnessSupportsSkills("nonexistent") {
 		t.Error("unknown harness does not support skills")

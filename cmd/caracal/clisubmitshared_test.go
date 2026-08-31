@@ -192,8 +192,8 @@ func TestAddPublishTargetDefaultsAndValidates(t *testing.T) {
 	if cerr := addPublishTarget(payload, "", "registry mcp submit"); cerr != nil {
 		t.Fatalf("empty visibility: %v", cerr)
 	}
-	if payload["visibility"] != "public" {
-		t.Errorf("default visibility = %v, want public", payload["visibility"])
+	if payload["visibility"] != "project" {
+		t.Errorf("default visibility = %v, want project", payload["visibility"])
 	}
 	if cerr := addPublishTarget(payload, "project", "registry mcp submit"); cerr != nil || payload["visibility"] != "project" {
 		t.Errorf("project visibility failed: %v / %v", cerr, payload["visibility"])

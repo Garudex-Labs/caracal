@@ -74,6 +74,15 @@ func TestUserSkillDestMapsHarnessDirs(t *testing.T) {
 	if got := userSkillDest("claude_code", "demo"); got != filepath.Join(home, ".claude/skills/demo") {
 		t.Errorf("underscore harness dest = %q", got)
 	}
+	// Destinations come from the canonical harness registry, not a hardcoded
+	// map: harnesses whose user skill path is neither ~/.agents nor a guessed
+	// default must still land where the harness actually looks.
+	if got := userSkillDest("antigravity", "demo"); got != filepath.Join(home, ".gemini/antigravity-cli/skills/demo") {
+		t.Errorf("antigravity dest = %q", got)
+	}
+	if got := userSkillDest("copilot-cli", "demo"); got != filepath.Join(home, ".copilot/skills/demo") {
+		t.Errorf("copilot-cli dest = %q", got)
+	}
 }
 
 func TestIsPathSafeContainsWithinBase(t *testing.T) {
