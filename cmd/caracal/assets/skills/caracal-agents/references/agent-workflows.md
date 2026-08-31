@@ -84,7 +84,7 @@ Use `--draft` to save without review and `--submit AGENT_UUID` to submit an exis
 
 ```bash
 caracal agent publish --dir ./my-agent --visibility project --output json
-caracal agent publish --dir ./my-agent --visibility public --output json
+caracal agent publish --dir ./my-agent --visibility private --output json
 ```
 
 ## Update in place

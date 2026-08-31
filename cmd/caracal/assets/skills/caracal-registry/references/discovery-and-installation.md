@@ -21,7 +21,6 @@ caracal registry skill list --search 'frontend design' --harness claude-code --o
 caracal registry skill list --team platform-tools --output json
 caracal registry hook list --event UserPromptSubmit --output json
 caracal registry prompt list --category code-generation --output json
-caracal registry sandbox list --runtime docker --output json
 caracal registry models --harness kiro --output json
 ```
 
@@ -34,7 +33,6 @@ caracal registry mcp show NAMESPACE/SLUG --output json
 caracal registry skill show NAMESPACE/SLUG --output json
 caracal registry hook show NAMESPACE/SLUG --output json
 caracal registry prompt show NAMESPACE/SLUG --output json
-caracal registry sandbox show NAMESPACE/SLUG --output json
 ```
 
 ## Personalized recommendations
@@ -67,8 +65,8 @@ Choose the exact harness and scope before writing files.
 ```bash
 caracal registry mcp install NAMESPACE/SLUG --harness kiro --no-prompt --output json
 caracal registry mcp install NAMESPACE/SLUG --harness cursor --version 2.1.0 --no-prompt --output json
-caracal registry skill install NAMESPACE/SLUG --harness claude-code --scope project --output json
-caracal registry skill install NAMESPACE/SLUG --harness kiro --scope user --version 1.2.0 --output json
+caracal registry skill install NAMESPACE/SLUG --harness claude-code --output json
+caracal registry skill install NAMESPACE/SLUG --harness kiro --version 1.2.0 --output json
 caracal registry hook install NAMESPACE/SLUG --harness kiro --output json
 caracal registry hook install NAMESPACE/SLUG --harness claude-code --platform darwin --dir . --output json
 ```

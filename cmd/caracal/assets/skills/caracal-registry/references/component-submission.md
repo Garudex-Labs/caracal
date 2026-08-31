@@ -11,10 +11,9 @@
 - Skill
 - Hook
 - Prompt
-- Sandbox
 - Drafts and review status
 
-Submit only content the user owns or is authorized to publish. Use `--visibility project` to share with the active project's members, or `--visibility public` for reviewable public content.
+Submit only content the user owns or is authorized to publish. Use `--visibility project` to share with the active project's members (the default), or `--visibility private` to keep the item to yourself within the project. There is no public scope.
 
 ## Common workflow
 
@@ -33,7 +32,7 @@ caracal registry bulk submit --from-file components.json --dry-run --output json
 caracal registry bulk submit --from-file components.json --yes --output json
 ```
 
-Each entry contains `type` plus the normal API submission fields. Supported types are `mcp`, `skill`, `hook`, `prompt`, and `sandbox`. Inspect `submitted`, `skipped`, `errors`, and every result. Authentication and service failures stop the batch. After an uncertain failure, verify by UUID or `qualified_name` before rerunning.
+Each entry contains `type` plus the normal API submission fields. Supported types are `mcp`, `skill`, `hook`, and `prompt`. Inspect `submitted`, `skipped`, `errors`, and every result. Authentication and service failures stop the batch. After an uncertain failure, verify by UUID or `qualified_name` before rerunning.
 
 ## MCP server
 
@@ -81,15 +80,6 @@ caracal registry prompt submit --from-file prompt.json --output json
 ```
 
 Keep template variables intact and verify the stored template with `prompt show` or `prompt render`.
-
-## Sandbox
-
-```bash
-caracal registry sandbox submit --name node-runner --description 'Node sandbox' --runtime-type docker --image node:22-alpine --resource-limits '{"memory_mb":512}' --runtime-config '{}' --network-policy none --entrypoint node --harness claude-code --output json
-caracal registry sandbox submit --from-file sandbox.json --output json
-```
-
-Treat runtime, image, network policy, limits, entrypoint, and harness support as security-relevant fields. Do not weaken them silently.
 
 ## Drafts and review status
 

@@ -170,8 +170,7 @@ export default function (pi: ExtensionAPI) {
           { name: "AGENTS.md", isDir: false },
           { name: "SYSTEM.md", isDir: false },
           { name: "mcp.json", isDir: false },
-          { name: "skills", isDir: true },
-          { name: "sandboxes", isDir: true }
+          { name: "skills", isDir: true }
         ];
 
         for (const f of filesToCopy) {
@@ -187,7 +186,7 @@ export default function (pi: ExtensionAPI) {
         const profileDir = path.join(AGENTS_DIR, name);
         if (!fs.existsSync(profileDir)) throw new Error(`Profile ${name} not found`);
 
-        const activeItems = ["AGENTS.md", "SYSTEM.md", "mcp.json", "skills", "sandboxes"];
+        const activeItems = ["AGENTS.md", "SYSTEM.md", "mcp.json", "skills"];
         for (const f of activeItems) {
           const target = path.join(PI_HOME, f);
           if (fs.existsSync(target)) {
@@ -477,10 +476,8 @@ export default function (pi: ExtensionAPI) {
   function isPiLayerFile(rel: string): boolean {
     return ["AGENTS.md", "SYSTEM.md", "APPEND_SYSTEM.md", "mcp.json", "settings.json"].includes(rel)
       || /^skills\/[^/]+\/SKILL\.md$/.test(rel)
-      || rel.startsWith("sandboxes/")
       || /^agents\/[^/]+\/(AGENTS\.md|SYSTEM\.md|APPEND_SYSTEM\.md|mcp\.json)$/.test(rel)
-      || /^agents\/[^/]+\/skills\/[^/]+\/SKILL\.md$/.test(rel)
-      || /^agents\/[^/]+\/sandboxes\//.test(rel);
+      || /^agents\/[^/]+\/skills\/[^/]+\/SKILL\.md$/.test(rel);
   }
 
   function sha256(content: Buffer): string {
