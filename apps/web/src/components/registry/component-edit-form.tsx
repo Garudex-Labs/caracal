@@ -4,7 +4,6 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { ArrowRight, Loader2, RotateCcw, Construction } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +32,10 @@ import {
 import { VersionBumpDialog } from "@/components/registry/version-bump-dialog";
 import type { RegistryType } from "@/lib/api";
 import type { RegistryItem } from "@/lib/types";
+import {
+	normalizePromptCategory,
+	PROMPT_CATEGORY_MAX_LEN,
+} from "@/lib/prompt-category";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -94,7 +97,6 @@ interface PromptFieldState {
 	category: string;
 	template: string;
 	variables: string;
-	model_hints: string;
 	tags: string;
 }
 
@@ -450,155 +452,6 @@ function McpEditForm({
 	);
 }
 
-function SandboxEditForm({
-	listingId,
-	type,
-	currentVersion,
-	item,
-	onSuccess,
-}: {
-	listingId: string;
-	type: RegistryType;
-	currentVersion: string;
-	item: RegistryItem;
-	onSuccess?: () => void;
-}) {
-	const safeJson = (value: unknown) => {
-		if (value == null) return "";
-		if (typeof value === "string") return value;
-		try { return JSON.stringify(value, null, 2); } catch { return ""; }
-	};
-	const parseJson = (value: string) => {
-		if (!value.trim()) return undefined;
-		return JSON.parse(value);
-	};
-	const [description, setDescription] = useState((item.description as string) ?? "");
-	const [changelog, setChangelog] = useState("");
-	const [runtimeType, setRuntimeType] = useState((item.runtime_type as string) ?? "docker");
-	const [image, setImage] = useState((item.image as string) ?? "");
-	const [entrypoint, setEntrypoint] = useState((item.entrypoint as string) ?? "");
-	const [networkPolicy, setNetworkPolicy] = useState((item.network_policy as string) ?? "none");
-	const [resourceLimits, setResourceLimits] = useState(safeJson(item.resource_limits));
-	const [runtimeConfig, setRuntimeConfig] = useState(safeJson(item.runtime_config));
-	const [sourceUrl, setSourceUrl] = useState((item.source_url as string) ?? "");
-	const [sourceRef, setSourceRef] = useState((item.source_ref as string) ?? "");
-	const [sandboxPath, setSandboxPath] = useState((item.sandbox_path as string) ?? "");
-	const [showVersionDialog, setShowVersionDialog] = useState(false);
-	const [publishing, setPublishing] = useState(false);
-	const publishVersion = usePublishComponentVersion();
-	const { data: versionSuggestions } = useComponentVersionSuggestions(type, listingId);
-	const isDirty = true;
-
-	function buildBody(version: string): Record<string, unknown> {
-		const extra: Record<string, unknown> = { runtime_type: runtimeType, image, network_policy: networkPolicy };
-		if (entrypoint) extra.entrypoint = entrypoint;
-		const limits = parseJson(resourceLimits);
-		if (limits !== undefined) extra.resource_limits = limits;
-		const config = parseJson(runtimeConfig);
-		if (config !== undefined) extra.runtime_config = config;
-		if (sourceUrl) extra.source_url = sourceUrl;
-		if (sourceRef) extra.source_ref = sourceRef;
-		if (sandboxPath) extra.sandbox_path = sandboxPath;
-		return { version, description: description.trim() || undefined, changelog: changelog.trim() || undefined, extra };
-	}
-
-	async function handleRelease(selectedVersion: string) {
-		let body: Record<string, unknown>;
-		try {
-			body = buildBody(selectedVersion);
-		} catch {
-			toast.error("Resource limits and runtime config must be valid JSON");
-			return;
-		}
-		setPublishing(true);
-		try {
-			await publishVersion.mutateAsync({ type, listingId, body });
-			setShowVersionDialog(false);
-			onSuccess?.();
-		} catch {
-			// Surfaced to the user by the mutation's onError toast.
-		} finally {
-			setPublishing(false);
-		}
-	}
-
-	return (
-		<div className="space-y-6">
-			<section className="space-y-4">
-				<div className="space-y-2">
-					<Label>Name</Label>
-					<Input value={String(item.name ?? "")} disabled className="max-w-md bg-muted/40 text-muted-foreground" />
-				</div>
-				<div className="space-y-2">
-					<Label>Description</Label>
-					<Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="max-w-lg" />
-				</div>
-				<div className="space-y-2">
-					<Label>Changelog</Label>
-					<Textarea value={changelog} onChange={(e) => setChangelog(e.target.value)} rows={2} placeholder="What changed in this version?" className="max-w-lg" />
-				</div>
-			</section>
-			<Separator />
-			<section className="space-y-4">
-				<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-					<div className="space-y-2">
-						<Label>Runtime</Label>
-						<Input value={runtimeType} onChange={(e) => setRuntimeType(e.target.value)} placeholder="docker" />
-					</div>
-					<div className="space-y-2">
-						<Label>Network Policy</Label>
-						<Input value={networkPolicy} onChange={(e) => setNetworkPolicy(e.target.value)} placeholder="none" />
-					</div>
-				</div>
-				<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-					<div className="space-y-2">
-						<Label>Image / Artifact Ref</Label>
-						<Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="python:3.12-slim" />
-					</div>
-					<div className="space-y-2">
-						<Label>Entrypoint</Label>
-						<Input value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} placeholder="bash" />
-					</div>
-				</div>
-				<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-					<div className="space-y-2">
-						<Label>Resource Limits JSON</Label>
-						<CodeEditor
-							value={resourceLimits}
-							onChange={setResourceLimits}
-							language="json"
-							minHeightClassName="min-h-32 [&_.cm-editor]:min-h-32 [&_.cm-scroller]:min-h-32"
-							placeholder='{"timeout": 60, "memory_mb": 512}'
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label>Runtime Config JSON</Label>
-						<CodeEditor
-							value={runtimeConfig}
-							onChange={setRuntimeConfig}
-							language="json"
-							minHeightClassName="min-h-32 [&_.cm-editor]:min-h-32 [&_.cm-scroller]:min-h-32"
-							placeholder='{"module": "runner.wasm"}'
-						/>
-					</div>
-				</div>
-				<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-					<Input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="Source URL" />
-					<Input value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder="Source ref" />
-					<Input value={sandboxPath} onChange={(e) => setSandboxPath(e.target.value)} placeholder="Sandbox path" />
-				</div>
-			</section>
-			<div className="flex items-center gap-3">
-				<Button onClick={() => setShowVersionDialog(true)} disabled={publishing || !isDirty} className="min-w-[160px]">
-					{publishing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
-					Save &amp; Release
-				</Button>
-			</div>
-			<VersionBumpDialog open={showVersionDialog} onOpenChange={setShowVersionDialog} currentVersion={currentVersion} suggestions={versionSuggestions} onConfirm={handleRelease} publishing={publishing} />
-		</div>
-	);
-}
-
 // ── Sub-form: Hook fields ──────────────────────────────────────────
 
 function HookFields({
@@ -914,6 +767,29 @@ function PromptFields({
 						value={state.category}
 						onChange={(e) => onChange({ category: e.target.value })}
 					/>
+					{state.category.trim() !== "" &&
+						(() => {
+							const slug = normalizePromptCategory(state.category);
+							if (slug === "")
+								return (
+									<p className="text-xs text-destructive">
+										Not a valid category.
+									</p>
+								);
+							if (slug.length > PROMPT_CATEGORY_MAX_LEN)
+								return (
+									<p className="text-xs text-destructive">
+										Too long (max {PROMPT_CATEGORY_MAX_LEN} characters).
+									</p>
+								);
+							if (slug !== state.category)
+								return (
+									<p className="text-xs text-muted-foreground">
+										Stored as <code>{slug}</code>.
+									</p>
+								);
+							return null;
+						})()}
 				</div>
 
 				<div className="space-y-2">
@@ -958,23 +834,6 @@ function PromptFields({
 				/>
 				<p className="text-xs text-muted-foreground">
 					JSON array of variable definitions.
-				</p>
-			</div>
-
-			<div className="space-y-2">
-				<Label htmlFor="prompt-model-hints" className="text-sm font-medium">
-					Model Hints
-				</Label>
-				<Textarea
-					id="prompt-model-hints"
-					placeholder='{"preferred_model": "claude-sonnet"}'
-					value={state.model_hints}
-					onChange={(e) => onChange({ model_hints: e.target.value })}
-					rows={3}
-					className="resize-y font-[family-name:var(--font-mono)] text-xs"
-				/>
-				<p className="text-xs text-muted-foreground">
-					JSON hints for model selection.
 				</p>
 			</div>
 		</div>
@@ -1051,7 +910,6 @@ function EditFormInner({
 		category: (item.category as string) ?? "",
 		template: (item.template as string) ?? "",
 		variables: safeJson(item.variables),
-		model_hints: safeJson(item.model_hints),
 		tags: commaList(item.tags),
 	};
 
@@ -1137,12 +995,11 @@ function EditFormInner({
 			if (skillState.script_filename)
 				extra.script_filename = skillState.script_filename;
 		} else if (singularType === "prompt") {
-			if (promptState.category) extra.category = promptState.category;
+			if (promptState.category)
+				extra.category = normalizePromptCategory(promptState.category);
 			if (promptState.template) extra.template = promptState.template;
 			if (promptState.variables)
 				extra.variables = tryParseJson(promptState.variables);
-			if (promptState.model_hints)
-				extra.model_hints = tryParseJson(promptState.model_hints);
 			if (promptState.tags) {
 				extra.tags = promptState.tags
 					.split(",")
@@ -1370,8 +1227,7 @@ export function ComponentEditForm({
 	item,
 	onSuccess,
 }: ComponentEditFormProps) {
-	const singularType =
-		type === "sandboxes" ? "sandbox" : type.replace(/s$/, "");
+	const singularType = type.replace(/s$/, "");
 
 	if (item.status === "pending") {
 		return (
@@ -1394,18 +1250,6 @@ export function ComponentEditForm({
 	if (singularType === "mcp") {
 		return (
 			<McpEditForm
-				listingId={listingId}
-				type={type}
-				currentVersion={currentVersion}
-				item={item}
-				onSuccess={onSuccess}
-			/>
-		);
-	}
-
-	if (singularType === "sandbox") {
-		return (
-			<SandboxEditForm
 				listingId={listingId}
 				type={type}
 				currentVersion={currentVersion}

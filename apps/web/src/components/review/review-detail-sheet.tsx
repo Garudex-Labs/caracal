@@ -143,7 +143,6 @@ function PromptConfigSection({ detail }: { detail: ReviewItem }) {
 			<DetailField label="Category" value={detail.category} />
 			<DetailField label="Tags" value={detail.tags} />
 			<DetailField label="Variables" value={detail.variables} />
-			<DetailField label="Model Hints" value={detail.model_hints} />
 			{detail.template && (
 				<div className="col-span-full">
 					<dt className="text-xs font-medium text-muted-foreground">
@@ -156,20 +155,6 @@ function PromptConfigSection({ detail }: { detail: ReviewItem }) {
 					</dd>
 				</div>
 			)}
-		</dl>
-	);
-}
-
-function SandboxConfigSection({ detail }: { detail: ReviewItem }) {
-	return (
-		<dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-			<DetailField label="Runtime Type" value={detail.runtime_type} />
-			<DetailField label="Image" value={detail.image} />
-			<DetailField label="Network Policy" value={detail.network_policy} />
-			<DetailField label="Entrypoint" value={detail.entrypoint} />
-			<DetailField label="Resource Limits" value={detail.resource_limits} />
-			{detail.sandbox_path && <DetailField label="Sandbox Path" value={detail.sandbox_path} />}
-			{detail.source_url && <DetailField label="Source" value={detail.source_url} />}
 		</dl>
 	);
 }
@@ -279,8 +264,6 @@ function ConfigSection({ detail }: { detail: ReviewItem }) {
 			return <HookConfigSection detail={detail} />;
 		case "prompt":
 			return <PromptConfigSection detail={detail} />;
-		case "sandbox":
-			return <SandboxConfigSection detail={detail} />;
 		case "agent":
 			return <AgentConfigSection detail={detail} />;
 		default:
