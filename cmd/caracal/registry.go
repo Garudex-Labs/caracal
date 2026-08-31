@@ -551,11 +551,12 @@ func strOrEmpty(v any) string {
 }
 
 // harnessSupportsSkills reports whether a Caracal Skill materializes for the
-// harness as a native Agent Skill (SKILL.md) it can discover. Driven by the
-// canonical harness registry so it never drifts from the materialization layer.
+// harness through a native (SKILL.md) or compatible (e.g. Cursor rule)
+// mechanism. Driven by the canonical harness registry so it never drifts from
+// the materialization layer, the UI, or the backend.
 func harnessSupportsSkills(name string) bool {
 	spec, ok := harness.MustLoad().Spec(strings.ReplaceAll(name, "_", "-"))
-	return ok && spec.EmitsSkillMd()
+	return ok && spec.SupportsSkill()
 }
 
 // harnessSupportsRegistryHooks reports whether a harness can materialize a

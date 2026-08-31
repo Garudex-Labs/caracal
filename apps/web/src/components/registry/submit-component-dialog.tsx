@@ -589,7 +589,7 @@ export function SubmitComponentDialog({
 
 	function harnessSupportsSkills(name: string): boolean {
 		const entry = (harnessList ?? []).find((x) => x.name === name);
-		return entry?.skill_support === "native";
+		return entry?.skill_support === "native" || entry?.skill_support === "compatible";
 	}
 
 	// A harness may be unable to consume the component type being submitted.

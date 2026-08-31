@@ -20,6 +20,7 @@ import (
 	"github.com/garudex-labs/caracal/internal/cli/lockfile"
 	"github.com/garudex-labs/caracal/internal/cli/ref"
 	"github.com/garudex-labs/caracal/internal/harness"
+	"github.com/garudex-labs/caracal/internal/harnessgen"
 )
 
 // ── shared install helpers ─────────────────────────────────────────
@@ -304,9 +305,48 @@ func normalizeSkillPath(skillPath string) string {
 	return clean
 }
 
+// compatibleSkillFileInstall writes a single-file Skill (e.g. a Cursor rule) at
+// the harness's registry skill path, returning "" for SKILL.md-directory
+// harnesses so the caller falls back to the directory installer.
+func compatibleSkillFileInstall(harnessName, scope, skillName, content, cwd string) string {
+	spec, ok := harness.MustLoad().Spec(strings.ReplaceAll(harnessName, "_", "-"))
+	if !ok || spec.EmitsSkillMd() || !spec.SupportsSkill() {
+		return ""
+	}
+	rel := harnessgen.SkillFilePath(harnessName, scope, skillName)
+	if rel == "" {
+		return ""
+	}
+	var target string
+	if strings.HasPrefix(rel, "~/") {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			return ""
+		}
+		target = filepath.Join(home, rel[2:])
+	} else {
+		target = filepath.Join(cwd, rel)
+		if !isPathSafe(target, cwd) {
+			return ""
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return ""
+	}
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		return ""
+	}
+	return target
+}
+
 // installSkillRegistryDirect writes SKILL.md plus an optional script.
 func installSkillRegistryDirect(name, skillMdContent, scriptContent, scriptFilename, harness, scope, cwd string) string {
 	skillName := sanitizeName(name)
+	if skillMdContent != "" {
+		if dest := compatibleSkillFileInstall(harness, scope, skillName, skillMdContent, cwd); dest != "" {
+			return dest
+		}
+	}
 	var dest string
 	if scope == "user" {
 		dest = userSkillDest(harness, skillName)

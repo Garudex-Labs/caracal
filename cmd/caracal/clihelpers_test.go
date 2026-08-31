@@ -212,12 +212,13 @@ func TestHarnessSupportsSkills(t *testing.T) {
 	if !harnessSupportsSkills("kiro") {
 		t.Error("kiro natively supports Agent Skills")
 	}
-	if harnessSupportsSkills("cursor") {
-		t.Error("cursor uses rules, not SKILL.md")
+	// Cursor supports Skills through its compatible rule mechanism (.cursor/rules/*.mdc).
+	if !harnessSupportsSkills("cursor") {
+		t.Error("cursor supports skills via compatible cursor rules")
 	}
-	// Codex consumes AGENTS.md and prompts, not a SKILL.md agent skill.
-	if harnessSupportsSkills("codex") {
-		t.Error("codex does not consume SKILL.md")
+	// Codex natively adopted the Agent Skills standard (.agents/skills/<name>/SKILL.md).
+	if !harnessSupportsSkills("codex") {
+		t.Error("codex natively supports Agent Skills")
 	}
 	if harnessSupportsSkills("nonexistent") {
 		t.Error("unknown harness does not support skills")
