@@ -88,6 +88,11 @@ export const auth = betterAuth({
     // The registry API and the Go ingest server key users by UUID.
     database: { generateId: () => randomUUID() },
     useSecureCookies: env.isProduction,
+    // Organizations are addressed as subdomains ({org}.{base}); when a cookie
+    // Domain is configured the session spans them, else it stays host-only.
+    ...(env.cookieDomain
+      ? { crossSubDomainCookies: { enabled: true, domain: env.cookieDomain } }
+      : {}),
     ipAddress: {
       // nginx overwrites X-Real-IP on every proxied request, so the value
       // is trustworthy here and rate limits key per client instead of one

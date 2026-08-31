@@ -4,11 +4,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	canonicalAuthOrigin,
+	canonicalAuthUrl,
 	canonicalProjectFreePath,
 	configureOrgSubdomains,
 	firstSegmentsFromPaths,
 	getTenant,
 	initTenant,
+	isAuthPath,
 	isProjectFreePath,
 	orgOrigin,
 	orgSlugFromHost,
@@ -152,4 +155,43 @@ test("initTenant assigns no project when the first segment is a route", () => {
 		hostOrg: "acme",
 		urlProject: null,
 	});
+});
+
+test("auth paths are recognised; project routes and look-alikes are not", () => {
+	assert.equal(isAuthPath("/login"), true);
+	assert.equal(isAuthPath("/register"), true);
+	assert.equal(isAuthPath("/device"), true);
+	assert.equal(isAuthPath("/operator-login"), true);
+	assert.equal(isAuthPath("/resources"), false);
+	assert.equal(isAuthPath("/logins"), false);
+});
+
+test("canonical auth origin strips an org label in the host to reach the base host", () => {
+	assert.equal(canonicalAuthOrigin({ hostname: "lynx-capital.localhost", port: "8000", protocol: "http:" }), "http://localhost:8000");
+	assert.equal(canonicalAuthOrigin({ hostname: "acme.caracal.example.com", port: "", protocol: "https:" }), "https://caracal.example.com");
+	// Base/apex and generic-subdomain hosts carry no org label: unchanged. The
+	// decision is host-based, so it does not depend on the deployment flag.
+	assert.equal(canonicalAuthOrigin({ hostname: "localhost", port: "8000", protocol: "http:" }), "http://localhost:8000");
+	assert.equal(canonicalAuthOrigin({ hostname: "example.com", port: "", protocol: "https:" }), "https://example.com");
+	assert.equal(canonicalAuthOrigin({ hostname: "app.caracal.example.com", port: "", protocol: "https:" }), "https://app.caracal.example.com");
+});
+
+test("canonical auth url escapes an org subdomain and drops the project prefix", () => {
+	configureOrgSubdomains(true);
+	const onOrgHost = {
+		hostname: "lynx-capital.localhost",
+		host: "lynx-capital.localhost:8000",
+		port: "8000",
+		protocol: "http:",
+		pathname: "/lynx-capital/login",
+		search: "?next=%2Flynx-capital%2Fresources",
+		hash: "",
+	};
+	assert.equal(canonicalAuthUrl(onOrgHost, "lynx-capital"), "http://localhost:8000/login?next=%2Flynx-capital%2Fresources");
+	// Already canonical: no redirect.
+	const canonical = { hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:", pathname: "/login", search: "", hash: "" };
+	assert.equal(canonicalAuthUrl(canonical, null), null);
+	// Non-auth project route: never treated as an auth surface.
+	assert.equal(canonicalAuthUrl({ ...onOrgHost, pathname: "/lynx-capital/resources" }, "lynx-capital"), null);
+	configureOrgSubdomains(false);
 });

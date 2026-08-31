@@ -69,6 +69,37 @@ export function orgOrigin(slug: string, loc: Pick<Location, "hostname" | "port" 
 }
 
 /**
+ * The canonical, org-free origin that always hosts the auth surface. Auth
+ * pages must never render on an org subdomain, so any org label is stripped to
+ * the base host (dev: localhost; prod: the configured base domain). The
+ * decision is host-based (the same synchronous host->org signal that sets
+ * hostOrg), so it holds even before the async deployment config loads.
+ */
+export function canonicalAuthOrigin(
+	loc: Pick<Location, "hostname" | "port" | "protocol"> = window.location,
+): string {
+	const host = loc.hostname.toLowerCase();
+	const port = loc.port ? `:${loc.port}` : "";
+	if (!orgSlugFromHost(host)) return `${loc.protocol}//${host}${port}`;
+	const base = host.endsWith(".localhost") ? "localhost" : host.split(".").slice(1).join(".");
+	return `${loc.protocol}//${base}${port}`;
+}
+
+/**
+ * The canonical auth origin as an absolute prefix, or "" when the current
+ * origin already is canonical - so login links stay relative except when they
+ * must escape an org subdomain.
+ */
+export function canonicalAuthOriginPrefix(
+	loc: Pick<Location, "hostname" | "port" | "protocol" | "host"> | undefined =
+		typeof window !== "undefined" ? window.location : undefined,
+): string {
+	if (!loc || !loc.hostname) return "";
+	const canonical = canonicalAuthOrigin(loc);
+	return canonical === `${loc.protocol}//${loc.host}` ? "" : canonical;
+}
+
+/**
  * First URL segments owned by application routes, derived from the router's
  * resolved full paths (layout segments already stripped there), so a route
  * rename can never be shadowed by a project slug prefix.
@@ -117,6 +148,31 @@ export function canonicalProjectFreePath(pathname: string, urlProject: string | 
 	if (!urlProject) return null;
 	const unprefixed = pathWithoutProjectPrefix(pathname, urlProject);
 	return isProjectFreePath(unprefixed) ? unprefixed : null;
+}
+
+// Auth surfaces are canonical: base host, bare route, never a project prefix,
+// so an unauthenticated request can never expose an org-specific auth URL.
+const AUTH_PREFIXES = ["/login", "/register", "/device", "/operator-login"];
+
+export function isAuthPath(pathname: string): boolean {
+	const path = pathname.toLowerCase();
+	return AUTH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+/**
+ * When the current URL is an auth route reached on an org host or under a
+ * project prefix, the canonical org-free URL to replace it with, else null.
+ * The query (carrying a sanitized `next`) is preserved unchanged.
+ */
+export function canonicalAuthUrl(
+	loc: Pick<Location, "hostname" | "port" | "protocol" | "pathname" | "search" | "hash" | "host"> = window.location,
+	urlProject: string | null = tenant.urlProject,
+): string | null {
+	const inApp = pathWithoutProjectPrefix(loc.pathname, urlProject);
+	if (!isAuthPath(inApp)) return null;
+	const canonicalOrigin = canonicalAuthOrigin(loc);
+	if (canonicalOrigin === `${loc.protocol}//${loc.host}` && inApp === loc.pathname) return null;
+	return `${canonicalOrigin}${inApp}${loc.search}${loc.hash}`;
 }
 
 /** Build an absolute project-facing URL path from a validated project slug. */

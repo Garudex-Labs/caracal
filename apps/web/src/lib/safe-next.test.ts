@@ -3,7 +3,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { currentPathAsNext, isSafeNext, safeNext, sessionExpiredLoginUrl, tenantNext } from "./safe-next.ts";
+import { canonicalLoginUrl, currentPathAsNext, isSafeNext, safeNext, sessionExpiredLoginUrl, tenantNext } from "./safe-next.ts";
+import { configureOrgSubdomains } from "./tenant-host.ts";
 
 test("accepts a plain relative path", () => {
 	assert.equal(isSafeNext("/agents"), true);
@@ -67,6 +68,40 @@ function withWindow<T>(pathname: string, search: string, fn: () => T): T {
 		delete (globalThis as { window?: WindowStub }).window;
 	}
 }
+
+function withLocation<T>(loc: Record<string, string>, fn: () => T): T {
+	(globalThis as unknown as { window: { location: Record<string, string> } }).window = { location: loc };
+	try {
+		return fn();
+	} finally {
+		delete (globalThis as { window?: unknown }).window;
+	}
+}
+
+test("canonical login url stays relative on the base host, absolute off an org subdomain", () => {
+	configureOrgSubdomains(false);
+	assert.equal(
+		withLocation({ hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:" }, () =>
+			canonicalLoginUrl("/lynx-capital/resources"),
+		),
+		"/login?next=%2Flynx-capital%2Fresources",
+	);
+	configureOrgSubdomains(true);
+	assert.equal(
+		withLocation({ hostname: "lynx-capital.localhost", host: "lynx-capital.localhost:8000", port: "8000", protocol: "http:" }, () =>
+			canonicalLoginUrl("/lynx-capital/resources", "session_expired"),
+		),
+		"http://localhost:8000/login?reason=session_expired&next=%2Flynx-capital%2Fresources",
+	);
+	// A crafted absolute/protocol-relative next is dropped, never reflected.
+	assert.equal(
+		withLocation({ hostname: "lynx-capital.localhost", host: "lynx-capital.localhost:8000", port: "8000", protocol: "http:" }, () =>
+			canonicalLoginUrl("//evil.com/phish"),
+		),
+		"http://localhost:8000/login",
+	);
+	configureOrgSubdomains(false);
+});
 
 test("currentPathAsNext is undefined outside a browser", () => {
 	assert.equal(currentPathAsNext(), undefined);

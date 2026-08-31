@@ -31,6 +31,12 @@ export type Env = {
   devLoginEnabled: boolean;
   /** Emails provisioned as deployment operators on first sign-in. */
   operatorEmails: string[];
+  /**
+   * Cookie Domain that lets the session span organization subdomains
+   * ({org}.{base}); e.g. ".caracal.run" in production or ".localhost" in dev.
+   * Empty keeps cookies host-only, the single-host default.
+   */
+  cookieDomain?: string;
   emailWebhookUrl?: string;
   /**
    * How long ended/renewed sessions remain visible in a device's history, in
@@ -166,6 +172,7 @@ export function loadEnv(): Env {
     github: githubId && githubSecret ? { clientId: githubId, clientSecret: githubSecret } : undefined,
     devLoginEnabled,
     operatorEmails,
+    cookieDomain: process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined,
     emailWebhookUrl: process.env.AUTH_EMAIL_WEBHOOK_URL?.trim() || undefined,
     sessionHistoryRetentionDays: parseRetentionDays(process.env.AUTH_SESSION_HISTORY_RETENTION_DAYS),
   };

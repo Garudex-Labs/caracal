@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Ryan Madhuwala <rawx18.dev@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
 
+import { canonicalAuthOriginPrefix } from "./tenant-host.ts";
+
 /**
  * Client-side mirror of the server's `_is_safe_next` in
  * caracal-server/api/routes/auth.py: a safe return path is relative-only -
@@ -43,6 +45,22 @@ export function tenantNext(path: string | null | undefined, fallback = "/"): str
 }
 
 /**
+ * Canonical login URL: always the org-free auth host and the bare `/login`
+ * route, never an org subdomain or project-prefixed path. The requested
+ * destination rides only in `next`, as sanitized post-login state. Returns a
+ * relative path when the current origin is already canonical; an absolute
+ * base-host URL when it must escape an org subdomain.
+ */
+export function canonicalLoginUrl(next?: string | null, reason?: string): string {
+  const params = new URLSearchParams();
+  if (reason) params.set("reason", reason);
+  const dest = tenantNext(next ?? undefined, "");
+  if (dest && dest !== "/") params.set("next", dest);
+  const query = params.toString();
+  return `${canonicalAuthOriginPrefix()}/login${query ? `?${query}` : ""}`;
+}
+
+/**
  * Login URL for a hard navigation after session expiry, carrying the current
  * location so sign-in returns the user to the page they were on.
  */
@@ -50,10 +68,7 @@ export function sessionExpiredLoginUrl(): string {
   if (typeof window !== "undefined" && isOperatorPath(window.location.pathname)) {
     return "/operator-login";
   }
-  const next = currentPathAsNext();
-  return next
-    ? `/login?reason=session_expired&next=${encodeURIComponent(next)}`
-    : "/login?reason=session_expired";
+  return canonicalLoginUrl(currentPathAsNext(), "session_expired");
 }
 
 /**
