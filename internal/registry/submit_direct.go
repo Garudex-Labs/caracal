@@ -153,6 +153,9 @@ func validateSubmit(f Family, b *draftBody) (name, version, description, owner s
 			if b.str("git_url", "") == "" && b.str("command", "") == "" && b.str("url", "") == "" {
 				b.modelError("At least one of git_url, command, or url must be provided")
 			}
+			if err := harnessgen.ValidateMcpCommand(b.str("command", ""), b.nStrList("args")); err != nil {
+				b.fail("value_error", "command", "Value error, "+err.Error(), map[string]any{"error": map[string]any{}})
+			}
 		}
 	}
 	return name, version, description, owner

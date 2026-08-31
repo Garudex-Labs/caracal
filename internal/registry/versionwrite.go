@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/garudex-labs/caracal/internal/harnessgen"
 	"github.com/garudex-labs/caracal/internal/httpapi"
 	"github.com/garudex-labs/caracal/internal/inbox"
 )
@@ -204,6 +205,20 @@ func validateVersionExtras(f Family, extra map[string]any) (map[string]any, *api
 	clean := map[string]any{}
 	for k, v := range extra {
 		clean[k] = v
+	}
+	if f.Prefix == "mcps" {
+		cmd, _ := clean["command"].(string)
+		var argList []string
+		if raw, ok := clean["args"].([]any); ok {
+			for _, a := range raw {
+				if s, ok := a.(string); ok {
+					argList = append(argList, s)
+				}
+			}
+		}
+		if err := harnessgen.ValidateMcpCommand(cmd, argList); err != nil {
+			return nil, &apiError{Status: 422, Detail: err.Error()}
+		}
 	}
 	if f.Prefix == "skills" {
 		slash := ""

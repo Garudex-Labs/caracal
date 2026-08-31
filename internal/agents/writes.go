@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/garudex-labs/caracal/internal/harness"
+	"github.com/garudex-labs/caracal/internal/harnessgen"
 	"github.com/garudex-labs/caracal/internal/registry"
 	"github.com/garudex-labs/caracal/internal/resretention"
 	"github.com/garudex-labs/caracal/internal/tenancy"
@@ -28,20 +29,20 @@ type TxQuerier interface {
 }
 
 var (
-	shellMetaRE    = regexp.MustCompile("[|;&`><\n\r]|\\$\\(|\\$\\{")
 	dangerousCmdRE = regexp.MustCompile(`(?i)^(?:curl|wget|bash|sh|zsh|fish|dash|python|perl|ruby|nc|ncat|netcat|powershell|cmd\.exe)$`)
 	agentNameRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	slugCleanRE    = regexp.MustCompile(`[^a-z0-9_-]+`)
 )
 
-// validateMcpCommand rejects shell metacharacters and disallowed programs.
+// validateMcpCommand rejects shell metacharacters (shared with registry MCPs)
+// and, for free-form external agent MCPs, disallowed interpreter/network
+// programs that would let an agent smuggle arbitrary local execution.
 func validateMcpCommand(command string, args []string) error {
 	if command == "" {
 		return nil
 	}
-	full := strings.Join(append([]string{command}, args...), " ")
-	if shellMetaRE.MatchString(full) {
-		return fmt.Errorf("MCP command contains shell metacharacters")
+	if err := harnessgen.ValidateMcpCommand(command, args); err != nil {
+		return err
 	}
 	cmdBase := ""
 	if fields := strings.Fields(command); len(fields) > 0 {

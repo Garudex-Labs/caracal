@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/garudex-labs/caracal/internal/harnessgen"
 )
 
 // updateSpec accumulates SET clauses for one row update.
@@ -65,6 +67,11 @@ func updateVersionFields(f Family, b *draftBody, validHarnesses []string, u *upd
 		setStr("docker_image", "docker_image")
 		setStr("command", "command")
 		setList("args")
+		if b.present("command") || b.present("args") {
+			if err := harnessgen.ValidateMcpCommand(b.str("command", ""), b.strList("args", nil)); err != nil {
+				b.fail("value_error", "command", "Value error, "+err.Error(), map[string]any{"error": map[string]any{}})
+			}
+		}
 		setStr("url", "url")
 		setList("auto_approve")
 		setStr("transport", "transport")

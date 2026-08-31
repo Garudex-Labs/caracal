@@ -20,6 +20,26 @@ func sanitizeName(name string) string {
 	return unsafeCharRE.ReplaceAllString(name, "-")
 }
 
+// mcpShellMetaRE matches shell metacharacters and command/parameter expansion
+// that have no place in an MCP launch command. Bare $VAR placeholders (used for
+// env substitution) are intentionally allowed; ${VAR} and $(...) are not.
+var mcpShellMetaRE = regexp.MustCompile("[|;&`><\n\r]|\\$\\(|\\$\\{")
+
+// ValidateMcpCommand rejects shell metacharacters in an MCP launch command and
+// its arguments. Both registry and free-form external MCP commands are exec'd
+// as argv, but a value carrying |;&`><$()${} could be injected if a harness
+// routes it through a shell, so it is refused at every write path.
+func ValidateMcpCommand(command string, args []string) error {
+	if command == "" {
+		return nil
+	}
+	full := strings.Join(append([]string{command}, args...), " ")
+	if mcpShellMetaRE.MatchString(full) {
+		return fmt.Errorf("MCP command contains shell metacharacters")
+	}
+	return nil
+}
+
 var dollarVarRE = regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]+)\}|\$([A-Z][A-Z0-9_]+)`)
 
 // substituteDollarVars replaces $VAR and ${VAR} with values from env,
@@ -317,11 +337,11 @@ func strOr(v any, fallback string) string {
 type skillConfig map[string]any
 
 // buildSkillConfigs extracts skill metadata in composition order. Harnesses
-// whose Skill materializes as something other than a native Agent Skill
-// (SKILL.md) receive no skill components: Caracal must not write them a file
-// their runtime never reads.
+// that cannot consume a Skill through any native or compatible mechanism
+// receive no skill components: Caracal must not write them a file their runtime
+// never reads.
 func buildSkillConfigs(req *Request) []skillConfig {
-	if spec, ok := specOf(strings.ReplaceAll(req.Harness, "_", "-")); ok && !spec.EmitsSkillMd() {
+	if spec, ok := specOf(strings.ReplaceAll(req.Harness, "_", "-")); ok && !spec.SupportsSkill() {
 		return []skillConfig{}
 	}
 	order := listingOrder(req.Agent, "skill", req.SkillListings)
