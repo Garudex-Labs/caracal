@@ -60,7 +60,6 @@ func TestMetricsShapes(t *testing.T) {
 	cases := map[string][]string{
 		"/api/v1/dashboard/tokens":           {"total_input", "total_output", "total_tokens", "avg_per_trace", "by_agent", "by_mcp", "over_time"},
 		"/api/v1/dashboard/harness-usage":    {"harnesses"},
-		"/api/v1/dashboard/sandbox-metrics":  {"total_runs", "oom_count", "oom_rate", "timeout_count", "timeout_rate", "avg_exit_code", "recent_runs", "cpu_over_time", "memory_over_time"},
 		"/api/v1/dashboard/graphrag-metrics": {"total_queries", "avg_entities", "avg_relationships", "avg_relevance_score", "avg_embedding_latency_ms", "relevance_distribution", "recent_queries"},
 	}
 	for target, keys := range cases {

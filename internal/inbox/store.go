@@ -52,7 +52,7 @@ var noRecheckKinds = []string{
 
 var subjectTables = [][2]string{
 	{"agent", "agents"}, {"mcp", "mcp_listings"}, {"skill", "skill_listings"},
-	{"hook", "hook_listings"}, {"prompt", "prompt_listings"}, {"sandbox", "sandbox_listings"},
+	{"hook", "hook_listings"}, {"prompt", "prompt_listings"},
 }
 
 // visibleSQL is the set-level twin of the row check: aggregates computed over
@@ -452,7 +452,7 @@ var safeTarget = regexp.MustCompile(`^[a-zA-Z0-9._/-]{1,128}$`)
 var safeHarness = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,50}$`)
 
 var componentPlural = map[string]string{
-	"mcp": "mcps", "skill": "skills", "hook": "hooks", "prompt": "prompts", "sandbox": "sandboxes",
+	"mcp": "mcps", "skill": "skills", "hook": "hooks", "prompt": "prompts",
 }
 
 // OutdatedEntry is one CLI-reported finding.

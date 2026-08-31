@@ -96,11 +96,10 @@ func registryURL(s Subject) *string {
 // componentTypeParam maps a singular component subject type to the plural
 // `?type=` value the web component route expects.
 var componentTypeParam = map[string]string{
-	"mcp":     "mcps",
-	"skill":   "skills",
-	"hook":    "hooks",
-	"prompt":  "prompts",
-	"sandbox": "sandboxes",
+	"mcp":    "mcps",
+	"skill":  "skills",
+	"hook":   "hooks",
+	"prompt": "prompts",
 }
 
 // reviewURL points reviewers at the resource's own in-context review view

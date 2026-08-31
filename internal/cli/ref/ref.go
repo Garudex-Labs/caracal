@@ -181,7 +181,7 @@ func isDigits(s string) bool {
 // singularTypes maps plurals used by callers onto the resolver's type names.
 var singularTypes = map[string]string{
 	"mcps": "mcp", "skills": "skill", "hooks": "hook",
-	"prompts": "prompt", "sandboxes": "sandbox", "agents": "agent",
+	"prompts": "prompt", "agents": "agent",
 }
 
 // ResolveRegistryReference resolves aliases, rows, and qualified names to a

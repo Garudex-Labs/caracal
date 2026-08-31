@@ -73,7 +73,7 @@ func projectScopedAPIPath(path string) bool {
 	for _, prefix := range []string{
 		"/api/v1/sessions", "/api/v1/resources", "/api/v1/agents",
 		"/api/v1/mcps", "/api/v1/skills", "/api/v1/hooks",
-		"/api/v1/prompts", "/api/v1/sandboxes", "/api/v1/review",
+		"/api/v1/prompts", "/api/v1/review",
 		"/api/v1/insights", "/api/v1/inbox", "/api/v1/layer-snapshots",
 		"/api/v1/registry", "/api/v1/component-sources",
 		"/api/v1/recommendations", "/api/v1/bulk",
@@ -237,7 +237,7 @@ func browseRemediation(path string) string {
 	switch typeSingular {
 	case "agent":
 		return "Check the identifier or run caracal agent list to browse available resources."
-	case "mcp", "skill", "hook", "prompt", "sandbox":
+	case "mcp", "skill", "hook", "prompt":
 		return fmt.Sprintf("Check the identifier or run caracal registry %s list to browse available resources.", typeSingular)
 	}
 	return "Check the identifier and retry."

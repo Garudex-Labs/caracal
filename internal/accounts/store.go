@@ -67,7 +67,6 @@ var resourceTables = []string{
 	"skill_listings",
 	"hook_listings",
 	"prompt_listings",
-	"sandbox_listings",
 }
 
 // SetUsername runs the username-change flow and returns the fresh profile.

@@ -529,7 +529,6 @@ func TestBrowseRemediation(t *testing.T) {
 		{"/api/v1/insights/agents/x", "caracal agent list"},
 		{"/api/v1/mcps/x", "caracal registry mcp list"},
 		{"/api/v1/skills/x", "caracal registry skill list"},
-		{"/api/v1/sandboxes/x", "caracal registry sandbox list"},
 		{"/api/v1/unknown/x", "Check the identifier and retry."},
 		{"/", "Check the identifier and retry."},
 	}

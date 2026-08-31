@@ -61,7 +61,6 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /api/v1/telemetry/status", operator(h.status))
 	mux.Handle("GET /api/v1/dashboard/tokens", tenant(h.tokens))
 	mux.Handle("GET /api/v1/dashboard/harness-usage", operator(h.harnessUsage))
-	mux.Handle("GET /api/v1/dashboard/sandbox-metrics", operator(h.sandboxMetrics))
 	mux.Handle("GET /api/v1/dashboard/graphrag-metrics", operator(h.graphragMetrics))
 	mux.Handle("GET /api/v1/dashboard/latency-heatmap", operator(h.latencyHeatmap))
 	mux.Handle("GET /api/v1/dashboard/unannotated-traces", operator(h.unannotatedTraces))
@@ -86,14 +85,6 @@ func (h *Handler) tokens(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) harnessUsage(w http.ResponseWriter, _ *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"harnesses": []any{}})
-}
-
-func (h *Handler) sandboxMetrics(w http.ResponseWriter, _ *http.Request) {
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
-		"total_runs": 0, "oom_count": 0, "oom_rate": json.Number("0.0"),
-		"timeout_count": 0, "timeout_rate": json.Number("0.0"), "avg_exit_code": nil,
-		"recent_runs": []any{}, "cpu_over_time": []any{}, "memory_over_time": []any{},
-	})
 }
 
 func (h *Handler) graphragMetrics(w http.ResponseWriter, _ *http.Request) {
