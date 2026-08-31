@@ -7,7 +7,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { invitations, orgs } from "@/lib/api";
-import type { OrgCreateBody, OrgInvitationCreateBody, OrgListParams, OrgMemberUpsertBody, ProjectCreateBody, ProjectMemberUpsertBody, ResourceRetentionPolicyUpdate } from "@/lib/types";
+import type { OrgCreateBody, OrgInvitationCreateBody, OrgInvitationListParams, OrgListParams, OrgMemberUpsertBody, ProjectCreateBody, ProjectMemberListParams, ProjectMemberUpsertBody, ResourceRetentionPolicyUpdate } from "@/lib/types";
 
 const ORGS_STALE_MS = 5 * 60 * 1000;
 
@@ -78,11 +78,12 @@ export function useOrgProjects(slug?: string, params?: OrgListParams) {
 	});
 }
 
-export function useProjectMembers(slug?: string, project?: string) {
+export function useProjectMembers(slug?: string, project?: string, params?: ProjectMemberListParams) {
 	return useQuery({
-		queryKey: ["orgs", slug, "projects", project, "members"],
-		queryFn: () => orgs.projectMembers(slug || "", project || ""),
+		queryKey: ["orgs", slug, "projects", project, "members", params ?? {}],
+		queryFn: () => orgs.projectMembers(slug || "", project || "", params),
 		enabled: !!slug && !!project,
+		placeholderData: params ? keepPreviousData : undefined,
 		refetchOnWindowFocus: "always",
 	});
 }
@@ -178,7 +179,6 @@ export function useUpsertProjectMember(slug: string, project: string) {
 	return useOrgMutation(
 		(body: ProjectMemberUpsertBody) => orgs.upsertProjectMember(slug, project, body),
 		{ success: "Project member saved", error: "Failed to save project member" },
-		["orgs", slug, "projects"],
 	);
 }
 
@@ -186,17 +186,17 @@ export function useRemoveProjectMember(slug: string, project: string) {
 	return useOrgMutation(
 		(userId: string) => orgs.removeProjectMember(slug, project, userId),
 		{ success: "Project member removed", error: "Failed to remove project member" },
-		["orgs", slug, "projects"],
 	);
 }
 
 // ── Organization invitations ────────────────────────────────────────
 
-export function useOrgInvitations(slug?: string) {
+export function useOrgInvitations(slug?: string, params?: OrgInvitationListParams) {
 	return useQuery({
-		queryKey: ["orgs", slug, "invitations"],
-		queryFn: () => orgs.invitations(slug || ""),
+		queryKey: ["orgs", slug, "invitations", params ?? {}],
+		queryFn: () => orgs.invitations(slug || "", params),
 		enabled: !!slug,
+		placeholderData: params ? keepPreviousData : undefined,
 		refetchOnWindowFocus: "always",
 	});
 }

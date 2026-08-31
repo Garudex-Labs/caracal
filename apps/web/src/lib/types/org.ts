@@ -5,7 +5,7 @@
 
 export type OrgRole = "owner" | "admin" | "member";
 
-export type ProjectRole = "lead" | "user";
+export type ProjectRole = "lead" | "user" | (string & {});
 
 export type Permission =
 	| "org.view"
@@ -54,6 +54,17 @@ export interface OrgMember {
 export interface OrgListParams {
 	q?: string;
 	role?: OrgRole;
+	project?: string;
+	project_role?: ProjectRole;
+	sort?: string;
+	dir?: "asc" | "desc";
+	page?: number;
+	page_size?: number;
+}
+
+export interface ProjectMemberListParams {
+	q?: string;
+	role?: ProjectRole;
 	sort?: string;
 	dir?: "asc" | "desc";
 	page?: number;
@@ -74,6 +85,9 @@ export interface MemberProject {
 	name: string;
 	is_default: boolean;
 	role: ProjectRole;
+	assigned_role?: ProjectRole | null;
+	access_source?: "project" | "organization" | string;
+	permissions?: Permission[];
 	created_at: string;
 }
 
@@ -103,7 +117,18 @@ export interface ProjectMember {
 	username?: string | null;
 	name?: string | null;
 	role: ProjectRole;
+	org_role?: OrgRole | null;
+	assigned_role?: ProjectRole | null;
+	access_source?: "project" | "organization" | string;
+	permissions?: Permission[];
 	created_at?: string | null;
+}
+
+export interface ProjectMembersPage {
+	members: ProjectMember[];
+	total: number;
+	page: number;
+	page_size: number;
 }
 
 export interface ProjectResourceItem {
@@ -200,6 +225,12 @@ export interface OrgInvitation {
 export interface OrgInvitationCreateBody {
 	email: string;
 	role: "admin" | "member";
+}
+
+export interface OrgInvitationListParams {
+	q?: string;
+	role?: "admin" | "member";
+	state?: OrgInvitationState;
 }
 
 // ── Onboarding (server-derived setup state) ─────────────────────────
