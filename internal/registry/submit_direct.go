@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/garudex-labs/caracal/internal/alerts"
+	"github.com/garudex-labs/caracal/internal/harnessgen"
 	"github.com/garudex-labs/caracal/internal/httpapi"
 	"github.com/garudex-labs/caracal/internal/tenancy"
 )
@@ -33,7 +34,6 @@ var (
 	hookHandlerTypes   = []string{"command", "http"}
 	hookExecutionModes = []string{"async", "sync", "blocking"}
 	hookScopes         = []string{"agent", "session", "global"}
-	promptCategories   = []string{"system-prompt", "code-review", "code-generation", "testing", "documentation", "debugging", "general"}
 )
 
 // reqStr enforces a required string field in schema order.
@@ -67,6 +67,28 @@ func (b *draftBody) optionCheck(key, value, label string, valid []string) {
 func (b *draftBody) modelError(msg string) {
 	b.errs = append(b.errs, fieldError{Type: "value_error", Loc: []string{"body"},
 		Msg: "Value error, " + msg, Input: b.raw, Ctx: map[string]any{"error": map[string]any{}}})
+}
+
+// validateHookHarnesses rejects a Registry Hook submission that targets a
+// harness which cannot materialize a hook (telemetry-only or unsupported). It
+// is the server-side half of the same gate the UI and CLI apply, so a hook is
+// never accepted for a harness that would silently drop or mis-install it.
+func validateHookHarnesses(b *draftBody) {
+	if v, present := b.raw["supported_harnesses"]; !present || v == nil {
+		return
+	}
+	for _, h := range b.nStrList("supported_harnesses") {
+		spec, known := harnessgen.HarnessSpec(h)
+		switch {
+		case !known:
+			b.fail("value_error", "supported_harnesses",
+				fmt.Sprintf("Value error, Unknown harness '%s'", h), map[string]any{"error": map[string]any{}})
+		case !spec.SupportsRegistryHooks():
+			b.fail("value_error", "supported_harnesses",
+				fmt.Sprintf("Value error, %s does not support hooks and cannot be a target for this resource", spec.DisplayName),
+				map[string]any{"error": map[string]any{}})
+		}
+	}
 }
 
 // validateSubmit applies the publish-request contract in field order.
@@ -117,18 +139,12 @@ func validateSubmit(f Family, b *draftBody) (name, version, description, owner s
 		if scope := b.str("scope", "agent"); scope != "agent" {
 			b.optionCheck("scope", scope, "scope", hookScopes)
 		}
+		validateHookHarnesses(b)
 	case "prompts":
 		owner = b.reqStr("owner")
-		if category := b.reqStr("category"); category != "" {
-			b.optionCheck("category", category, "category", promptCategories)
-		}
+		// Category is validated and normalized by draftVersionFields via
+		// promptCategory(); a fixed list here would reject valid custom values.
 		b.reqStr("template")
-	case "sandboxes":
-		owner = b.reqStr("owner")
-		// runtime_type and network_policy option checks live in the shared
-		// field extractor; only presence is enforced here.
-		b.reqStr("runtime_type")
-		b.reqStr("image")
 	}
 	// Model-level rules run after field validation, mirroring the schema.
 	if len(b.errs) == 0 {
@@ -137,34 +153,10 @@ func validateSubmit(f Family, b *draftBody) (name, version, description, owner s
 			if b.str("git_url", "") == "" && b.str("command", "") == "" && b.str("url", "") == "" {
 				b.modelError("At least one of git_url, command, or url must be provided")
 			}
-		case "sandboxes":
-			runtimeType := b.str("runtime_type", "")
-			image := b.str("image", "")
-			cfg := b.dict("runtime_config", map[string]any{})
-			switch {
-			case (runtimeType == "docker" || runtimeType == "lxc") && image == "":
-				b.modelError(fmt.Sprintf("image is required for %s sandboxes", runtimeType))
-			case runtimeType == "docker" && image != "" && (strings.Contains(image, "://") || !ociImageRE.MatchString(image)):
-				b.modelError("docker image must be an OCI/Docker image reference")
-			case runtimeType == "firecracker":
-				_, hasConfig := cfg["config_path"]
-				_, hasKernel := cfg["kernel_image_path"]
-				_, hasRootfs := cfg["rootfs_path"]
-				if !hasConfig && (!hasKernel || !hasRootfs) {
-					b.modelError("firecracker sandboxes require runtime_config.config_path or kernel_image_path/rootfs_path")
-				}
-			case runtimeType == "wasm" && image == "":
-				if _, hasModule := cfg["module"]; !hasModule {
-					b.modelError("wasm sandboxes require image or runtime_config.module pointing to a WASI module")
-				}
-			}
 		}
 	}
 	return name, version, description, owner
 }
-
-// ociImageRE matches plausible image references the way the schema does.
-var ociImageRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`)
 
 // skillSubmission carries the resolved skill fields after content analysis.
 type skillSubmission struct {

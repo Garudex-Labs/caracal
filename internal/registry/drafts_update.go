@@ -104,27 +104,14 @@ func updateVersionFields(f Family, b *draftBody, validHarnesses []string, u *upd
 		setStr("source_path", "source_path")
 		setList("requirements")
 	case "prompts":
-		setStr("category", "category")
+		if b.present("category") {
+			u.set("category", b.promptCategory())
+		}
 		setStr("template", "template")
 		if b.present("variables") {
 			u.set("variables", b.raw["variables"])
 		}
-		setDict("model_hints")
 		setList("tags")
-	case "sandboxes":
-		if b.present("runtime_type") {
-			u.set("runtime_type", b.option("runtime_type", "docker", sandboxRuntimeTypes))
-		}
-		setStr("image", "image")
-		setDict("resource_limits")
-		if b.present("network_policy") {
-			u.set("network_policy", b.option("network_policy", "none", sandboxNetworkPolicies))
-		}
-		setStr("entrypoint", "entrypoint")
-		setDict("runtime_config")
-		setStr("source_url", "source_url")
-		setStr("source_ref", "source_ref")
-		setStr("sandbox_path", "sandbox_path")
 	}
 }
 

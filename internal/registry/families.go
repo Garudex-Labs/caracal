@@ -52,11 +52,4 @@ var Families = map[string]Family{
 			"v.description", "v.category", "v.template"},
 		ListFilters: map[string]string{"category": "v.category = %s"},
 	},
-	"sandboxes": {
-		Name: "sandbox", Prefix: "sandboxes",
-		ListingTable: "sandbox_listings", VersionTable: "sandbox_versions",
-		SearchFields: []string{"l.name", "l.slug", "l.namespace", "l.owner",
-			"v.description", "v.runtime_type", "v.image", "v.network_policy"},
-		ListFilters: map[string]string{"runtime_type": "v.runtime_type = %s"},
-	},
 }

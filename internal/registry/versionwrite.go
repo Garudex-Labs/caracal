@@ -65,9 +65,8 @@ var versionAllowedExtras = map[string]map[string]bool{
 		"script_content", "script_filename", "requirements", "file_pattern"),
 	"skills": set("skill_path", "git_url", "git_ref", "skill_md_content", "target_agents",
 		"task_type", "slash_command", "has_scripts"),
-	"prompts":   set("category", "template", "variables", "model_hints", "tags"),
-	"mcps":      set("source_url", "source_ref", "resolved_sha", "transport", "framework", "docker_image", "command", "args", "url", "headers", "auto_approve", "environment_variables", "setup_instructions"),
-	"sandboxes": set("runtime_type", "image", "resource_limits", "network_policy", "entrypoint", "runtime_config", "source_url", "source_ref", "resolved_sha", "sandbox_path"),
+	"prompts": set("category", "template", "variables", "tags"),
+	"mcps":    set("source_url", "source_ref", "resolved_sha", "transport", "framework", "docker_image", "command", "args", "url", "headers", "auto_approve", "environment_variables", "setup_instructions"),
 }
 
 var versionRequiredExtras = map[string][]string{
@@ -83,13 +82,12 @@ var versionExtraTypes = map[string]string{
 	"task_type": "str", "slash_command": "str", "category": "str", "template": "str",
 	"source_url": "str", "source_ref": "str", "resolved_sha": "str", "transport": "str",
 	"framework": "str", "docker_image": "str", "command": "str", "url": "str",
-	"setup_instructions": "str", "runtime_type": "str", "image": "str", "network_policy": "str",
-	"entrypoint": "str", "sandbox_path": "str",
-	"priority":    "integer",
-	"has_scripts": "bool", "has_templates": "bool", "is_power": "bool",
+	"setup_instructions": "str",
+	"priority":           "integer",
+	"has_scripts":        "bool", "has_templates": "bool", "is_power": "bool",
 	"handler_config": "dict", "input_schema": "dict", "output_schema": "dict",
-	"mcp_server_config": "dict", "model_hints": "dict", "resource_limits": "dict", "runtime_config": "dict",
-	"tool_filter": "list", "file_pattern": "list", "target_agents": "list", "triggers": "list",
+	"mcp_server_config": "dict",
+	"tool_filter":       "list", "file_pattern": "list", "target_agents": "list", "triggers": "list",
 	"activation_keywords": "list", "tags": "list", "variables": "list", "args": "list",
 	"headers": "list", "auto_approve": "list", "environment_variables": "list",
 }
@@ -237,58 +235,7 @@ func validateVersionExtras(f Family, extra map[string]any) (map[string]any, *api
 			}
 		}
 	}
-	if f.Prefix == "sandboxes" {
-		if aerr := validateSandboxExtras(clean); aerr != nil {
-			return nil, aerr
-		}
-	}
 	return clean, nil
-}
-
-var sandboxOCIRefRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,499}$`)
-
-func validateSandboxExtras(clean map[string]any) *apiError {
-	runtimeType, _ := clean["runtime_type"].(string)
-	image, _ := clean["image"].(string)
-	cfg, _ := clean["runtime_config"].(map[string]any)
-	if raw, present := clean["runtime_type"]; present && raw != nil {
-		valid := false
-		for _, v := range sandboxRuntimeTypes {
-			if runtimeType == v {
-				valid = true
-			}
-		}
-		if !valid {
-			return &apiError{Status: 422, Detail: fmt.Sprintf("Invalid runtime_type '%s'", runtimeType)}
-		}
-	}
-	if raw, present := clean["network_policy"]; present && raw != nil {
-		policy, _ := raw.(string)
-		valid := false
-		for _, v := range sandboxNetworkPolicies {
-			if policy == v {
-				valid = true
-			}
-		}
-		if !valid {
-			return &apiError{Status: 422, Detail: fmt.Sprintf("Invalid network_policy '%s'", policy)}
-		}
-	}
-	if runtimeType == "docker" && image != "" && (strings.Contains(image, "://") || !sandboxOCIRefRE.MatchString(image)) {
-		return &apiError{Status: 422, Detail: "Docker image must be an OCI/Docker image reference"}
-	}
-	if runtimeType == "firecracker" {
-		hasConfig := cfg["config_path"] != nil
-		hasPair := cfg["kernel_image_path"] != nil && cfg["rootfs_path"] != nil
-		if !hasConfig && !hasPair {
-			return &apiError{Status: 422,
-				Detail: "Firecracker requires runtime_config.config_path or kernel_image_path/rootfs_path"}
-		}
-	}
-	if runtimeType == "wasm" && image == "" && cfg["module"] == nil {
-		return &apiError{Status: 422, Detail: "WASM requires image or runtime_config.module"}
-	}
-	return nil
 }
 
 // snapshotVersionRow reads a version row's inheritable columns.

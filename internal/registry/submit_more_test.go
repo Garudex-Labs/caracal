@@ -66,14 +66,6 @@ func TestFamilySubmitGate(t *testing.T) {
 		t.Errorf("prompt with template should pass: %v", err)
 	}
 
-	sandboxes := Families["sandboxes"]
-	if err := familySubmitGate(sandboxes, map[string]any{"description": "d"}); err == nil {
-		t.Errorf("sandbox without image should reject")
-	}
-	if err := familySubmitGate(sandboxes, map[string]any{"description": "d", "image": "alpine"}); err != nil {
-		t.Errorf("sandbox with image should pass: %v", err)
-	}
-
 	// Families with no extra gate pass on description alone.
 	if err := familySubmitGate(Families["hooks"], map[string]any{"description": "d"}); err != nil {
 		t.Errorf("hook with description should pass: %v", err)

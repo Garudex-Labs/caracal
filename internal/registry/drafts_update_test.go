@@ -32,7 +32,7 @@ func TestUpdateDraftGates(t *testing.T) {
 			http.StatusBadRequest, "Only draft, rejected, or pending listings can be edited"},
 		{"no version", map[string]any{"status": "draft", "latest_version_id": nil}, `{"description":"x"}`,
 			http.StatusBadRequest, "Listing has no version to update"},
-		{"visibility is immutable here", map[string]any{"status": "draft"}, `{"visibility":"project"}`,
+		{"visibility is immutable here", map[string]any{"status": "draft"}, `{"visibility":"private"}`,
 			http.StatusBadRequest, "visibility cannot be changed here"},
 		{"field type validation", map[string]any{"status": "draft"}, `{"description":42}`,
 			http.StatusUnprocessableEntity, "string_type"},

@@ -20,10 +20,9 @@ import (
 var versionExtras = map[string][]string{
 	"mcps": {"source_url", "source_ref", "resolved_sha", "transport", "framework", "docker_image",
 		"command", "args", "url", "headers", "auto_approve", "environment_variables", "setup_instructions"},
-	"skills":    {"skill_path", "git_url", "git_ref", "skill_md_content", "target_agents", "task_type", "slash_command"},
-	"hooks":     {"event", "execution_mode", "priority", "handler_type", "handler_config", "scope", "tool_filter", "source_url", "source_ref", "source_path", "resolved_sha", "script_content", "script_filename", "requirements"},
-	"prompts":   {"category", "template", "variables", "model_hints", "tags"},
-	"sandboxes": {"runtime_type", "image", "resource_limits", "network_policy", "entrypoint", "runtime_config", "source_url", "source_ref", "resolved_sha", "sandbox_path"},
+	"skills":  {"skill_path", "git_url", "git_ref", "skill_md_content", "target_agents", "task_type", "slash_command"},
+	"hooks":   {"event", "execution_mode", "priority", "handler_type", "handler_config", "scope", "tool_filter", "source_url", "source_ref", "source_path", "resolved_sha", "script_content", "script_filename", "requirements"},
+	"prompts": {"category", "template", "variables", "tags"},
 }
 
 func versionColumns(f Family) string {

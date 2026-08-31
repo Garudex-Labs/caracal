@@ -152,31 +152,3 @@ func TestValidateVersionExtrasSkillSlashNormalization(t *testing.T) {
 		t.Errorf("frontmatter command: %v, %v", clean, aerr)
 	}
 }
-
-func TestValidateSandboxExtras(t *testing.T) {
-	sandboxes := Families["sandboxes"]
-
-	wantExtraErr(t, sandboxes, map[string]any{"runtime_type": "vmware"},
-		"Invalid runtime_type 'vmware'")
-	wantExtraErr(t, sandboxes, map[string]any{"runtime_type": "docker", "network_policy": "yolo"},
-		"Invalid network_policy 'yolo'")
-	wantExtraErr(t, sandboxes, map[string]any{"runtime_type": "docker", "image": "https://evil.example/img"},
-		"Docker image must be an OCI/Docker image reference")
-	wantExtraErr(t, sandboxes, map[string]any{"runtime_type": "firecracker"},
-		"Firecracker requires runtime_config.config_path or kernel_image_path/rootfs_path")
-	wantExtraErr(t, sandboxes, map[string]any{"runtime_type": "wasm"},
-		"WASM requires image or runtime_config.module")
-
-	valid := []map[string]any{
-		{"runtime_type": "docker", "image": "ghcr.io/acme/tool:1.2@sha256:abc"},
-		{"runtime_type": "firecracker", "runtime_config": map[string]any{"config_path": "/vm.json"}},
-		{"runtime_type": "firecracker", "runtime_config": map[string]any{
-			"kernel_image_path": "/k", "rootfs_path": "/r"}},
-		{"runtime_type": "wasm", "runtime_config": map[string]any{"module": "mod.wasm"}},
-	}
-	for _, extra := range valid {
-		if _, aerr := validateVersionExtras(sandboxes, extra); aerr != nil {
-			t.Errorf("valid sandbox %v rejected: %v", extra, aerr)
-		}
-	}
-}

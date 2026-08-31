@@ -120,6 +120,41 @@ func TestValidateSubmitHookDefaultsAndOptions(t *testing.T) {
 	}
 }
 
+func TestValidateSubmitHookHarnessSupport(t *testing.T) {
+	base := func() map[string]any {
+		return map[string]any{
+			"name": "guard", "version": "1.0.0", "description": "a hook", "owner": "acme",
+			"event": "PreToolUse", "handler_type": "command",
+		}
+	}
+	// Native and plugin-compatible harnesses are accepted.
+	raw := base()
+	raw["supported_harnesses"] = []any{"claude-code", "cursor", "codex", "copilot", "opencode"}
+	b := body(raw)
+	validateSubmit(Families["hooks"], b)
+	if len(b.errs) != 0 {
+		t.Fatalf("supported harnesses should pass: %v", errFields(b))
+	}
+	// Telemetry-only / unsupported harnesses are rejected on supported_harnesses.
+	for _, unsupported := range []string{"pi", "antigravity"} {
+		raw := base()
+		raw["supported_harnesses"] = []any{"claude-code", unsupported}
+		b := body(raw)
+		validateSubmit(Families["hooks"], b)
+		if !hasErr(b, "value_error", "supported_harnesses") {
+			t.Errorf("%s should be rejected, got %v", unsupported, errFields(b))
+		}
+	}
+	// Unknown harness is rejected too.
+	raw = base()
+	raw["supported_harnesses"] = []any{"not-a-harness"}
+	b = body(raw)
+	validateSubmit(Families["hooks"], b)
+	if !hasErr(b, "value_error", "supported_harnesses") {
+		t.Errorf("unknown harness should be rejected, got %v", errFields(b))
+	}
+}
+
 func TestValidateSubmitPromptRequiresTemplate(t *testing.T) {
 	b := body(map[string]any{
 		"name": "p", "version": "1.0.0", "description": "d", "owner": "o", "category": "general",
@@ -127,63 +162,6 @@ func TestValidateSubmitPromptRequiresTemplate(t *testing.T) {
 	validateSubmit(Families["prompts"], b)
 	if !hasErr(b, "missing", "template") {
 		t.Errorf("want missing template, got %v", errFields(b))
-	}
-}
-
-func TestValidateSubmitSandboxRules(t *testing.T) {
-	base := func(runtime string) map[string]any {
-		return map[string]any{
-			"name": "sb", "version": "1.0.0", "description": "d", "owner": "o",
-			"runtime_type": runtime, "image": "img",
-		}
-	}
-
-	// Docker image must be a bare OCI reference, not a URL.
-	raw := base("docker")
-	raw["image"] = "https://evil.example.com/img"
-	b := body(raw)
-	validateSubmit(Families["sandboxes"], b)
-	if !hasErr(b, "value_error", "body") {
-		t.Errorf("URL image should be rejected: %v", errFields(b))
-	}
-
-	raw = base("docker")
-	raw["image"] = "ghcr.io/acme/tool:1.2@sha256:abc"
-	b = body(raw)
-	validateSubmit(Families["sandboxes"], b)
-	if len(b.errs) != 0 {
-		t.Errorf("valid OCI reference rejected: %v", errFields(b))
-	}
-
-	// Firecracker needs a config path or kernel+rootfs.
-	raw = base("firecracker")
-	b = body(raw)
-	validateSubmit(Families["sandboxes"], b)
-	if !hasErr(b, "value_error", "body") {
-		t.Errorf("firecracker without runtime_config should be rejected: %v", errFields(b))
-	}
-
-	raw = base("firecracker")
-	raw["runtime_config"] = map[string]any{"kernel_image_path": "/k", "rootfs_path": "/r"}
-	b = body(raw)
-	validateSubmit(Families["sandboxes"], b)
-	if len(b.errs) != 0 {
-		t.Errorf("kernel+rootfs should satisfy firecracker rule: %v", errFields(b))
-	}
-
-	// WASM needs an image or a module.
-	raw = base("wasm")
-	raw["image"] = ""
-	b = body(raw)
-	validateSubmit(Families["sandboxes"], b)
-	if !hasErr(b, "value_error", "body") {
-		t.Errorf("wasm without image or module should be rejected: %v", errFields(b))
-	}
-	raw["runtime_config"] = map[string]any{"module": "mod.wasm"}
-	b = body(raw)
-	validateSubmit(Families["sandboxes"], b)
-	if len(b.errs) != 0 {
-		t.Errorf("runtime_config.module should satisfy wasm rule: %v", errFields(b))
 	}
 }
 
