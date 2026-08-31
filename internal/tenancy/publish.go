@@ -25,7 +25,7 @@ type PublishTarget struct {
 }
 
 // Scope is the ownership_scope column value: 'private' is creator-only
-// inside its project.
+// inside its project, everything else is shared with the project's members.
 func (t PublishTarget) Scope() string {
 	if t.Visibility == "private" {
 		return "private"
@@ -33,9 +33,11 @@ func (t PublishTarget) Scope() string {
 	return "project"
 }
 
-// IsPrivate reports whether the listing row is stored as private.
+// IsPrivate reports whether the listing row is stored with restricted (never
+// public) visibility. Every supported scope is restricted, so this is always
+// true; it exists to fill the storage column that pins out the public state.
 func (t PublishTarget) IsPrivate() bool {
-	return t.Visibility == "project" || t.Visibility == "private"
+	return true
 }
 
 // PublishOptions are the caller-supplied targeting inputs.
@@ -58,10 +60,10 @@ const RegistryProjectSlug = "registry"
 func (r *Resolver) ResolvePublishTarget(ctx context.Context, user User, name string, opts PublishOptions) (*PublishTarget, error) {
 	visibility := strings.ToLower(strings.TrimSpace(opts.Visibility))
 	if visibility == "" {
-		visibility = "public"
+		visibility = "project"
 	}
-	if visibility != "public" && visibility != "project" && visibility != "private" {
-		return nil, reject(422, "visibility must be 'public', 'project', or 'private'")
+	if visibility != "project" && visibility != "private" {
+		return nil, reject(422, "visibility must be 'project' or 'private'")
 	}
 
 	if visibility == "private" {
@@ -70,17 +72,11 @@ func (r *Resolver) ResolvePublishTarget(ctx context.Context, user User, name str
 		return r.personalTarget(ctx, user, name, "private", true, opts.ProjectID)
 	}
 
-	if visibility == "project" {
-		// Project visibility shares with the owning project's members; the
-		// submission enters the review queue so approval is a recorded
-		// decision by a project lead.
-		if opts.ProjectID == nil {
-			return nil, reject(422, "Project visibility requires a project context")
-		}
-		return r.personalTarget(ctx, user, name, "project", false, opts.ProjectID)
-	}
-
-	return r.personalTarget(ctx, user, name, "public", false, opts.ProjectID)
+	// Project visibility shares with the owning project's members; the
+	// submission enters the review queue so approval is a recorded decision by
+	// a project lead. Without an explicit project it lands in the default
+	// organization's registry catch-all project.
+	return r.personalTarget(ctx, user, name, "project", false, opts.ProjectID)
 }
 
 func (r *Resolver) personalTarget(ctx context.Context, user User, name, visibility string, autoApprove bool, explicitProject *uuid.UUID) (*PublishTarget, error) {

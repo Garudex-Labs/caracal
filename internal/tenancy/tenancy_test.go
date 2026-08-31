@@ -159,12 +159,11 @@ func TestEffectivePermissions(t *testing.T) {
 
 func TestPublishTargetScope(t *testing.T) {
 	if (PublishTarget{Visibility: "private"}).Scope() != "private" ||
-		(PublishTarget{Visibility: "project"}).Scope() != "project" ||
-		(PublishTarget{Visibility: "public"}).Scope() != "project" {
+		(PublishTarget{Visibility: "project"}).Scope() != "project" {
 		t.Error("Scope mapping wrong")
 	}
-	if !(PublishTarget{Visibility: "project"}).IsPrivate() || !(PublishTarget{Visibility: "private"}).IsPrivate() ||
-		(PublishTarget{Visibility: "public"}).IsPrivate() {
+	// Every supported scope is restricted; there is no public state.
+	if !(PublishTarget{Visibility: "project"}).IsPrivate() || !(PublishTarget{Visibility: "private"}).IsPrivate() {
 		t.Error("IsPrivate mapping wrong")
 	}
 }
@@ -180,9 +179,9 @@ func TestResolvePublishTargetValidation(t *testing.T) {
 		detail string
 	}{
 		{"bad visibility", User{Username: "acme"}, PublishOptions{Visibility: "org"},
-			422, "visibility must be 'public', 'project', or 'private'"},
-		{"project visibility without project", User{Username: "acme"}, PublishOptions{Visibility: "project"},
-			422, "Project visibility requires a project context"},
+			422, "visibility must be 'project' or 'private'"},
+		{"public is rejected", User{Username: "acme"}, PublishOptions{Visibility: "public"},
+			422, "visibility must be 'project' or 'private'"},
 	}
 	for _, tc := range cases {
 		_, err := r.ResolvePublishTarget(context.Background(), tc.user, "Thing", tc.opts)
