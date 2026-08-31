@@ -8,18 +8,13 @@ import (
 	"testing"
 )
 
-func TestHookAndSandboxListsRender(t *testing.T) {
+func TestHookListRenders(t *testing.T) {
 	srv := fakeAPI(t, map[string]apiResponse{
-		"GET /api/v1/hooks":     {body: `[{"id": "h1", "name": "Guard", "version": "1.0.0", "namespace": "acme"}]`},
-		"GET /api/v1/sandboxes": {body: `[{"id": "sb1", "name": "Runner", "version": "1.0.0", "namespace": "acme"}]`},
+		"GET /api/v1/hooks": {body: `[{"id": "h1", "name": "Guard", "version": "1.0.0", "namespace": "acme"}]`},
 	})
 	out, err := runCLI(t, srv, "registry", "hook", "list")
 	if err != nil || !strings.Contains(out, "Guard") {
 		t.Errorf("hook list: %v\n%s", err, out)
-	}
-	out, err = runCLI(t, srv, "registry", "sandbox", "list")
-	if err != nil || !strings.Contains(out, "Runner") {
-		t.Errorf("sandbox list: %v\n%s", err, out)
 	}
 }
 

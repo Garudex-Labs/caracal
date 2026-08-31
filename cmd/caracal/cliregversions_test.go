@@ -80,7 +80,7 @@ func TestRegistryVersionListUnknownTypeRejectedLocally(t *testing.T) {
 	if cerr.Category != clierr.Validation || !strings.Contains(cerr.Message, "widget") {
 		t.Errorf("bad type: %s / %s", cerr.Category, cerr.Message)
 	}
-	if !strings.Contains(cerr.Remediation, "hook, mcp, prompt, sandbox, skill") {
+	if !strings.Contains(cerr.Remediation, "hook, mcp, prompt, skill") {
 		t.Errorf("remediation must list types: %s", cerr.Remediation)
 	}
 }

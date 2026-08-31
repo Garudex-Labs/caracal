@@ -113,29 +113,6 @@ func TestPromptSubmitFlagModeJSON(t *testing.T) {
 	}
 }
 
-func TestSandboxSubmitFlagModeJSON(t *testing.T) {
-	rec := newRecordingAPI(t, map[string]apiResponse{
-		"POST /api/v1/sandboxes/submit": {body: `{"id": "sb1", "status": "pending"}`},
-	})
-	recEnv(t, rec)
-	out, err := captureCLI(t, "registry", "sandbox", "submit", "-o", "json",
-		"--name", "Box", "--description", "A box", "--runtime-type", "docker",
-		"--image", "alpine:3", "--harness", "claude-code")
-	if err != nil {
-		t.Fatalf("submit failed: %v", err)
-	}
-	if !strings.Contains(out, "sb1") {
-		t.Errorf("server response not passed through:\n%s", out)
-	}
-	req, ok := rec.find("POST", "/api/v1/sandboxes/submit")
-	if !ok {
-		t.Fatal("sandbox submit not recorded")
-	}
-	if !strings.Contains(req.Body, "docker") {
-		t.Errorf("payload missing runtime type: %s", req.Body)
-	}
-}
-
 func TestMCPEditDraftFlow(t *testing.T) {
 	rec := newRecordingAPI(t, map[string]apiResponse{
 		"GET /api/v1/mcps/" + editUUID:                  {body: `{"name": "Weather", "status": "draft", "version": "1.0.0"}`},

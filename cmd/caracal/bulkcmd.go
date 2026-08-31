@@ -21,7 +21,6 @@ const bulkOp = "Bulk submit components"
 var bulkEndpoints = map[string]string{
 	"mcp": "/api/v1/mcps/submit", "skill": "/api/v1/skills/submit",
 	"hook": "/api/v1/hooks/submit", "prompt": "/api/v1/prompts/submit",
-	"sandbox": "/api/v1/sandboxes/submit",
 }
 
 type bulkComponent struct {
@@ -84,7 +83,7 @@ func loadBulkComponents(path string) ([]bulkComponent, *clierr.Error) {
 		}
 		if _, known := bulkEndpoints[componentType]; !known {
 			return nil, bulkValidationError(fmt.Sprintf("Bulk component entry %d has an unsupported type.", index+1),
-				path, "Choose from: mcp, skill, hook, prompt, sandbox.")
+				path, "Choose from: mcp, skill, hook, prompt.")
 		}
 		payload := map[string]any{}
 		for key, value := range entry {
@@ -145,7 +144,7 @@ func rawField(doc map[string]json.RawMessage, key string) string {
 
 func bulkGroup() *cobra.Command {
 	group := &cobra.Command{Use: "bulk", Short: "Submit mixed Registry components from one JSON file"}
-	cmd := &cobra.Command{Use: "submit", Short: "Submit mixed MCP, skill, hook, prompt, and sandbox entries", Args: cobra.NoArgs}
+	cmd := &cobra.Command{Use: "submit", Short: "Submit mixed MCP, skill, hook, and prompt entries", Args: cobra.NoArgs}
 	fromFile := cmd.Flags().String("from-file", "", "JSON file containing mixed typed components.")
 	dryRun := cmd.Flags().Bool("dry-run", false, "Validate file structure and preview without mutations.")
 	yes := cmd.Flags().BoolP("yes", "y", false, "Skip confirmation.")

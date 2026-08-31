@@ -140,7 +140,7 @@ func modelsGroup() *cobra.Command {
 // ── registry recommend ─────────────────────────────────────────────
 
 var recommendTypePlural = map[string]string{
-	"mcp": "mcps", "skill": "skills", "hook": "hooks", "prompt": "prompts", "sandbox": "sandboxes",
+	"mcp": "mcps", "skill": "skills", "hook": "hooks", "prompt": "prompts",
 }
 
 func normalizeRecommendType(raw, operation string) (string, *clierr.Error) {
@@ -156,7 +156,7 @@ func normalizeRecommendType(raw, operation string) (string, *clierr.Error) {
 	return "", &clierr.Error{
 		Category: clierr.Validation, Message: fmt.Sprintf("Unknown component type: %s.", raw),
 		Operation: operation, Resource: "component type",
-		Remediation: "Choose one of: hook, mcp, prompt, sandbox, skill.",
+		Remediation: "Choose one of: hook, mcp, prompt, skill.",
 	}
 }
 
@@ -329,11 +329,11 @@ func versionPublishCommand() *cobra.Command {
 	mode := outputFlag(cmd)
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		componentType := strings.ToLower(strings.TrimSpace(args[0]))
-		if !contains([]string{"mcp", "skill", "hook", "prompt", "sandbox"}, componentType) {
+		if !contains([]string{"mcp", "skill", "hook", "prompt"}, componentType) {
 			return &clierr.Error{
 				Category: clierr.Validation, Message: fmt.Sprintf("Unknown component type: %s.", componentType),
 				Operation: "Manage component version", Resource: "component type",
-				Remediation: "Choose one of: hook, mcp, prompt, sandbox, skill.",
+				Remediation: "Choose one of: hook, mcp, prompt, skill.",
 			}
 		}
 		if !c.Flags().Changed("description") {

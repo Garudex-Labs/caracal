@@ -44,7 +44,6 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(doctorCommand())
 	root.AddCommand(hookCommand())
 	root.AddCommand(scanCommand())
-	root.AddCommand(sandboxCommand())
 	root.AddCommand(selfCommand())
 	return root
 }

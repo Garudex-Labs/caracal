@@ -15,6 +15,8 @@ import (
 	"github.com/garudex-labs/caracal/internal/cli/api"
 	"github.com/garudex-labs/caracal/internal/cli/clierr"
 	"github.com/garudex-labs/caracal/internal/cli/ref"
+	"github.com/garudex-labs/caracal/internal/harness"
+	"github.com/garudex-labs/caracal/internal/promptcat"
 )
 
 var validHarnesses = []string{"cursor", "kiro", "claude-code", "codex", "copilot", "copilot-cli", "opencode", "antigravity", "goose", "pi"}
@@ -25,11 +27,10 @@ var validSkillTaskTypes = []string{"code-review", "code-generation", "testing", 
 
 var validHookEvents = []string{"PreToolUse", "PostToolUse", "Notification", "Stop", "SubagentStop", "SessionStart", "UserPromptSubmit"}
 
-var validPromptCategories = []string{"system-prompt", "code-review", "code-generation", "testing", "documentation", "debugging", "general"}
-
-var validSandboxRuntimeTypes = []string{"docker", "lxc", "firecracker", "wasm"}
-
-var validSandboxNetworkPolicies = []string{"none", "host", "bridge", "restricted"}
+// validPromptCategories is the curated set suggested in help text. Prompt
+// categories are not restricted to this list: any value normalized by
+// promptcat.Normalize is accepted, with the server remaining authoritative.
+var validPromptCategories = promptcat.Recommended
 
 func contains(values []string, v string) bool {
 	for _, value := range values {
@@ -59,7 +60,6 @@ var componentSpecs = []componentSpec{
 	{"skill", "skills", "skill", "skill registry", true, "No skills found.", "You have no skills.", "List skills", "List owned skills", "Show skill"},
 	{"hook", "hooks", "hook", "hook registry", false, "No hooks found.", "", "List hooks", "", "Show hook"},
 	{"prompt", "prompts", "prompt", "prompt registry", true, "No prompts found.", "You have no prompts.", "List prompts", "You have no prompts.", "Show prompt"},
-	{"sandbox", "sandboxes", "sandbox", "sandbox registry", false, "No sandboxes found.", "", "List sandboxes", "", "Show sandbox"},
 }
 
 func registryCommand() *cobra.Command {
@@ -94,8 +94,6 @@ func componentGroup(spec componentSpec) *cobra.Command {
 		group.AddCommand(hookSubmitCommand(), hookEditCommand(), hookInstallCommand())
 	case "prompt":
 		group.AddCommand(promptSubmitCommand(), promptEditCommand(), promptRenderCommand())
-	case "sandbox":
-		group.AddCommand(sandboxSubmitCommand(), sandboxEditCommand())
 	}
 	return group
 }
@@ -104,7 +102,7 @@ func componentGroup(spec componentSpec) *cobra.Command {
 func componentList(spec componentSpec) *cobra.Command {
 	cmd := &cobra.Command{Use: "list", Short: "List " + spec.Plural}
 	mode := outputFlag(cmd)
-	var category, search, namespace, sortKey, taskType, targetAgent, harness, event, runtime string
+	var category, search, namespace, sortKey, taskType, targetAgent, harness, event string
 	var limit int
 	switch spec.Singular {
 	case "mcp":
@@ -125,10 +123,6 @@ func componentList(spec componentSpec) *cobra.Command {
 		cmd.Flags().StringVar(&namespace, "namespace", "", "Filter by namespace")
 	case "prompt":
 		cmd.Flags().StringVarP(&category, "category", "c", "", "Filter by category")
-		cmd.Flags().StringVarP(&search, "search", "s", "", "Search text")
-		cmd.Flags().StringVar(&namespace, "namespace", "", "Filter by namespace")
-	case "sandbox":
-		cmd.Flags().StringVarP(&runtime, "runtime", "r", "", "Filter by runtime type")
 		cmd.Flags().StringVarP(&search, "search", "s", "", "Search text")
 		cmd.Flags().StringVar(&namespace, "namespace", "", "Filter by namespace")
 	}
@@ -168,9 +162,9 @@ func componentList(spec componentSpec) *cobra.Command {
 				}
 				if !harnessSupportsSkills(harness) {
 					return &clierr.Error{
-						Category: clierr.Validation, Message: fmt.Sprintf("Harness %s does not support skills.", harness),
+						Category: clierr.Validation, Message: fmt.Sprintf("Skills are not supported for the %s harness.", harness),
 						Operation: spec.ListOp, Resource: "harness filter",
-						Remediation: "Choose a harness with skill support.",
+						Remediation: "Skills are not supported for this resource on that harness; choose a skill-capable harness.",
 					}
 				}
 			}
@@ -184,17 +178,15 @@ func componentList(spec componentSpec) *cobra.Command {
 			}
 			setIf(params, "event", event)
 		case "prompt":
-			if category != "" && !contains(validPromptCategories, category) {
-				return listValidationError(spec.ListOp, "category filter",
-					fmt.Sprintf("Unknown prompt category: %s.", category), validPromptCategories)
+			if category != "" {
+				norm, ok := promptcat.Normalize(category)
+				if !ok {
+					return listValidationError(spec.ListOp, "category filter",
+						fmt.Sprintf("Invalid prompt category: %s.", category), validPromptCategories)
+				}
+				category = norm
 			}
 			setIf(params, "category", category)
-		case "sandbox":
-			if runtime != "" && !contains(validSandboxRuntimeTypes, runtime) {
-				return listValidationError(spec.ListOp, "runtime filter",
-					fmt.Sprintf("Unknown sandbox runtime type: %s.", runtime), validSandboxRuntimeTypes)
-			}
-			setIf(params, "runtime", runtime)
 		}
 		setIf(params, "search", search)
 		if namespace != "" {
@@ -275,7 +267,7 @@ func componentShow(spec componentSpec) *cobra.Command {
 	return cmd
 }
 
-var archiveLabels = map[string]string{"mcps": "MCP server", "skills": "skill", "hooks": "hook", "prompts": "prompt", "sandboxes": "sandbox"}
+var archiveLabels = map[string]string{"mcps": "MCP server", "skills": "skill", "hooks": "hook", "prompts": "prompt"}
 
 func archiveCommand(spec componentSpec, restore bool) *cobra.Command {
 	use, verb, op := "archive NAME", "Archive", "Archive registry component"
@@ -484,17 +476,14 @@ func versionGroup() *cobra.Command {
 	mode := outputFlag(list)
 	list.RunE = func(_ *cobra.Command, args []string) error {
 		componentType := strings.ToLower(strings.TrimSpace(args[0]))
-		if !contains([]string{"mcp", "skill", "hook", "prompt", "sandbox"}, componentType) {
+		if !contains([]string{"mcp", "skill", "hook", "prompt"}, componentType) {
 			return &clierr.Error{
 				Category: clierr.Validation, Message: fmt.Sprintf("Unknown component type: %s.", componentType),
 				Operation: "Manage component version", Resource: "component type",
-				Remediation: "Choose one of: hook, mcp, prompt, sandbox, skill.",
+				Remediation: "Choose one of: hook, mcp, prompt, skill.",
 			}
 		}
 		plural := componentType + "s"
-		if componentType == "sandbox" {
-			plural = "sandboxes"
-		}
 		client, cerr := newClient()
 		if cerr != nil {
 			return cerr
@@ -561,12 +550,23 @@ func strOrEmpty(v any) string {
 	return s
 }
 
-var skillCapableHarnesses = map[string]bool{
-	"claude-code": true, "codex": true, "copilot": true, "copilot-cli": true,
-	"opencode": true, "antigravity": true, "goose": true, "pi": true,
+// harnessSupportsSkills reports whether a Caracal Skill materializes for the
+// harness as a native Agent Skill (SKILL.md) it can discover. Driven by the
+// canonical harness registry so it never drifts from the materialization layer.
+func harnessSupportsSkills(name string) bool {
+	spec, ok := harness.MustLoad().Spec(strings.ReplaceAll(name, "_", "-"))
+	return ok && spec.EmitsSkillMd()
 }
 
-func harnessSupportsSkills(name string) bool { return skillCapableHarnesses[name] }
+// harnessSupportsRegistryHooks reports whether a harness can materialize a
+// Caracal Registry Hook, per the canonical registry's hook_support level. It is
+// the CLI half of the same gate the server and UI apply; telemetry-only or
+// unsupported harnesses return false so a hook is never installed where it
+// would be silently dropped.
+func harnessSupportsRegistryHooks(name string) bool {
+	spec, ok := harness.MustLoad().Spec(strings.ReplaceAll(name, "_", "-"))
+	return ok && spec.SupportsRegistryHooks()
+}
 
 // listItem pairs one raw item with its decoded lookup fields, preserving
 // the server's document key order for output.
