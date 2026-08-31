@@ -204,7 +204,7 @@ func TestInstallListingsScopesAndMaps(t *testing.T) {
 	}}
 	s := &Store{DB: db}
 	viewer := &registry.Viewer{ID: uuid.MustParse(viewerID), Role: "user"}
-	got, err := s.installListings(context.Background(), "mcp", []string{mcpID}, viewer, "proj-1")
+	got, err := s.installListings(context.Background(), "mcp", []string{mcpID}, viewer, "proj-1", nil)
 	if err != nil {
 		t.Fatalf("installListings: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestInstallListingsScopesAndMaps(t *testing.T) {
 
 	// An empty id set never touches the database.
 	empty := &fakeDB{}
-	if got, err := (&Store{DB: empty}).installListings(context.Background(), "mcp", nil, viewer, ""); err != nil || len(got) != 0 {
+	if got, err := (&Store{DB: empty}).installListings(context.Background(), "mcp", nil, viewer, "", nil); err != nil || len(got) != 0 {
 		t.Errorf("empty ids: %v, %v", got, err)
 	}
 	if len(empty.log) != 0 {

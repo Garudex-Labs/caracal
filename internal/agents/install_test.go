@@ -4,10 +4,13 @@
 package agents
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/garudex-labs/caracal/internal/registry"
 )
 
 var installVersionCols = []string{
@@ -19,6 +22,62 @@ func installVersionRow() []any {
 	return []any{
 		versionID, "1.0.0", "reviews code", "You review code.",
 		"claude-sonnet-4-5", map[string]any{}, []any{}, []any{},
+	}
+}
+
+// TestInstallListingsPinsExactVersion proves a concrete resolved_version overlays
+// the component's latest release, so a historical agent version reproduces the
+// exact dependency graph it was released against.
+func TestInstallListingsPinsExactVersion(t *testing.T) {
+	db := &fakeDB{stubs: []stub{
+		{match: "l.latest_version_id = v.id", rows: &fakeRows{
+			cols: []string{"id", "name", "command"},
+			rows: [][]any{{mcpListingID, "weather", "latest-command"}}}},
+		{match: "v.listing_id = l.id AND v.version =", rows: &fakeRows{
+			cols: []string{"id", "name", "command"},
+			rows: [][]any{{mcpListingID, "weather", "pinned-command"}}}},
+	}}
+	s := &Store{DB: db}
+	out, err := s.installListings(context.Background(), "mcp", []string{mcpListingID},
+		&registry.Viewer{Role: "operator"}, "", map[string]string{mcpListingID: "1.2.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := out[mcpListingID]["command"].(string); got != "pinned-command" {
+		t.Fatalf("expected the pinned version to overlay latest, got command=%q", got)
+	}
+	pinnedQueried := false
+	for _, q := range db.log {
+		if strings.Contains(q, "v.listing_id = l.id AND v.version =") {
+			pinnedQueried = true
+		}
+	}
+	if !pinnedQueried {
+		t.Error("pinned-version query was never issued")
+	}
+}
+
+// TestInstallListingsLatestPinSkipsOverlay confirms a "latest" pin keeps the
+// existing latest path and issues no extra version query.
+func TestInstallListingsLatestPinSkipsOverlay(t *testing.T) {
+	db := &fakeDB{stubs: []stub{
+		{match: "l.latest_version_id = v.id", rows: &fakeRows{
+			cols: []string{"id", "name", "command"},
+			rows: [][]any{{mcpListingID, "weather", "latest-command"}}}},
+	}}
+	s := &Store{DB: db}
+	out, err := s.installListings(context.Background(), "mcp", []string{mcpListingID},
+		&registry.Viewer{Role: "operator"}, "", map[string]string{mcpListingID: "latest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := out[mcpListingID]["command"].(string); got != "latest-command" {
+		t.Fatalf("latest pin must use the latest listing, got command=%q", got)
+	}
+	for _, q := range db.log {
+		if strings.Contains(q, "v.listing_id = l.id AND v.version =") {
+			t.Error("latest pin must not issue a pinned-version query")
+		}
 	}
 }
 

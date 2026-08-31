@@ -6,6 +6,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -43,7 +44,7 @@ func familyInstallColumns(name string) string {
 
 // installListings loads one family's listings for the install, enforcing
 // caller visibility and the agent audience's publish scope.
-func (s *Store) installListings(ctx context.Context, familyName string, ids []string, viewer *registry.Viewer, targetProjectID string) (map[string]harnessgen.Listing, error) {
+func (s *Store) installListings(ctx context.Context, familyName string, ids []string, viewer *registry.Viewer, targetProjectID string, pins map[string]string) (map[string]harnessgen.Listing, error) {
 	if len(ids) == 0 {
 		return map[string]harnessgen.Listing{}, nil
 	}
@@ -72,7 +73,60 @@ func (s *Store) installListings(ctx context.Context, familyName string, ids []st
 	for _, row := range collected {
 		out[rowStr(row, "id", "")] = harnessgen.Listing(row)
 	}
+	// Reproducibility: an agent version pins each dependency to the version it was
+	// released against (agent_components.resolved_version). Overlay that exact
+	// version so a historical agent version never silently materializes a
+	// component's newer latest release. A pin that no longer exists degrades to
+	// the already-loaded latest listing.
+	for id := range out {
+		pin := pins[id]
+		if pin == "" || strings.EqualFold(pin, "latest") {
+			continue
+		}
+		pinned, err := s.pinnedListing(ctx, familyName, id, pin, viewer, targetProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if pinned != nil {
+			out[id] = pinned
+		}
+	}
 	return out, nil
+}
+
+// pinnedListing loads one listing at an exact component version, reusing the
+// install column set and caller-visibility gate and changing only the version
+// join. It returns nil when the pinned version is absent so the caller keeps the
+// latest listing rather than failing the whole install.
+func (s *Store) pinnedListing(ctx context.Context, familyName, id, version string, viewer *registry.Viewer, targetProjectID string) (harnessgen.Listing, error) {
+	f := registry.Families[familyName+"s"]
+	args := []any{}
+	visibility := registry.ScopeSQL("l", "l.submitted_by", viewer, &args)
+	scope := "l.is_private = FALSE"
+	if targetProjectID != "" {
+		args = append(args, targetProjectID)
+		scope = fmt.Sprintf("(l.is_private = FALSE OR (l.is_private = TRUE AND l.project_id = $%d))", len(args))
+	}
+	args = append(args, id)
+	idPos := len(args)
+	args = append(args, version)
+	verPos := len(args)
+	sql := fmt.Sprintf(`SELECT %s FROM %s l JOIN %s v ON v.listing_id = l.id AND v.version = $%d
+		WHERE %s AND %s AND l.id = $%d`,
+		familyInstallColumns(familyName), f.ListingTable, f.VersionTable, verPos, visibility, scope, idPos)
+	rows, err := s.DB.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	collected := registry.CollectRows(rows)
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(collected) == 0 {
+		return nil, nil
+	}
+	return harnessgen.Listing(collected[0]), nil
 }
 
 // InstallInputs assembles everything a generation run needs for one agent
@@ -142,9 +196,17 @@ func (s *Store) InstallInputs(ctx context.Context, agentRow map[string]any, view
 		t := rowStr(link, "component_type", "")
 		byType[t] = append(byType[t], rowStr(link, "component_id", ""))
 	}
+	// resolved_version pins each dependency to the version this agent version was
+	// released against, so the install reproduces that exact graph.
+	pins := map[string]string{}
+	for _, link := range links {
+		if v := rowStr(link, "resolved_version", ""); v != "" {
+			pins[rowStr(link, "component_id", "")] = v
+		}
+	}
 	families := map[string]map[string]harnessgen.Listing{}
 	for _, name := range []string{"mcp", "skill", "hook", "prompt"} {
-		listings, err := s.installListings(ctx, name, byType[name], viewer, targetProjectID)
+		listings, err := s.installListings(ctx, name, byType[name], viewer, targetProjectID, pins)
 		if err != nil {
 			return nil, err
 		}
