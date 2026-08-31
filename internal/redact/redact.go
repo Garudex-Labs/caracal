@@ -60,7 +60,7 @@ var rePrivateKey = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[^-]+--
 // suppresses the match are enforced in code, since they concern text before
 // the match start.
 const secretKeyNames = `(?:api[_\-]?key|api[_\-]?secret|secret[_\-]?key|auth[_\-]?token|` +
-	`access[_\-]?token|private[_\-]?key|(?:db[_\-]?)?password|passwd|` +
+	`access[_\-]?token|private[_\-]?key|token|(?:db[_\-]?)?password|passwd|` +
 	`(?:auth|api|access|refresh|bearer|session|jwt)[_\-]?token|` +
 	`client[_\-]?secret|signing[_\-]?key|encryption[_\-]?key|` +
 	`db[_\-]?password|redis[_\-]?password|database[_\-]?password|` +

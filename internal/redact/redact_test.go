@@ -40,6 +40,11 @@ func TestSecretsRedacted(t *testing.T) {
 			"API_KEY=**REDACTED**",
 		},
 		{
+			"plain token assignment",
+			"client token=abcdefghijklmnopqrstuvwxyz123456",
+			"client token=**REDACTED**",
+		},
+		{
 			"json password value",
 			`{"password": "s3cretvalue!"}`,
 			`{"password": "**REDACTED**"}`,
