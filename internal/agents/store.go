@@ -27,7 +27,6 @@ type ListParams struct {
 	Category               string
 	ProjectID              string
 	ComposableForProjectID string
-	PublicOnly             bool
 	Limit                  int
 	Offset                 int
 }
@@ -61,12 +60,9 @@ func buildList(p ListParams, viewer *registry.Viewer) (listSQL, countSQL string,
 	where := []string{"v.status = 'approved'", "a.deleted_at IS NULL"}
 	where = append(where, registry.ScopeSQL("a", "a.created_by", viewer, &args))
 	switch {
-	case p.PublicOnly:
-		where = append(where, "a.is_private = FALSE")
 	case p.ComposableForProjectID != "":
 		args = append(args, p.ComposableForProjectID)
-		where = append(where, fmt.Sprintf(
-			"(a.is_private = FALSE OR (a.is_private = TRUE AND a.project_id = $%d))", len(args)))
+		where = append(where, fmt.Sprintf("a.project_id = $%d", len(args)))
 	case p.ProjectID != "":
 		args = append(args, p.ProjectID)
 		where = append(where, fmt.Sprintf("a.project_id = $%d", len(args)))

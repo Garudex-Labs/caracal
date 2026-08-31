@@ -94,8 +94,8 @@ func validateCreateBody(body *createAgentBody, rawBody map[string]json.RawMessag
 			})
 		}
 	}
-	if body.Visibility != "" && body.Visibility != "public" && body.Visibility != "project" && body.Visibility != "private" {
-		const expected = "'public', 'project' or 'private'"
+	if body.Visibility != "" && body.Visibility != "project" && body.Visibility != "private" {
+		const expected = "'project' or 'private'"
 		errs = append(errs, map[string]any{
 			"type": "literal_error", "loc": []any{"body", "visibility"},
 			"msg": "Input should be " + expected, "input": body.Visibility,
@@ -104,7 +104,7 @@ func validateCreateBody(body *createAgentBody, rawBody map[string]json.RawMessag
 	}
 	for i, c := range body.Components {
 		if _, known := registry.Families[c.ComponentType+"s"]; !known {
-			const expected = "'mcp', 'skill', 'hook', 'prompt' or 'sandbox'"
+			const expected = "'mcp', 'skill', 'hook' or 'prompt'"
 			errs = append(errs, map[string]any{
 				"type": "literal_error", "loc": []any{"body", "components", i, "component_type"},
 				"msg": "Input should be " + expected, "input": c.ComponentType,

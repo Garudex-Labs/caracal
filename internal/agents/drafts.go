@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/garudex-labs/caracal/internal/registry"
-	"github.com/garudex-labs/caracal/internal/tenancy"
 )
 
 // gamingPatterns flag prompt text that manipulates evaluation; reviewers see
@@ -310,29 +309,4 @@ func (s *Store) ReleaseEditLock(ctx context.Context, versionID string) error {
 	_, err := s.Exec(ctx, `UPDATE agent_versions SET is_editing = false,
 		editing_since = NULL, editing_by = NULL WHERE id = $1`, versionID)
 	return err
-}
-
-// authorizeVisibilityChange authorizes a project-shared visibility flip:
-// only project leads (or operators) may change a project item's visibility.
-func (s *Store) authorizeVisibilityChange(ctx context.Context, row map[string]any, user tenancy.User, targetIsPrivate bool) error {
-	projectIDStr := rowNStr(row, "project_id")
-	if projectIDStr == nil {
-		return nil
-	}
-	if tenancy.IsOperator(user.Role) {
-		return nil
-	}
-	projectID, perr := uuid.Parse(*projectIDStr)
-	if perr != nil {
-		return &errInstall{403, "Only project leads can change visibility"}
-	}
-	resolver := &tenancy.Resolver{DB: s.DB}
-	role, isMember, err := resolver.ProjectRole(ctx, projectID, user.ID)
-	if err != nil {
-		return err
-	}
-	if !isMember || role != "lead" {
-		return &errInstall{403, "Only project leads can change visibility"}
-	}
-	return nil
 }

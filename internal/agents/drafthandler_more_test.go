@@ -59,7 +59,7 @@ func TestUpdateForbiddenForNonOwner(t *testing.T) {
 
 func TestUpdateRejectsVisibilityChange(t *testing.T) {
 	db := &fakeDB{stubs: []stub{draftRowStub(nil)}}
-	rec := serveAgents(t, db, http.MethodPut, "/api/v1/agents/"+agentID, "user", `{"visibility": "project"}`)
+	rec := serveAgents(t, db, http.MethodPut, "/api/v1/agents/"+agentID, "user", `{"visibility": "private"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -138,14 +138,14 @@ func TestUpdateDraftRejectsMcpServerIDs(t *testing.T) {
 	}
 }
 
-func TestUpdateDraftProjectVisibilityNeedsProject(t *testing.T) {
+func TestUpdateDraftRejectsVisibilityChange(t *testing.T) {
 	db := &fakeDB{stubs: []stub{draftRowStub(map[string]any{"status": "draft"})}}
 	rec := serveAgents(t, db, http.MethodPut, "/api/v1/agents/"+agentID+"/draft", "user",
-		`{"visibility": "project"}`)
+		`{"visibility": "private"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Project visibility requires a project context") {
+	if !strings.Contains(rec.Body.String(), "Visibility cannot be changed here") {
 		t.Errorf("body: %s", rec.Body.String())
 	}
 }

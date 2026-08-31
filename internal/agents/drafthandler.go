@@ -88,7 +88,7 @@ func componentRefsOf(items []componentBody) ([]componentRef, []map[string]any, [
 	literalErrs := []map[string]any{}
 	for i, c := range items {
 		if _, known := registry.Families[c.ComponentType+"s"]; !known {
-			const expected = "'mcp', 'skill', 'hook', 'prompt' or 'sandbox'"
+			const expected = "'mcp', 'skill', 'hook' or 'prompt'"
 			literalErrs = append(literalErrs, map[string]any{
 				"type": "literal_error", "loc": []any{"body", "components", i, "component_type"},
 				"msg": "Input should be " + expected, "input": c.ComponentType,
@@ -229,7 +229,7 @@ func (h *Handler) update() http.Handler {
 		}
 		agentID := rowStr(row, "id", "")
 		isPrivate := rowBool(row, "is_private")
-		if body.Visibility != nil && (*body.Visibility == "project") != isPrivate {
+		if body.Visibility != nil && *body.Visibility != visibility(row) {
 			httpapi.WriteError(w, http.StatusUnprocessableEntity,
 				"Visibility cannot be changed here. Use PATCH /api/v1/registry/agent/"+agentID+"/visibility instead.")
 			return
@@ -450,81 +450,17 @@ func (h *Handler) updateDraft() http.Handler {
 				"mcp_server_ids is not accepted here. Send MCP servers in 'components' instead.")
 			return
 		}
-		isPrivate := rowBool(row, "is_private")
-		if body.Visibility != nil && *body.Visibility == "project" && rowNStr(row, "project_id") == nil {
-			httpapi.WriteError(w, http.StatusUnprocessableEntity, "Project visibility requires a project context")
+		agentID := rowStr(row, "id", "")
+		// Visibility is fixed at creation; changing it goes through the
+		// dedicated PATCH .../visibility endpoint, never a field update here.
+		if body.Visibility != nil && *body.Visibility != visibility(row) {
+			httpapi.WriteError(w, http.StatusUnprocessableEntity,
+				"Visibility cannot be changed here. Use PATCH /api/v1/registry/agent/"+agentID+"/visibility instead.")
 			return
 		}
-		targetIsPrivate := isPrivate
-		if body.Visibility != nil {
-			targetIsPrivate = *body.Visibility == "project"
-		}
-		agentID := rowStr(row, "id", "")
 		targetProjectID := ""
-		if targetIsPrivate {
-			if projectID := rowNStr(row, "project_id"); projectID != nil {
-				targetProjectID = *projectID
-			}
-		}
-		user := h.tenancyUser(r, viewer)
-		if targetIsPrivate != isPrivate {
-			if h.writeFailure(w, r, h.Store.authorizeVisibilityChange(r.Context(), row, user, targetIsPrivate)) {
-				return
-			}
-			if !set["components"] {
-				// The attached components must survive the new target.
-				links, err := h.Store.Components(r.Context(), latestVersionID)
-				if err != nil {
-					httpapi.WriteInternalError(w, r, err)
-					return
-				}
-				refs := make([]componentRef, 0, len(links))
-				for _, link := range links {
-					refs = append(refs, componentRef{
-						ComponentType: rowStr(link, "component_type", ""),
-						ComponentID:   rowStr(link, "component_id", ""),
-					})
-				}
-				validationErrors, err := h.Store.ValidateComponents(r.Context(), refs, viewer, targetProjectID)
-				if err != nil {
-					httpapi.WriteInternalError(w, r, err)
-					return
-				}
-				if len(validationErrors) > 0 {
-					nameByID := map[string]string{}
-					for _, link := range links {
-						if name, ok := link["ref_name"].(string); ok {
-							nameByID[rowStr(link, "component_id", "")] = name
-						}
-					}
-					targetLabel := "public"
-					if targetIsPrivate {
-						targetLabel = "project"
-					}
-					offenders := make([]string, 0, len(validationErrors))
-					for _, e := range validationErrors {
-						label := nameByID[e.ComponentID]
-						if label == "" {
-							label = e.ComponentID
-						}
-						offenders = append(offenders, e.ComponentType+" '"+label+"'")
-					}
-					httpapi.WriteError(w, http.StatusConflict,
-						"Cannot change visibility to '"+targetLabel+"': "+strings.Join(offenders, ", ")+
-							" cannot be used by a "+targetLabel+" agent")
-					return
-				}
-			}
-			scope := "project"
-			if targetIsPrivate && rowNStr(row, "project_id") == nil {
-				scope = rowStr(row, "ownership_scope", "project")
-			}
-			if _, err := h.Store.Exec(r.Context(), `UPDATE agents SET is_private = $1,
-				ownership_scope = $2, updated_at = now() WHERE id = $3`,
-				targetIsPrivate, scope, agentID); err != nil {
-				httpapi.WriteInternalError(w, r, err)
-				return
-			}
+		if projectID := rowNStr(row, "project_id"); projectID != nil {
+			targetProjectID = *projectID
 		}
 		if body.VersionBumpType != nil && body.Version == nil {
 			bumped := bumpVersion(rowStr(row, "version", "0.0.0"), *body.VersionBumpType)

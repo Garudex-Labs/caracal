@@ -113,15 +113,8 @@ func detail(row map[string]any, links []map[string]any, viewer *registry.Viewer)
 		})
 	}
 
-	// The detail label collapses to the two public states.
+	// Project or private; there is no public scope.
 	vis := visibility(row)
-	if vis != "public" && vis != "project" {
-		if rowBool(row, "is_private") {
-			vis = "project"
-		} else {
-			vis = "public"
-		}
-	}
 
 	perm := permission(row, viewer)
 	version := rowStr(row, "version", "0.0.0")

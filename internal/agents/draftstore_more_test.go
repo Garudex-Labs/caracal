@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/garudex-labs/caracal/internal/tenancy"
 )
 
 func countLog(log []string, fragment string) int {
@@ -231,61 +229,5 @@ func TestAcquireEditLockBranches(t *testing.T) {
 	db = &richDB{stubs: lockRow(true, other, time.Now().Add(-editLockTTL-time.Minute))}
 	if err := (&Store{DB: db}).AcquireEditLock(context.Background(), versionID, self); err != nil {
 		t.Errorf("expired lock takeover: %v", err)
-	}
-}
-
-func TestAuthorizeVisibilityChangeGates(t *testing.T) {
-	ctx := context.Background()
-	projectID := "44444444-4444-4444-4444-444444444444"
-	user := tenancy.User{ID: uuid.MustParse(viewerID), Role: "user"}
-
-	// No project context: nothing to authorize.
-	if err := (&Store{DB: &fakeDB{}}).authorizeVisibilityChange(ctx, map[string]any{}, user, true); err != nil {
-		t.Errorf("public agent must skip the check: %v", err)
-	}
-
-	// Operators bypass the lead requirement.
-	op := tenancy.User{ID: uuid.MustParse(outsiderID), Role: "operator"}
-	if err := (&Store{DB: &fakeDB{}}).authorizeVisibilityChange(ctx,
-		map[string]any{"project_id": projectID}, op, true); err != nil {
-		t.Errorf("operator must bypass: %v", err)
-	}
-
-	// A malformed project id is rejected before any query.
-	badDB := &fakeDB{}
-	err := (&Store{DB: badDB}).authorizeVisibilityChange(ctx,
-		map[string]any{"project_id": "not-a-uuid"}, user, true)
-	var inst *errInstall
-	if !errors.As(err, &inst) || inst.status != 403 {
-		t.Fatalf("bad project id must be 403: %v", err)
-	}
-	if len(badDB.log) != 0 {
-		t.Errorf("bad id must not reach the database: %v", badDB.log)
-	}
-
-	// A project lead is authorized.
-	leadDB := &fakeDB{stubs: []stub{
-		{match: "FROM project_memberships", rows: &fakeRows{cols: []string{"role"}, rows: [][]any{{"lead"}}}},
-	}}
-	if err := (&Store{DB: leadDB}).authorizeVisibilityChange(ctx,
-		map[string]any{"project_id": projectID}, user, false); err != nil {
-		t.Errorf("project lead must pass: %v", err)
-	}
-
-	// A non-lead member is refused.
-	memberDB := &fakeDB{stubs: []stub{
-		{match: "FROM project_memberships", rows: &fakeRows{cols: []string{"role"}, rows: [][]any{{"member"}}}},
-	}}
-	err = (&Store{DB: memberDB}).authorizeVisibilityChange(ctx,
-		map[string]any{"project_id": projectID}, user, false)
-	if !errors.As(err, &inst) || inst.status != 403 {
-		t.Fatalf("non-lead must be 403: %v", err)
-	}
-
-	// A non-member is refused as well.
-	err = (&Store{DB: &fakeDB{}}).authorizeVisibilityChange(ctx,
-		map[string]any{"project_id": projectID}, user, false)
-	if !errors.As(err, &inst) || inst.status != 403 {
-		t.Fatalf("non-member must be 403: %v", err)
 	}
 }
