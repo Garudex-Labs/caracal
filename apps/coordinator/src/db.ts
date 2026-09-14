@@ -6,6 +6,10 @@
 import pg from 'pg'
 import { cfg, type Cfg } from './config.js'
 
+export async function bindTransactionZone(client: pg.PoolClient, zoneId: string): Promise<void> {
+  await client.query("SELECT set_config('caracal.zone_id', $1, true)", [zoneId])
+}
+
 export function buildDB(config: Cfg = cfg): pg.Pool {
   const pool = new pg.Pool({
     connectionString: config.databaseUrl,

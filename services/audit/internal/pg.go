@@ -92,6 +92,9 @@ func (w *PGWriter) Insert(ctx context.Context, ev AuditEvent, ingestSig string) 
 		return InsertResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT set_config('caracal.zone_id', $1, true)`, ev.ZoneID); err != nil {
+		return InsertResult{}, err
+	}
 
 	// Per-zone advisory lock serialises chain head reads/writes.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ev.ZoneID); err != nil {

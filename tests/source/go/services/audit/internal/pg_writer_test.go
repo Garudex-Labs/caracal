@@ -35,6 +35,8 @@ type insertTx struct {
 	rehashTx
 	rows     []pgx.Row
 	rowIdx   int
+	execSQL  []string
+	execArgs [][]any
 	execTags []pgconn.CommandTag
 	execErrs []error
 	execIdx  int
@@ -49,7 +51,12 @@ func (t *insertTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	return scanFuncRow{}
 }
 
-func (t *insertTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+func (t *insertTx) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	t.execSQL = append(t.execSQL, sql)
+	t.execArgs = append(t.execArgs, args)
+	if strings.Contains(sql, "set_config('caracal.zone_id'") {
+		return pgconn.CommandTag{}, nil
+	}
 	i := t.execIdx
 	t.execIdx++
 	var tag pgconn.CommandTag
@@ -133,6 +140,7 @@ func insertedTag() pgconn.CommandTag {
 }
 
 func TestInsertAppendsFreshChainHead(t *testing.T) {
+	ev := insertEvent()
 	tx := &insertTx{
 		rows:     []pgx.Row{scanFuncRow{}, chainHeadRow("", 0, pgx.ErrNoRows)},
 		execTags: []pgconn.CommandTag{{}, insertedTag()},
@@ -140,7 +148,7 @@ func TestInsertAppendsFreshChainHead(t *testing.T) {
 	inserted := 0
 	w := &PGWriter{db: &writerPool{tx: tx}, auditHMACKey: []byte("01234567890123456789012345678901"), onInsert: func() { inserted++ }}
 
-	res, err := w.Insert(context.Background(), insertEvent(), "sig")
+	res, err := w.Insert(context.Background(), ev, "sig")
 	if err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
@@ -149,6 +157,15 @@ func TestInsertAppendsFreshChainHead(t *testing.T) {
 	}
 	if inserted != 1 || !tx.committed {
 		t.Fatalf("inserted=%d committed=%v", inserted, tx.committed)
+	}
+	if len(tx.execSQL) < 2 || tx.execSQL[0] != "SELECT set_config('caracal.zone_id', $1, true)" || !strings.Contains(tx.execSQL[1], "pg_advisory_xact_lock") {
+		t.Fatalf("transaction setup order = %v", tx.execSQL)
+	}
+	if len(tx.execArgs) == 0 {
+		t.Fatal("set_config args were not captured")
+	}
+	if len(tx.execArgs[0]) != 1 || tx.execArgs[0][0] != ev.ZoneID {
+		t.Fatalf("set_config args = %#v, want [%q]", tx.execArgs[0], ev.ZoneID)
 	}
 }
 
