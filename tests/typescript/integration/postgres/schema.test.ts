@@ -6,6 +6,9 @@
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import '../../../shared/test-utils/typescript/coordinatorEnv.js'
+import { buildApp } from '../../../../apps/coordinator/src/app.js'
+import { cfg } from '../../../../apps/coordinator/src/config.js'
 import { insertAdminAuditRecord } from '../../../../packages/adminAudit/ts/src/index.js'
 
 // These assertions are about SQL the unit suites can only match as text, so they need a real
@@ -31,6 +34,107 @@ async function makeZone(client: pg.PoolClient, label: string): Promise<string> {
 }
 
 suite('zone row-level security', () => {
+  it('enforces Coordinator transaction scope for cross-zone session mutations', async () => {
+    const setup = await pool.connect()
+    const zoneA = await makeZone(setup, 'coordinator-rls-a')
+    const zoneB = await makeZone(setup, 'coordinator-rls-b')
+    const applicationA = randomUUID()
+    const applicationB = randomUUID()
+    const authorityA = randomUUID()
+    const authorityB = randomUUID()
+    const sessionA = randomUUID()
+    const sessionB = randomUUID()
+    const operatorToken = cfg.coordinatorToken
+    let coordinatorPool: pg.Pool | undefined
+    let app: Awaited<ReturnType<typeof buildApp>> | undefined
+    try {
+      await setup.query(
+        `INSERT INTO applications (id, zone_id, name, registration_method)
+         VALUES ($1, $2, $3, 'managed'), ($4, $5, $6, 'managed')`,
+        [applicationA, zoneA, 'coordinator-a', applicationB, zoneB, 'coordinator-b'],
+      )
+      const authenticatedAt = new Date()
+      const expiresAt = new Date(authenticatedAt.getTime() + 3_600_000)
+      await setup.query(
+        `INSERT INTO authority_records
+           (id, zone_id, session_type, subject_id, status, expires_at, authenticated_at)
+         VALUES ($1, $2, 'application', $3, 'active', $4, $5),
+                ($6, $7, 'application', $8, 'active', $4, $5)`,
+        [authorityA, zoneA, applicationA, expiresAt, authenticatedAt, authorityB, zoneB, applicationB],
+      )
+      await setup.query(
+        `INSERT INTO sessions
+           (id, zone_id, application_id, subject_authority_record_id, status, lifecycle, ttl_seconds)
+         VALUES ($1, $2, $3, $4, 'active', 'task', 3600),
+                ($5, $6, $7, $8, 'active', 'task', 3600)`,
+        [sessionA, zoneA, applicationA, authorityA, sessionB, zoneB, applicationB, authorityB],
+      )
+      coordinatorPool = new pg.Pool({
+        connectionString: databaseUrl,
+        max: 2,
+        options: '-c role=caracalcoordinator -c caracal.zone_id=*',
+      })
+      const redis = {
+        incr: async () => 1,
+        expire: async () => 1,
+      }
+      app = await buildApp({
+        cfg: {
+          ...cfg,
+          coordinatorToken: operatorToken,
+          coordinatorRateLimitPerMin: 0,
+          readyRateLimitPerMin: 0,
+        },
+        db: coordinatorPool,
+        redis: redis as never,
+      })
+
+      const sameZone = await app.inject({
+        method: 'PATCH',
+        url: `/zones/${zoneA}/agents/${sessionA}/suspend`,
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { reason: 'integration-test' },
+      })
+      expect(sameZone.statusCode).toBe(200)
+
+      const crossZone = await app.inject({
+        method: 'PATCH',
+        url: `/zones/${zoneA}/agents/${sessionB}/suspend`,
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { reason: 'cross-zone-test' },
+      })
+      expect(crossZone.statusCode).toBe(404)
+
+      const state = await setup.query<{ id: string; zone_id: string; status: string }>(
+        'SELECT id, zone_id, status FROM sessions WHERE id = ANY($1) ORDER BY id',
+        [[sessionA, sessionB]],
+      )
+      expect(state.rows).toEqual(
+        [
+          { id: sessionA, zone_id: zoneA, status: 'suspended' },
+          { id: sessionB, zone_id: zoneB, status: 'active' },
+        ].sort((left, right) => left.id.localeCompare(right.id)),
+      )
+    } finally {
+      await app?.close().catch(() => {})
+      await coordinatorPool?.end().catch(() => {})
+      await setup.query('ROLLBACK').catch(() => {})
+      setup.release()
+      const cleanup = await pool.connect()
+      try {
+        await cleanup.query('BEGIN')
+        await cleanup.query('DELETE FROM sessions WHERE id = ANY($1)', [[sessionA, sessionB]])
+        await cleanup.query('DELETE FROM authority_records WHERE id = ANY($1)', [[authorityA, authorityB]])
+        await cleanup.query('DELETE FROM applications WHERE id = ANY($1)', [[applicationA, applicationB]])
+        await cleanup.query('DELETE FROM zones WHERE id = ANY($1)', [[zoneA, zoneB]])
+        await cleanup.query('COMMIT')
+      } finally {
+        await cleanup.query('ROLLBACK').catch(() => {})
+        cleanup.release()
+      }
+    }
+  })
+
   it('hides another zone rows from a zone-scoped session', async () => {
     const client = await pool.connect()
     try {
