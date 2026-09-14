@@ -7,6 +7,7 @@ import { pathOnly } from '@caracalai/server-core'
 import { MUTATING_METHODS, insertAdminAuditRecord } from '@caracalai/admin-audit'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { Pool } from 'pg'
+import { bindTransactionZone } from './db.js'
 
 function entityFromUrl(url: string): { type: string | null; id: string | null } {
   const segments = pathOnly(url).split('/').filter(Boolean)
@@ -41,6 +42,8 @@ export function registerAdminAuditHook(app: FastifyInstance, db: Pool, hmacKey: 
     const client = await db.connect()
     try {
       await client.query('BEGIN')
+      const zoneId = zoneFromParams(req, req.url)
+      if (zoneId !== null) await bindTransactionZone(client, zoneId)
       await insertAdminAuditRecord(
         client,
         {
@@ -51,7 +54,7 @@ export function registerAdminAuditHook(app: FastifyInstance, db: Pool, hmacKey: 
           action: `${req.method} ${path}`,
           method: req.method,
           path,
-          zoneId: zoneFromParams(req, req.url),
+          zoneId,
           entityType: entity.type,
           entityId: entity.id,
           statusCode: reply.statusCode,
