@@ -12,6 +12,7 @@ import { ownsApplication, requireScope } from '../auth.js'
 import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
+import { bindTransactionZone } from '../db.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency, type IdempotencyStart } from '../idempotency.js'
 
 export const MAX_DEPTH = 10
@@ -182,6 +183,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       let receipt: IdempotencyStart | null = null
       if (idempotencyKey) {
         receipt = await startIdempotency(client, {
@@ -506,6 +508,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const { rows: own } = await client.query(
         `SELECT application_id FROM sessions
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
@@ -545,6 +548,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const { rows: own } = await client.query(
         `SELECT application_id FROM sessions
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
@@ -615,6 +619,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [sessionLockKey(zoneId)])
       const { rows: own } = await client.query(
         `SELECT application_id, lifecycle, lease_generation FROM sessions

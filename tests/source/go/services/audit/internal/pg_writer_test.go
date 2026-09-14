@@ -35,6 +35,7 @@ type insertTx struct {
 	rehashTx
 	rows     []pgx.Row
 	rowIdx   int
+	execSQL  []string
 	execTags []pgconn.CommandTag
 	execErrs []error
 	execIdx  int
@@ -49,7 +50,11 @@ func (t *insertTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	return scanFuncRow{}
 }
 
-func (t *insertTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+func (t *insertTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	t.execSQL = append(t.execSQL, sql)
+	if strings.Contains(sql, "set_config('caracal.zone_id'") {
+		return pgconn.CommandTag{}, nil
+	}
 	i := t.execIdx
 	t.execIdx++
 	var tag pgconn.CommandTag
@@ -149,6 +154,9 @@ func TestInsertAppendsFreshChainHead(t *testing.T) {
 	}
 	if inserted != 1 || !tx.committed {
 		t.Fatalf("inserted=%d committed=%v", inserted, tx.committed)
+	}
+	if len(tx.execSQL) < 2 || !strings.Contains(tx.execSQL[0], "set_config('caracal.zone_id'") || !strings.Contains(tx.execSQL[1], "pg_advisory_xact_lock") {
+		t.Fatalf("transaction setup order = %v", tx.execSQL)
 	}
 }
 

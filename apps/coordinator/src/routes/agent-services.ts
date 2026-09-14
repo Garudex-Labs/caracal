@@ -9,6 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { ownsApplication, requireScope } from '../auth.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
+import { bindTransactionZone } from '../db.js'
 import { sessionLockKey, suspendSubtree, terminateSubtree } from './agents.js'
 
 const LIST_DEFAULT_LIMIT = 100
@@ -54,6 +55,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const { rows: applications } = await client.query(
         `SELECT 1 FROM applications
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
@@ -137,6 +139,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const { rows: own } = await client.query<{
         application_id: string
         status: string
@@ -237,6 +240,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const { rows: own } = await client.query<{
         application_id: string
         subject_authority_record_id: string

@@ -84,6 +84,38 @@ suite('zone row-level security', () => {
       client.release()
     }
   })
+
+  it('resets the zone scope when the transaction ends', async () => {
+    const client = await pool.connect()
+    const zoneA = await makeZone(client, 'rls-local-a')
+    const zoneB = await makeZone(client, 'rls-local-b')
+    const applicationA = randomUUID()
+    const applicationB = randomUUID()
+    try {
+      await client.query(
+        "INSERT INTO applications (id, zone_id, name, registration_method) VALUES ($1, $2, $3, 'managed'), ($4, $5, $6, 'managed')",
+        [applicationA, zoneA, 'anton-local', applicationB, zoneB, 'fiona-local'],
+      )
+      await client.query('BEGIN')
+      await client.query('SET LOCAL ROLE caracalapi')
+      await client.query('SELECT set_config($1, $2, true)', ['caracal.zone_id', zoneA])
+      const scoped = await client.query<{ zone_id: string }>('SELECT zone_id FROM applications WHERE id = ANY($1)', [
+        [applicationA, applicationB],
+      ])
+      expect(scoped.rows).toEqual([{ zone_id: zoneA }])
+      await client.query('COMMIT')
+
+      await client.query('BEGIN')
+      await client.query('SET LOCAL ROLE caracalapi')
+      const nextScope = await client.query<{ zone_id: string | null }>("SELECT current_setting('caracal.zone_id', true) AS zone_id")
+      expect(nextScope.rows[0]?.zone_id).not.toBe(zoneA)
+      await client.query('ROLLBACK')
+    } finally {
+      await client.query('DELETE FROM applications WHERE id = ANY($1)', [[applicationA, applicationB]]).catch(() => {})
+      await client.query('DELETE FROM zones WHERE id = ANY($1)', [[zoneA, zoneB]]).catch(() => {})
+      client.release()
+    }
+  })
 })
 
 suite('coordinator outbox dedupe', () => {
