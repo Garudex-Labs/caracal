@@ -132,6 +132,16 @@ func truthy(v any) bool {
 	}
 }
 
+// orgSubdomainBase reports whether baseDomain can address organizations as
+// subdomains ({org}.{base}). localhost (and any *.localhost) is a special-use
+// domain whose subdomains cannot share the session cookie, so subdomain
+// addressing there only produces cross-origin auth redirect loops; such a
+// deployment must stay single-host.
+func orgSubdomainBase(baseDomain string) bool {
+	d := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(baseDomain)), ".")
+	return d != "" && d != "localhost" && !strings.HasSuffix(d, ".localhost")
+}
+
 // public returns the anonymous frontend configuration.
 func (h *Handler) public(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -160,7 +170,7 @@ func (h *Handler) public(w http.ResponseWriter, r *http.Request) {
 		// Whether organizations are addressed as subdomains ({org}.{base}). With
 		// no base domain the deployment is single-host, so the UI keeps org
 		// context on the current origin rather than crossing to a subdomain.
-		"org_subdomains": h.Settings.String(ctx, "deployment.base_domain", "") != "",
+		"org_subdomains": orgSubdomainBase(h.Settings.String(ctx, "deployment.base_domain", "")),
 	})
 }
 

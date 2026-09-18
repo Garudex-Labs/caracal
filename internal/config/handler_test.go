@@ -195,6 +195,23 @@ func TestPublicIdentityDown(t *testing.T) {
 	}
 }
 
+func TestOrgSubdomainBase(t *testing.T) {
+	cases := map[string]bool{
+		"":                false,
+		"localhost":       false,
+		".localhost":      false,
+		"acme.localhost":  false,
+		"caracal.run":     true,
+		".caracal.run":    true,
+		"app.example.com": true,
+	}
+	for base, want := range cases {
+		if got := orgSubdomainBase(base); got != want {
+			t.Errorf("orgSubdomainBase(%q) = %v, want %v", base, got, want)
+		}
+	}
+}
+
 func TestSSOHealth(t *testing.T) {
 	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
