@@ -19,6 +19,11 @@ import (
 const identityTimeout = 5 * time.Second
 const identityCacheTTL = 30 * time.Second
 
+// A failed fetch caches only briefly so a momentary blip (a restart, a slow
+// probe) cannot strand the login UI in "unavailable" for the full success TTL.
+// Mirrors the identity service's own PROBE_FAILURE_TTL_MS.
+const identityFailureCacheTTL = 5 * time.Second
+
 // IdentityClient talks to the identity service for capability discovery and
 // health reporting. Capability responses are briefly cached; failures cache
 // as empty so a down identity service cannot stall config reads.
@@ -71,7 +76,11 @@ func (c *IdentityClient) PublicConfig(ctx context.Context) map[string]any {
 
 	c.mu.Lock()
 	c.cached = config
-	c.expires = time.Now().Add(identityCacheTTL)
+	ttl := identityCacheTTL
+	if len(config) == 0 {
+		ttl = identityFailureCacheTTL
+	}
+	c.expires = time.Now().Add(ttl)
 	c.mu.Unlock()
 	return config
 }

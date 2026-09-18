@@ -5,7 +5,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { searchString } from "@/lib/search-params";
-import { canonicalAuthUrl } from "@/lib/tenant-host";
+import { canonicalBareLoginUrl } from "@/lib/tenant-host";
 
 const LoginPage = lazy(() => import("@/pages/login"));
 
@@ -32,12 +32,14 @@ function LoginRoute() {
 }
 
 export const Route = createFileRoute("/(auth)/login")({
-  // The auth surface is canonical: if reached on an org subdomain or under a
-  // project prefix, hard-redirect to the org-free `/login` before rendering.
+  // The login surface is canonical and clean: strip any org subdomain, project
+  // prefix, and every query/hash param (a leaked `next` or previous location)
+  // before rendering, so login always starts at exactly `{base}/login` and can
+  // never loop through a workspace whose session it cannot establish.
   beforeLoad: () => {
     if (typeof window === "undefined") return;
-    const canonical = canonicalAuthUrl();
-    if (canonical) window.location.replace(canonical);
+    const bare = canonicalBareLoginUrl();
+    if (bare) window.location.replace(bare);
   },
   component: LoginRoute,
   validateSearch: (search: Record<string, unknown>): LoginSearch => ({

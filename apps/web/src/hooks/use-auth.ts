@@ -8,7 +8,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useRouter, useLocation } from "@tanstack/react-router";
 import { auth, ensureAccessToken, setUserRole, getUserRole, getAccessToken, clearSession, hasActiveAuthContext, type AuthContext } from "@/lib/api";
-import { canonicalLoginUrl, currentPathAsNext } from "@/lib/safe-next";
+import { canonicalLoginUrl } from "@/lib/safe-next";
 
 function isNetworkError(err: unknown): boolean {
   return err instanceof TypeError || (typeof navigator !== "undefined" && !navigator.onLine);
@@ -30,8 +30,8 @@ function redirectToLogin(router: ReturnType<typeof useRouter>, pathname: string,
   }
   // Canonical, org-free auth surface: a hard navigation drops the org subdomain
   // and the project basepath so login is never rendered inside a tenant it has
-  // not proven the user belongs to; the destination rides in `next` only.
-  window.location.assign(canonicalLoginUrl(currentPathAsNext()));
+  // not proven the user belongs to, and the URL is always the bare `/login`.
+  window.location.assign(canonicalLoginUrl());
 }
 
 function authContextForPathname(pathname: string): AuthContext {

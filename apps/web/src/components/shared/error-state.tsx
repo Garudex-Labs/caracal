@@ -31,7 +31,7 @@ export function ErrorState({ message, error, onRetry }: ErrorStateProps) {
           Please sign in again to continue.
         </p>
         <Button variant="outline" size="sm" className="mt-4" asChild>
-          <a href="/login?reason=session_expired">
+          <a href="/login">
             <LogIn className="mr-1.5 h-3.5 w-3.5" /> Sign in
           </a>
         </Button>

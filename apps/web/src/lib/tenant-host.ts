@@ -160,19 +160,22 @@ export function isAuthPath(pathname: string): boolean {
 }
 
 /**
- * When the current URL is an auth route reached on an org host or under a
- * project prefix, the canonical org-free URL to replace it with, else null.
- * The query (carrying a sanitized `next`) is preserved unchanged.
+ * The canonical, clean login URL to replace the current one with, or null when
+ * the browser is already at exactly it. Any org subdomain, project prefix,
+ * query string (a leaked `next`/previous location), and hash are dropped so the
+ * login surface always resolves to exactly `{base}/login`. This is the single
+ * normalization point that breaks `/login?next=…` redirect loops: with no
+ * return path left to restore, sign-in can never bounce back into a workspace
+ * whose session it cannot establish.
  */
-export function canonicalAuthUrl(
+export function canonicalBareLoginUrl(
 	loc: Pick<Location, "hostname" | "port" | "protocol" | "pathname" | "search" | "hash" | "host"> = window.location,
-	urlProject: string | null = tenant.urlProject,
 ): string | null {
-	const inApp = pathWithoutProjectPrefix(loc.pathname, urlProject);
-	if (!isAuthPath(inApp)) return null;
 	const canonicalOrigin = canonicalAuthOrigin(loc);
-	if (canonicalOrigin === `${loc.protocol}//${loc.host}` && inApp === loc.pathname) return null;
-	return `${canonicalOrigin}${inApp}${loc.search}${loc.hash}`;
+	const originIsCanonical = canonicalOrigin === `${loc.protocol}//${loc.host}`;
+	const alreadyBare = originIsCanonical && loc.pathname === "/login" && !loc.search && !loc.hash;
+	if (alreadyBare) return null;
+	return `${originIsCanonical ? "" : canonicalOrigin}/login`;
 }
 
 /** Build an absolute project-facing URL path from a validated project slug. */

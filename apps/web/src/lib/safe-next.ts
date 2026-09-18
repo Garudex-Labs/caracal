@@ -45,30 +45,29 @@ export function tenantNext(path: string | null | undefined, fallback = "/"): str
 }
 
 /**
- * Canonical login URL: always the org-free auth host and the bare `/login`
- * route, never an org subdomain or project-prefixed path. The requested
- * destination rides only in `next`, as sanitized post-login state. Returns a
- * relative path when the current origin is already canonical; an absolute
- * base-host URL when it must escape an org subdomain.
+ * The canonical login URL: always the org-free auth host and the bare `/login`
+ * route, with no query string whatsoever. The previous location is never
+ * carried in `next` (or any other param), so a session ended for one workspace
+ * cannot leak that location, and sign-in can never bounce back into a workspace
+ * it cannot establish. Returns a relative path when the current origin is
+ * already canonical; an absolute base-host URL when it must escape an org
+ * subdomain.
  */
-export function canonicalLoginUrl(next?: string | null, reason?: string): string {
-  const params = new URLSearchParams();
-  if (reason) params.set("reason", reason);
-  const dest = tenantNext(next ?? undefined, "");
-  if (dest && dest !== "/") params.set("next", dest);
-  const query = params.toString();
-  return `${canonicalAuthOriginPrefix()}/login${query ? `?${query}` : ""}`;
+export function canonicalLoginUrl(): string {
+  return `${canonicalAuthOriginPrefix()}/login`;
 }
 
 /**
- * Login URL for a hard navigation after session expiry, carrying the current
- * location so sign-in returns the user to the page they were on.
+ * Login URL for a hard navigation after session expiry or any authentication
+ * failure. Tenant users always land on the canonical bare `/login`; operator
+ * surfaces keep their dedicated console sign-in. No return path or reason is
+ * ever attached, so the login flow starts clean every time.
  */
 export function sessionExpiredLoginUrl(): string {
   if (typeof window !== "undefined" && isOperatorPath(window.location.pathname)) {
     return "/operator-login";
   }
-  return canonicalLoginUrl(currentPathAsNext(), "session_expired");
+  return canonicalLoginUrl();
 }
 
 /**

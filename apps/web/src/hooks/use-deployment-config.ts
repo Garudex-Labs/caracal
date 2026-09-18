@@ -13,6 +13,15 @@ export function useDeploymentConfig() {
 		queryFn: config.public,
 		staleTime: 5 * 60 * 1000, // cache for 5 minutes
 		retry: 2,
+		// A boot-time "auth unavailable" (the identity service had not answered
+		// yet) must self-heal instead of sticking behind the 5-minute cache: poll
+		// until auth is available, then stop, so the login page never stays
+		// stranded on the transient "Sign-in is temporarily unavailable" screen.
+		refetchInterval: (query) => {
+			const cfg = query.state.data;
+			const available = cfg?.auth_available ?? Object.keys(cfg?.auth ?? {}).length > 0;
+			return available ? false : 3000;
+		},
 	});
 
 	// Mirror the deployment's subdomain capability into the tenancy module so

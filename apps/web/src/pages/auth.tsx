@@ -8,13 +8,12 @@
 // minted and profile caches are primed before redirecting.
 
 import { useState, useEffect } from "react";
-import { Link, useSearch } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { Eye, EyeOff, ArrowRight, Loader2, AlertCircle, Building2, KeyRound, MailCheck, ShieldCheck, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { activateAuthContext, auth, clearSession, ensureAccessToken, setUserRole, setUserName, setUserEmail, setUserUsername, setUserAvatar } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { authPageState, type AuthCapabilitySnapshot } from "@/lib/auth-methods";
-import { isTenantNext, tenantNext } from "@/lib/safe-next";
 import { useDeploymentConfig } from "@/hooks/use-deployment-config";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,13 +23,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export type AuthMode = "login" | "register";
-
-type AuthSearch = {
-	next?: string;
-	error?: string;
-	reason?: string;
-	sso?: string;
-};
 
 const PASSWORD_RULES = [
 	{ id: "len", label: "At least 12 characters", test: (p: string) => p.length >= 12 },
@@ -50,36 +42,13 @@ const CTA_BUTTON = `${TALL_BUTTON} bg-primary font-semibold text-primary-foregro
 const SSO_BUTTON = `${TALL_BUTTON} border-border/70 bg-card/60 font-medium hover:bg-accent hover:text-foreground`;
 const ACCENT_LINK = "font-medium text-primary underline underline-offset-4 transition-colors hover:text-primary/80";
 
-/** The post-auth onboarding resolver, preserving the destination. */
-function onboardingUrl(next?: string): string {
-	const destination = tenantNext(next);
-	return destination === "/" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`;
-}
-
-const LOGIN_BOUNCE_KEY = "caracal_login_bounce";
-
-/**
- * Bounded guard for the authenticated auto-redirect: if login keeps sending an
- * already-signed-in visitor to a destination that bounces straight back (a
- * session that will not span to the target origin), stop after a few rapid
- * hops so the user gets a fresh sign-in instead of an infinite apex<->subdomain
- * loop. The window resets stale counters so a normal later sign-in is unaffected.
- */
-function loginRedirectLoopTripped(): boolean {
-	if (typeof sessionStorage === "undefined") return false;
-	const now = Date.now();
-	const [countRaw, tsRaw] = (sessionStorage.getItem(LOGIN_BOUNCE_KEY) ?? "0:0").split(":");
-	const count = now - Number(tsRaw) > 5000 ? 0 : Number(countRaw) || 0;
-	if (count >= 3) {
-		sessionStorage.removeItem(LOGIN_BOUNCE_KEY);
-		return true;
-	}
-	sessionStorage.setItem(LOGIN_BOUNCE_KEY, `${count + 1}:${now}`);
-	return false;
+/** The post-auth onboarding resolver; it lands the user in their valid workspace. */
+function onboardingUrl(): string {
+	return "/onboarding";
 }
 
 /** Prime the registry JWT and profile caches after Better Auth establishes a session. */
-async function completeSignIn(next?: string): Promise<void> {
+async function completeSignIn(): Promise<void> {
 	clearSession("operator");
 	const token = await ensureAccessToken("tenant", true);
 	if (!token) throw new Error("Signed in, but no session was found. Please try again.");
@@ -90,7 +59,7 @@ async function completeSignIn(next?: string): Promise<void> {
 	if (user.username) setUserUsername(user.username, "tenant");
 	if (user.avatar_url) setUserAvatar(user.avatar_url, "tenant");
 	window.dispatchEvent(new Event("storage"));
-	window.location.replace(onboardingUrl(next));
+	window.location.replace(onboardingUrl());
 }
 
 function errorMessage(e: unknown, fallback: string): string {
@@ -101,7 +70,6 @@ function errorMessage(e: unknown, fallback: string): string {
 }
 
 export function AuthPage({ initialMode }: { initialMode: AuthMode }) {
-	const searchParams = useSearch({ strict: false }) as AuthSearch;
 	const {
 		ssoEnabled,
 		googleSsoEnabled,
@@ -160,48 +128,30 @@ export function AuthPage({ initialMode }: { initialMode: AuthMode }) {
 	const regPasswordStrong = passwordIsStrong(regPassword);
 	const regPasswordsMatch = regPassword === regConfirmPassword;
 
-	const nextTarget = isTenantNext(searchParams.next) ? searchParams.next : undefined;
 	// SSO and magic-link providers return the browser here after auth, so the
 	// callback runs through the same onboarding resolver as password sign-in.
-	const callbackURL = onboardingUrl(nextTarget);
+	const callbackURL = onboardingUrl();
 
 	function toggleMode() {
 		setError("");
 		setMode((m) => (m === "login" ? "register" : "login"));
 	}
 
-	// Signed-in visitors go straight through; a live identity-service
-	// session mints a token silently, otherwise the form renders.
+	// Signed-in visitors go straight through; a live identity-service session
+	// mints a token silently and sends them to the onboarding resolver, which
+	// picks their valid workspace. No return path is restored, so this can never
+	// bounce back into a workspace whose session it cannot establish.
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		let cancelled = false;
 		ensureAccessToken("tenant").then((token) => {
 			if (cancelled || !token) return;
-			if (loginRedirectLoopTripped()) {
-				clearSession("tenant");
-				window.dispatchEvent(new Event("storage"));
-				setError("Your session could not be established for that workspace. Please sign in again.");
-				return;
-			}
-			window.location.replace(onboardingUrl(searchParams.next));
+			window.location.replace(onboardingUrl());
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [searchParams.next]);
-
-	useEffect(() => {
-		if (searchParams.error) setError(searchParams.error || "Authentication failed");
-	}, [searchParams.error]);
-
-	useEffect(() => {
-		const reason = searchParams.reason;
-		if (reason === "session_expired") {
-			toast.info("Your session has expired. Please sign in again.");
-			const preserved = nextTarget ? `/login?next=${encodeURIComponent(nextTarget)}` : "/login";
-			window.history.replaceState({}, "", preserved);
-		}
-	}, [searchParams.reason, nextTarget]);
+	}, []);
 
 	async function handlePasswordLogin() {
 		setError("");
@@ -212,7 +162,7 @@ export function AuthPage({ initialMode }: { initialMode: AuthMode }) {
 				throw new Error(signInError.message || "Invalid email or password");
 			}
 			toast.success("Signed in successfully");
-			await completeSignIn(nextTarget);
+			await completeSignIn();
 		} catch (e) {
 			const raw = errorMessage(e, "Login failed");
 			const msg = raw.toLowerCase().includes("rate limit")
@@ -259,7 +209,7 @@ export function AuthPage({ initialMode }: { initialMode: AuthMode }) {
 				});
 			}
 			toast.success("Account created");
-			await completeSignIn(nextTarget);
+			await completeSignIn();
 		} catch (e) {
 			const msg = errorMessage(e, "Registration failed");
 			setError(msg);
@@ -338,7 +288,7 @@ export function AuthPage({ initialMode }: { initialMode: AuthMode }) {
 			if (result?.error) {
 				throw new Error(result.error.message || "Passkey sign-in failed");
 			}
-			await completeSignIn(nextTarget);
+			await completeSignIn();
 		} catch (e) {
 			setError(errorMessage(e, "Passkey sign-in failed"));
 			setLoading(false);
@@ -354,7 +304,7 @@ export function AuthPage({ initialMode }: { initialMode: AuthMode }) {
 				credentials: "include",
 			});
 			if (!res.ok) throw new Error("Development login is not available");
-			await completeSignIn(nextTarget);
+			await completeSignIn();
 		} catch (e) {
 			const msg = errorMessage(e, "Development login failed");
 			setError(msg);

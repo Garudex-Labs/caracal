@@ -4,7 +4,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalLoginUrl, currentPathAsNext, isSafeNext, safeNext, sessionExpiredLoginUrl, tenantNext } from "./safe-next.ts";
-import { configureOrgSubdomains } from "./tenant-host.ts";
 
 test("accepts a plain relative path", () => {
 	assert.equal(isSafeNext("/agents"), true);
@@ -78,29 +77,19 @@ function withLocation<T>(loc: Record<string, string>, fn: () => T): T {
 	}
 }
 
-test("canonical login url stays relative on the base host, absolute off an org subdomain", () => {
-	configureOrgSubdomains(false);
+test("canonical login url is always the bare /login, relative on the base host, absolute off an org subdomain", () => {
 	assert.equal(
 		withLocation({ hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:" }, () =>
-			canonicalLoginUrl("/lynx-capital/resources"),
+			canonicalLoginUrl(),
 		),
-		"/login?next=%2Flynx-capital%2Fresources",
+		"/login",
 	);
-	configureOrgSubdomains(true);
 	assert.equal(
 		withLocation({ hostname: "lynx-capital.localhost", host: "lynx-capital.localhost:8000", port: "8000", protocol: "http:" }, () =>
-			canonicalLoginUrl("/lynx-capital/resources", "session_expired"),
-		),
-		"http://localhost:8000/login?reason=session_expired&next=%2Flynx-capital%2Fresources",
-	);
-	// A crafted absolute/protocol-relative next is dropped, never reflected.
-	assert.equal(
-		withLocation({ hostname: "lynx-capital.localhost", host: "lynx-capital.localhost:8000", port: "8000", protocol: "http:" }, () =>
-			canonicalLoginUrl("//evil.com/phish"),
+			canonicalLoginUrl(),
 		),
 		"http://localhost:8000/login",
 	);
-	configureOrgSubdomains(false);
 });
 
 test("currentPathAsNext is undefined outside a browser", () => {
@@ -125,12 +114,21 @@ test("currentPathAsNext returns the current path with its query", () => {
 	assert.equal(withWindow("/inbox", "", currentPathAsNext), "/inbox");
 });
 
-test("session-expired login URL carries the return path only when one exists", () => {
+test("session-expired login URL is the bare /login, and routes operator surfaces to their console", () => {
 	assert.equal(
-		withWindow("/agents", "", sessionExpiredLoginUrl),
-		"/login?reason=session_expired&next=%2Fagents",
+		withLocation({ hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:", pathname: "/agents" }, sessionExpiredLoginUrl),
+		"/login",
 	);
-	assert.equal(withWindow("/", "", sessionExpiredLoginUrl), "/login?reason=session_expired");
-	assert.equal(withWindow("/operator", "", sessionExpiredLoginUrl), "/operator-login");
-	assert.equal(withWindow("/operator/status", "", sessionExpiredLoginUrl), "/operator-login");
+	assert.equal(
+		withLocation({ hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:", pathname: "/" }, sessionExpiredLoginUrl),
+		"/login",
+	);
+	assert.equal(
+		withLocation({ hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:", pathname: "/operator" }, sessionExpiredLoginUrl),
+		"/operator-login",
+	);
+	assert.equal(
+		withLocation({ hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:", pathname: "/operator/status" }, sessionExpiredLoginUrl),
+		"/operator-login",
+	);
 });

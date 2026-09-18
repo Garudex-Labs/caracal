@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 
 function DeviceContent() {
   const router = useRouter();
-  const { code: codeParam, sso: ssoParam } = useSearch({ from: "/(auth)/device" });
+  const { code: codeParam } = useSearch({ from: "/(auth)/device" });
   const [userCode, setUserCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,14 +42,11 @@ function DeviceContent() {
         return;
       }
       setAuthed(false);
-      const code = codeParam;
-      const directSso = ssoParam === "1";
-      const returnPath = code
-        ? `/device?code=${encodeURIComponent(code)}${directSso ? "&sso=1" : ""}`
-        : `/device${directSso ? "?sso=1" : ""}`;
-      router.navigate({ to: "/login", search: { next: returnPath, ...(directSso ? { sso: "1" } : {}) }, replace: true });
+      // The login surface is canonical and clean - no return path is carried, so
+      // the device code must be re-opened after signing in.
+      router.navigate({ to: "/login", replace: true });
     });
-  }, [router, codeParam, ssoParam]);
+  }, [router]);
 
   // Pre-fill code from query parameter
   useEffect(() => {

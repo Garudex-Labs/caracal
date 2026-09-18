@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	canonicalAuthOrigin,
-	canonicalAuthUrl,
+	canonicalBareLoginUrl,
 	canonicalProjectFreePath,
 	configureOrgSubdomains,
 	firstSegmentsFromPaths,
@@ -176,7 +176,7 @@ test("canonical auth origin strips an org label in the host to reach the base ho
 	assert.equal(canonicalAuthOrigin({ hostname: "app.caracal.example.com", port: "", protocol: "https:" }), "https://app.caracal.example.com");
 });
 
-test("canonical auth url escapes an org subdomain and drops the project prefix", () => {
+test("canonical bare login url escapes an org subdomain and drops project prefix, query, and hash", () => {
 	configureOrgSubdomains(true);
 	const onOrgHost = {
 		hostname: "lynx-capital.localhost",
@@ -187,11 +187,22 @@ test("canonical auth url escapes an org subdomain and drops the project prefix",
 		search: "?next=%2Flynx-capital%2Fresources",
 		hash: "",
 	};
-	assert.equal(canonicalAuthUrl(onOrgHost, "lynx-capital"), "http://localhost:8000/login?next=%2Flynx-capital%2Fresources");
-	// Already canonical: no redirect.
+	assert.equal(canonicalBareLoginUrl(onOrgHost), "http://localhost:8000/login");
+	// A leaked `next` on the canonical host is stripped to exactly /login.
+	assert.equal(
+		canonicalBareLoginUrl({
+			hostname: "localhost",
+			host: "localhost:8000",
+			port: "8000",
+			protocol: "http:",
+			pathname: "/login",
+			search: "?next=%2Finbox",
+			hash: "",
+		}),
+		"/login",
+	);
+	// Already exactly the bare canonical login: no redirect.
 	const canonical = { hostname: "localhost", host: "localhost:8000", port: "8000", protocol: "http:", pathname: "/login", search: "", hash: "" };
-	assert.equal(canonicalAuthUrl(canonical, null), null);
-	// Non-auth project route: never treated as an auth surface.
-	assert.equal(canonicalAuthUrl({ ...onOrgHost, pathname: "/lynx-capital/resources" }, "lynx-capital"), null);
+	assert.equal(canonicalBareLoginUrl(canonical), null);
 	configureOrgSubdomains(false);
 });
