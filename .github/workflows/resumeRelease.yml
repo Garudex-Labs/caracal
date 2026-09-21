@@ -59,7 +59,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Verify immutable release context
         env:
@@ -176,7 +176,7 @@ jobs:
 
       - name: Publish release candidate
         if: contains(inputs.releaseTag, '-rc.') && steps.state.outputs.published != 'true'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.releaseTag }}
           generate_release_notes: true
@@ -194,7 +194,7 @@ jobs:
 
       - name: Publish stable release
         if: ${{ !contains(inputs.releaseTag, '-rc.') && steps.state.outputs.published != 'true' }}
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.releaseTag }}
           generate_release_notes: true
