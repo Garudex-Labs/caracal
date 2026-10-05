@@ -5,7 +5,7 @@
 // Runs the Go test suite with race detection, staged source-package tests, and optional merged coverage output.
 
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -118,6 +118,33 @@ function runWithStagedSourceTests(args) {
   if (status !== 0) process.exit(status)
 }
 
+// Both runs instrument some of the same packages. Appending their profiles
+// duplicates blocks and makes the uploaded report parser-dependent. Merge by
+// source location instead, preserving hits from either suite and detecting a
+// mismatched instrumented build rather than silently publishing bad coverage.
+function mergeCoverageProfiles(paths) {
+  let mode
+  const blocks = new Map()
+  for (const path of paths) {
+    const [header, ...lines] = readFileSync(path, 'utf8').trimEnd().split('\n')
+    if (!/^mode: (atomic|count|set)$/.test(header) || (mode && mode !== header)) {
+      throw new Error(`incompatible Go coverage mode in ${path}: ${header}`)
+    }
+    mode = header
+    for (const line of lines) {
+      const match = /^(\S+:\d+\.\d+,\d+\.\d+) (\d+) (\d+)$/.exec(line)
+      if (!match) throw new Error(`invalid Go coverage block in ${path}: ${line}`)
+      const [, location, statements, hits] = match
+      const previous = blocks.get(location)
+      if (previous && previous.statements !== statements) {
+        throw new Error(`mismatched Go coverage block at ${location}`)
+      }
+      blocks.set(location, { statements, hits: Number(previous?.hits ?? 0) + Number(hits) })
+    }
+  }
+  return `${mode}\n${[...blocks].map(([location, { statements, hits }]) => `${location} ${statements} ${hits}`).join('\n')}\n`
+}
+
 const mode = process.argv[2] ?? ''
 
 if (mode === '--vet') {
@@ -127,11 +154,8 @@ if (mode === '--vet') {
   mkdirSync(join(root, 'coverage', 'go'), { recursive: true })
   runWithStagedSourceTests(['test', ...race, '-covermode=atomic', '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
   run('go', ['test', ...race, '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/tests.out', ...TEST_DIRS])
-  const merged = readFileSync(join(root, 'coverage', 'go', 'tests.out'), 'utf8')
-    .split('\n')
-    .slice(1)
-    .join('\n')
-  appendFileSync(join(root, 'coverage', 'go', 'coverage.out'), merged)
+  const output = join(root, 'coverage', 'go', 'coverage.out')
+  writeFileSync(output, mergeCoverageProfiles([output, join(root, 'coverage', 'go', 'tests.out')]))
   run('go', ['tool', 'cover', '-func=coverage/go/coverage.out'])
 } else if (mode === '') {
   const race = raceArgs()

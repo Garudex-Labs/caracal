@@ -3,5 +3,5 @@ coverage==7.14.0
 cryptography==50.0.0
 httpx>=0.28.0
 idna>=3.15
-PyJWT>=2.10.0
+PyJWT>=2.15.0
 redis>=7.4

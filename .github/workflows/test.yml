@@ -294,7 +294,9 @@ jobs:
   typescript:
     name: TypeScript lint, types, tests, build
     needs: changes
-    if: needs.changes.outputs.typescript == 'true'
+    # Codecov project totals are comparable only when all language reports are
+    # uploaded for every commit, including single-language pull requests.
+    if: needs.changes.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -360,7 +362,7 @@ jobs:
   go:
     name: Go tests
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -395,7 +397,7 @@ jobs:
   python:
     name: Python tests
     needs: changes
-    if: needs.changes.outputs.python == 'true'
+    if: needs.changes.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -896,7 +898,8 @@ jobs:
       - typescript
       - go
       - python
-    if: always() && !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.typescript.result == 'success' || needs.go.result == 'success' || needs.python.result == 'success')
+    # Never publish a partial project report when a language job fails/skips.
+    if: always() && !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.typescript.result == 'success' && needs.go.result == 'success' && needs.python.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -913,6 +916,13 @@ jobs:
 
       - name: List coverage files
         run: find coverage -maxdepth 4 -type f -print | sort
+
+      - name: Verify all language reports before uploading
+        shell: bash
+        run: |
+          test -s coverage/coverage-go/coverage.out
+          test -s coverage/coverage-python/coverage.xml
+          test "$(find coverage/coverage-typescript -name lcov.info -type f -size +0c | wc -l)" -gt 0
 
       - name: Upload TypeScript coverage to Codecov
         if: needs.typescript.result == 'success'

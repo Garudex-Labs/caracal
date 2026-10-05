@@ -59,7 +59,7 @@ export default defineConfig({
       { find: /^react-dom\/server$/, replacement: src('./apps/web/node_modules/react-dom/server.node.js') },
       { find: /^react-dom\/client$/, replacement: src('./apps/web/node_modules/react-dom/client.js') },
       { find: /^@tanstack\/react-query$/, replacement: src('./apps/web/node_modules/@tanstack/react-query/build/modern/index.js') },
-      { find: /^nodemailer$/, replacement: src('./apps/auth/node_modules/nodemailer/lib/nodemailer.js') },
+      { find: /^nodemailer$/, replacement: src('./apps/auth/node_modules/nodemailer/dist/esm/nodemailer.js') },
       { find: /^pg$/, replacement: src('./apps/runtime/node_modules/pg/lib/index.js') },
       { find: /^@caracalai\/engine\/runtime-config$/, replacement: src('./packages/engine/src/runtimeConfig.ts') },
       { find: /^@caracalai\/engine\/commands$/, replacement: src('./packages/engine/src/commands.ts') },
