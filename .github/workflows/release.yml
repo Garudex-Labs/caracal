@@ -386,9 +386,11 @@ jobs:
           mkdir -p "$stage"
           cp -r infra/containerPlatform "${stage}/containerPlatform"
           cp infra/scripts/smokeTest.sh "${stage}/smokeTest.sh"
-          # The renderer needs a YAML parser, which the archive must be able to
-          # install on its own: an operator has a release, not a git checkout.
-          yaml_version="$(node -p "require('./package.json').devDependencies.yaml")"
+          # Bundle the YAML parser resolved by the frozen workspace lockfile.
+          # No mutable registry resolution or install scripts run at deployment.
+          mkdir -p "${stage}/node_modules"
+          cp -Lr node_modules/yaml "${stage}/node_modules/yaml"
+          yaml_version="$(node -p "require('./node_modules/yaml/package.json').version")"
           jq -n --arg v "$RELEASE_VERSION" --arg y "$yaml_version" '{
             name: "caracal-deploy",
             version: $v,

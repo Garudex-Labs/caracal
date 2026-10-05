@@ -5,8 +5,9 @@
 
 # syntax=docker/dockerfile:1.7
 ARG PNPM_VERSION=11.1.1
+ARG PNPM_INTEGRITY=sha512-0f319zxhe2T6GlaoHDyN/g6WbjOmAQqiVrUXrne+Idk+Ba/8DeGoOw5PKdVp9otEaujwaM1yR8C7PfD7TXvfmg==
 
-FROM golang:1.26-alpine@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468 AS health-builder
+FROM golang:1.26.8-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS health-builder
 ARG CGO_ENABLED=0
 ARG GO_BUILDFLAGS
 ARG GO_LDFLAGS="-s -w"
@@ -19,10 +20,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
 
 FROM node:26-slim@sha256:4ebb5ace66f15a24c14c492e01a8beeed4fddf970a856109f5126e703e5fe503 AS builder
 ARG PNPM_VERSION
+ARG PNPM_INTEGRITY
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     CI=1
-RUN npm install -g corepack@latest && corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+COPY scripts/installVerifiedNpmTarball.mjs /tmp/installVerifiedNpmTarball.mjs
+RUN node /tmp/installVerifiedNpmTarball.mjs pnpm "${PNPM_VERSION}" "${PNPM_INTEGRITY}" /opt/pnpm \
+    && chmod 0755 /opt/pnpm/bin/pnpm.cjs \
+    && ln -s /opt/pnpm/bin/pnpm.cjs /usr/local/bin/pnpm \
+    && pnpm --version | grep -Fx "${PNPM_VERSION}" \
+    && rm /tmp/installVerifiedNpmTarball.mjs
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY apps/web/package.json apps/web/package.json

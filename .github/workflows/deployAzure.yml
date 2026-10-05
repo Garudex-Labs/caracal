@@ -171,7 +171,15 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf "caracal-deploy-${VERSION}.tar.gz"
-          npm --prefix caracal-deploy install --omit=dev --no-audit --no-fund
+          # Older published archives predate bundled node_modules. Supply their
+          # YAML parser from an exact version and verified tarball, not a mutable
+          # npm install. New archives include the frozen-lockfile package.
+          if [[ ! -f caracal-deploy/node_modules/yaml/package.json ]]; then
+            node scripts/installVerifiedNpmTarball.mjs yaml 2.9.0 \
+              'sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==' \
+              caracal-deploy/node_modules/yaml
+          fi
+          node -e "if (!require('./caracal-deploy/node_modules/yaml').parse('ready: true').ready) process.exit(1)"
 
       - name: Import published images
         if: inputs.action == 'deploy'

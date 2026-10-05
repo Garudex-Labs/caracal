@@ -100,6 +100,10 @@ func newSubjectKeyCache(privateHosts ...[]string) *subjectKeyCache {
 	return cache
 }
 
+// Keep construction injectable so response limits and error handling can be
+// tested without weakening the production egress guard or contacting a public host.
+var subjectJWKSClient = safeHTTPClient
+
 // fetchSubjectJWKS retrieves a JWKS document through the SSRF-guarded client:
 // HTTPS only, private and loopback address classes blocked at resolve and at
 // connect, redirects disabled, and the response size capped.
@@ -116,7 +120,7 @@ func fetchSubjectJWKS(ctx context.Context, jwksURL string, privateHosts ...[]str
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := safeHTTPClient(subjectJWKSTimeout, privateHosts...).Do(req)
+	resp, err := subjectJWKSClient(subjectJWKSTimeout, privateHosts...).Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -118,6 +119,78 @@ func TestCloudSecretReadsValidateAuthorizationAndPayload(t *testing.T) {
 			read(nil, false, "unexpected payload")
 			status, body = http.StatusOK, `{}`
 			read(nil, false, "unexpected payload")
+		})
+	}
+}
+
+func TestPlatformIdentityTokensUseExpectedEndpointsAndCache(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		backend interface {
+			accessToken(context.Context) (string, error)
+		}
+		host           string
+		method         string
+		metadataHeader string
+	}{
+		{"azure managed identity", &azureKeyVaultBackend{}, "169.254.169.254", http.MethodGet, "Metadata"},
+		{"azure client credentials", &azureKeyVaultBackend{tenantID: "tenant", clientID: "app", clientSecret: "secret"}, "login.microsoftonline.com", http.MethodPost, ""},
+		{"gcp workload identity", &gcpSecretManagerBackend{}, "metadata.google.internal", http.MethodGet, "Metadata-Flavor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := 0
+			withBackendHTTP(t, func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.URL.Host != tc.host || r.Method != tc.method {
+					t.Errorf("unexpected identity endpoint: %s %s", r.Method, r.URL)
+				}
+				if tc.metadataHeader != "" && r.Header.Get(tc.metadataHeader) == "" {
+					t.Errorf("missing platform identity header %q", tc.metadataHeader)
+				}
+				if tc.name == "azure client credentials" {
+					if r.URL.Path != "/tenant/oauth2/v2.0/token" || r.ParseForm() != nil ||
+						r.PostForm.Get("grant_type") != "client_credentials" ||
+						r.PostForm.Get("client_id") != "app" || r.PostForm.Get("client_secret") != "secret" {
+						t.Errorf("client credentials not transmitted correctly: %s %v", r.URL, r.PostForm)
+					}
+				}
+				_, _ = w.Write([]byte(`{"access_token":"platform-token","expires_in":"3600"}`))
+			})
+			for i := 0; i < 2; i++ {
+				token, err := tc.backend.accessToken(context.Background())
+				if err != nil || token != "platform-token" {
+					t.Fatalf("token %d: %q, %v", i, token, err)
+				}
+			}
+			if requests != 1 {
+				t.Fatalf("fresh platform token should be cached, requests=%d", requests)
+			}
+		})
+	}
+}
+
+func TestBackendTransportFailuresDoNotReturnSecrets(t *testing.T) {
+	old := httpClient
+	httpClient = &http.Client{Transport: backendRoundTrip(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("offline")
+	})}
+	t.Cleanup(func() { httpClient = old })
+	for _, tc := range []struct {
+		name    string
+		backend Backend
+	}{
+		{"vault", &vaultBackend{addr: "https://vault.example", token: "token", mount: "secret"}},
+		{"infisical", &infisicalBackend{baseURL: "https://infisical.example", token: "token", projectID: "project"}},
+		{"azure", &azureKeyVaultBackend{vaultURL: "https://vault.example", cache: oauthTokenCache{token: "token", expiresAt: time.Now().Add(time.Hour)}}},
+		{"aws", &awsSecretsManagerBackend{region: "us-east-1", creds: &awsCredentials{accessKeyID: "id", secretAccessKey: "secret"}}},
+		{"gcp", &gcpSecretManagerBackend{project: "project", cache: oauthTokenCache{token: "token", expiresAt: time.Now().Add(time.Hour)}}},
+		{"custom", &customBackend{baseURL: "https://custom.example", token: "token"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value, found, err := tc.backend.Get(context.Background(), "ref")
+			if value != nil || found || err == nil || !strings.Contains(err.Error(), "unreachable") {
+				t.Fatalf("transport failure must not return a secret: %q, %t, %v", value, found, err)
+			}
 		})
 	}
 }

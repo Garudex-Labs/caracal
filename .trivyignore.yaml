@@ -112,6 +112,41 @@ vulnerabilities:
     statement: "gosu inside postgres:18-alpine performs no TLS I/O; the crypto/tls Encrypted Client Hello path is unreachable, and the third-party binary cannot be remediated by pinning."
     expired_at: 2026-08-11
 
+# postgres:18-alpine bundles gosu v1.19.0 built with Go 1.24.6. Trivy flags
+# stdlib CVEs by compiler version, but the corresponding packages are absent
+# from gosu's dependency graph (github.com/tianon/gosu v1.19.0 imports only
+# the user/privilege-switching dependencies). Limit these exceptions to the
+# gosu binary: Caracal's own Go service binaries must remain fully scanned.
+# Recheck the upstream gosu binary and these package paths by 2026-11-05.
+  - id: CVE-2026-56862
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import crypto/tls or perform TLS handshakes; KeyUpdate is unreachable. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+  - id: CVE-2026-56860
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import net/url; path resolution is absent from this executable. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+  - id: CVE-2026-56859
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import encoding/xml; XML decoding is absent from this executable. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+  - id: CVE-2026-56858
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import html/template; template rendering is absent from this executable. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+  - id: CVE-2026-56853
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import net/http; HTTP/2 processing is absent from this executable. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+  - id: CVE-2026-39821
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import golang.org/x/net/idna or net/http; IDNA hostname processing is absent. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+  - id: CVE-2026-33818
+    paths: ["usr/local/bin/gosu"]
+    statement: "gosu does not import encoding/asn1; ASN.1 parsing is absent from this executable. Review upstream gosu at expiry."
+    expired_at: 2026-11-05
+
 # The postgres:18-alpine base image carries c-ares as a transitive dependency.
 # CVE-2026-33630 is a use-after-free reachable only through ares_getaddrinfo()
 # over TCP against an attacker-controlled DNS responder. Caracal's postgres
