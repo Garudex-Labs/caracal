@@ -11,21 +11,21 @@
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.3.0",
-    "@astrojs/react": "^6.0.4",
-    "@astrojs/sitemap": "^3.7.3",
-    "@astrojs/starlight": "0.41.7",
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.7.0",
+    "@astrojs/react": "^7.0.0",
+    "@astrojs/sitemap": "^3.7.4",
+    "@astrojs/starlight": "0.42.5",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.1",
     "astro": "^7.2.8",
-    "mermaid": "^11.17.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "mermaid": "^12.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "remark-gfm": "4.0.1",
-    "starlight-versions": "0.9.1",
-    "three": "^0.185.1"
+    "starlight-versions": "0.10.1",
+    "three": "^0.186.1"
   },
   "devDependencies": {
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4"
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0"
   }
 }
