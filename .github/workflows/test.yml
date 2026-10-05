@@ -924,10 +924,27 @@ jobs:
           test -s coverage/coverage-python/coverage.xml
           test "$(find coverage/coverage-typescript -name lcov.info -type f -size +0c | wc -l)" -gt 0
 
+      # The action's default bootstrap downloads from cli.codecov.io. That
+      # endpoint can fail its TLS handshake before any report is processed.
+      # Use Codecov's official GitHub release asset instead, with the release's
+      # pinned SHA-256 verified here (the action skips its own verification for
+      # a pre-downloaded binary). Do not disable fail_ci_if_error below.
+      - name: Download and verify Codecov CLI
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 120 --proto '=https' --proto-redir '=https' \
+            'https://github.com/codecov/codecov-cli/releases/download/v11.3.1/codecovcli_linux' \
+            --output '${{ runner.temp }}/codecov'
+          echo 'ca1d64196d2d34771084afe76ea657d581bf628e31d993ff8e52ea09cc88a56d  ${{ runner.temp }}/codecov' | sha256sum --check --status
+          chmod 0755 '${{ runner.temp }}/codecov'
+          '${{ runner.temp }}/codecov' --version
+
       - name: Upload TypeScript coverage to Codecov
         if: needs.typescript.result == 'success'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
+          binary: ${{ runner.temp }}/codecov
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: coverage/coverage-typescript
           flags: typescript
@@ -937,6 +954,7 @@ jobs:
         if: needs.go.result == 'success'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
+          binary: ${{ runner.temp }}/codecov
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/coverage-go/coverage.out
           flags: go
@@ -947,6 +965,7 @@ jobs:
         if: needs.python.result == 'success'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
+          binary: ${{ runner.temp }}/codecov
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/coverage-python/coverage.xml
           flags: python

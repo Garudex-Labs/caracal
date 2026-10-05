@@ -59,6 +59,27 @@ vulnerabilities:
     statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
     expired_at: 2026-08-25
 
+# The current nodejs24-debian12:nonroot digest still ships libssl3
+# 3.0.18-1~deb12u2, although Debian has fixed these two CVEs. The final
+# node-service and web images use this base. Their executables are Node and a
+# static Go healthcheck (plus an argon2 native addon in node-service); readelf
+# shows none link libssl.so.3. Node uses its bundled OpenSSL. Restrict this
+# exception to the exact distroless package
+# version (both release architectures); do not hide the same CVEs in other
+# images. Recheck the upstream digest by 2026-11-05.
+  - id: CVE-2026-63076
+    purls:
+      - "pkg:deb/debian/libssl3@3.0.18-1~deb12u2?arch=amd64&distro=debian-12.13"
+      - "pkg:deb/debian/libssl3@3.0.18-1~deb12u2?arch=arm64&distro=debian-12.13"
+    statement: "Distroless libssl3 is not loaded by Node, the static healthcheck, or the node-service argon2 addon; fixed upstream base pending."
+    expired_at: 2026-11-05
+  - id: CVE-2026-63072
+    purls:
+      - "pkg:deb/debian/libssl3@3.0.18-1~deb12u2?arch=amd64&distro=debian-12.13"
+      - "pkg:deb/debian/libssl3@3.0.18-1~deb12u2?arch=arm64&distro=debian-12.13"
+    statement: "Distroless libssl3 is not loaded by Node, the static healthcheck, or the node-service argon2 addon; fixed upstream base pending."
+    expired_at: 2026-11-05
+
 # The same distroless base ships glibc (libc6) 2.36-9+deb12u13; the CVEs below are
 # fixed in 2.36-9+deb12u14. Node dynamically links libc.so.6, but these paths are
 # reached only through hostile input Caracal does not expose: crafted responses
