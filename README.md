@@ -179,15 +179,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, workflow, tests, and pull re
 
 ---
 
-## Editions
-
-|                        |                                                                                                                                                                                                                                         |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Community Edition**  | Apache-2.0. The complete authority model (mandates, delegation, policy, revocation, audit), self-hosted, with no feature gates on security.                                                                                             |
-| **Enterprise Edition** | Caracal run for you: managed multi-tenancy, hosted control plane, SSO/SCIM, and a fully managed data plane. [Compare editions](https://docs.caracal.run/enterprise/) or [book a call](https://calendly.com/ryanmadhuwala/caracal). |
-
----
-
 ## Maintainers
 
 <table width="100%">

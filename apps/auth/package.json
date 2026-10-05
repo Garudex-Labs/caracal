@@ -24,7 +24,7 @@
     "@caracalai/server-core": "workspace:*",
     "@caracalai/engine": "workspace:*",
     "better-auth": "^1.7.1",
-    "nodemailer": "^9.0.4",
+    "nodemailer": "^10.0.6",
     "pg": "^8.23.0"
   },
   "devDependencies": {
@@ -37,6 +37,6 @@
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

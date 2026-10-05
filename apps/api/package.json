@@ -27,7 +27,7 @@
     "@fastify/swagger-ui": "^6.1.1",
     "@node-rs/argon2": "^2.1.0",
     "ai": "^7.0.73",
-    "fastify": "^5.12.1",
+    "fastify": "^5.12.5",
     "fastify-plugin": "^6.0.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.9",
@@ -41,7 +41,7 @@
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=22"

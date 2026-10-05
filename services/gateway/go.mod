@@ -1,6 +1,6 @@
 module github.com/garudex-labs/caracal/gateway
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/garudex-labs/caracal/packages/core/go v1.0.0
@@ -40,7 +40,7 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
-	google.golang.org/grpc v1.83.0 // indirect
+	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 

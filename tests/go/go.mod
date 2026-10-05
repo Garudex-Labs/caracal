@@ -5,7 +5,7 @@
 
 module github.com/garudex-labs/caracal/tests
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/garudex-labs/caracal/packages/adapters/nethttp/go v1.0.0
@@ -17,7 +17,7 @@ require (
 )
 
 require (
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )
 
