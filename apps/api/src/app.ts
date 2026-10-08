@@ -34,7 +34,7 @@ import { buildOperatorAuthority } from './operator-authority.js'
 import { researcherRoleScopes, executorRoleScopes } from './operator-agent-roles.js'
 import { isReservedZone } from './reserved-namespace.js'
 import type { ProviderConfig } from './operator-gateway.js'
-import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiManager } from './operator-ai-manager.js'
+import { createOperatorAiManager, buildStoreProviderConfigs, planStoreUpstreams, type OperatorAiManager } from './operator-ai-manager.js'
 import { listAiProviders } from './operator-ai-store.js'
 import type { OperatorControlIdentity } from './config.js'
 import { getTraceContext, parseTraceparent, bindTrace, buildPinoRedactPaths, CaracalError, createLogger } from '@caracalai/core'
@@ -396,6 +396,9 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
           onRegistryChange: (configs) => {
             storeConfigs = configs
           },
+          onProviderUnavailable: (slug) => {
+            storeConfigs = storeConfigs.filter((config) => config.id !== slug && !config.id.startsWith(`${slug}__`))
+          },
         })
       : null
 
@@ -471,15 +474,12 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         await lock.query('SELECT pg_advisory_lock($1)', [SYSTEM_ZONE_PROVISION_LOCK])
         // The desired set is the env upstreams (re-sealed from their keys) plus the
         // store-managed providers (already sealed in a prior run, reconciled by identifier
-        // without a key), so a restart never archives a console-added provider.
+        // without a key), so a restart never archives a console-added provider. Boot classifies
+        // the rows exactly as recovery does, so provisioning and the reconcile that follows it
+        // always agree on which rows may be routed and which must only be preserved.
         const storeRecords = await listAiProviders(db)
-        const storeUpstreams: GovernedUpstream[] = storeRecords.map((record) => ({
-          id: record.slug,
-          baseUrl: record.baseUrl,
-          auth: record.auth,
-        }))
-        const desiredUpstreams = [...envGovernedUpstreams, ...storeUpstreams]
-        const identity = await provisionSystemZone(admin, audience, findZoneBySlug, roles, desiredUpstreams)
+        const plan = planStoreUpstreams(envGovernedUpstreams, storeRecords, { recover: true })
+        const identity = await provisionSystemZone(admin, audience, findZoneBySlug, roles, plan.upstreams, plan.preservedSlugs)
         operatorControlIdentity.current = {
           zoneId: identity.zoneId,
           llm: identity.llm,
@@ -491,6 +491,19 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         // map, so a console-added provider is live immediately after a restart.
         const resourceBySlug = new Map(identity.governedResources.map((entry) => [entry.id, entry.resourceIdentifier]))
         if (governedFetch) storeConfigs = buildStoreProviderConfigs(storeRecords, resourceBySlug, cfg.gatewayUrl, governedFetch)
+        // Complete restart-safe metadata-only updates and delete tombstones now that the fresh
+        // Operator identity is available. Credential-dependent failures stay explicit and inert
+        // until an operator retries with the plaintext key, which is never persisted.
+        try {
+          await aiManager?.recover()
+        } catch (err) {
+          // Provisioning already succeeded and the identity is live. Recovery is best effort and
+          // retries on the next rotation tick, so report it separately without suppressing the
+          // successful provisioning record below.
+          provisionLog.error('operator provider reconciliation recovery failed', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
         if (isolatedSystemZone.has(identity.zoneId)) {
           // The Operator must govern its own system zone; listing it as an isolated zone
           // would block self-governance before the identity check. Warn rather than fail so

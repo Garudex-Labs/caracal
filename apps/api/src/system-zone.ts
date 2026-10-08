@@ -117,7 +117,7 @@ function sanitizeSlug(id: string): string {
   )
 }
 
-function llmProviderIdentifier(id: string): `provider://${string}` {
+export function llmProviderIdentifier(id: string): `provider://${string}` {
   return `${LLM_PROVIDER_PREFIX}${sanitizeSlug(id)}`
 }
 
@@ -251,12 +251,16 @@ async function pruneOrphanedProviders(admin: AdminClient, zoneId: string, desire
 // whose provider cannot be resolved (no key supplied and none sealed before) is skipped, so it
 // neither binds a dead credential nor receives a grant. Safe to run with an empty set: it
 // prunes any previously governed upstream's provider and reconciles the grant set to empty.
-// Returns the upstream-id to resource-identifier mapping the runtime routes through.
+// preservedUpstreamIds retain sealed providers for credential-dependent pending/error rows but
+// deliberately do not grant or route them; a later explicit retry can reuse/replace the sealed
+// provider without persisting plaintext key material. Returns the upstream-id to
+// resource-identifier mapping the runtime routes through.
 export async function provisionGovernedUpstreams(
   admin: AdminClient,
   zoneId: string,
   operatorAppId: string,
   upstreams: GovernedUpstream[],
+  preservedUpstreamIds: string[] = [],
 ): Promise<{ id: string; resourceIdentifier: string }[]> {
   const governed: { id: string; resourceIdentifier: string }[] = []
   for (const upstream of upstreams) {
@@ -265,7 +269,11 @@ export async function provisionGovernedUpstreams(
     const resourceIdentifier = await ensureLlmResource(admin, zoneId, upstream, providerId)
     governed.push({ id: upstream.id, resourceIdentifier })
   }
-  await pruneOrphanedProviders(admin, zoneId, new Set(upstreams.map((upstream) => llmProviderIdentifier(upstream.id))))
+  const retainedProviderIdentifiers = new Set([
+    ...upstreams.map((upstream) => llmProviderIdentifier(upstream.id)),
+    ...preservedUpstreamIds.map(llmProviderIdentifier),
+  ])
+  await pruneOrphanedProviders(admin, zoneId, retainedProviderIdentifiers)
   await ensureOperatorGrants(
     admin,
     zoneId,
@@ -293,6 +301,7 @@ export async function provisionSystemZone(
   findZoneBySlug: FindZoneBySlug,
   roles: OperatorRoleScopes,
   governedUpstreams: GovernedUpstream[] = [],
+  preservedGovernedUpstreamIds: string[] = [],
 ): Promise<SystemZoneIdentity> {
   const zone = await ensureSystemZone(admin, findZoneBySlug)
   await ensureControlResource(admin, zone.id, audience)
@@ -320,7 +329,7 @@ export async function provisionSystemZone(
   // Always reconcile governed upstreams, even with an empty set, so a previously governed
   // upstream that has been removed from config is pruned and its grant revoked rather than
   // left authorized with a live sealed key.
-  const governedResources = await provisionGovernedUpstreams(admin, zone.id, llmId, governedUpstreams)
+  const governedResources = await provisionGovernedUpstreams(admin, zone.id, llmId, governedUpstreams, preservedGovernedUpstreamIds)
   return {
     zoneId: zone.id,
     llm: { applicationId: llmId, clientSecret: llmSecret },

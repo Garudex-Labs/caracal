@@ -75,6 +75,7 @@ import type { Evidence } from '../operator-research.js'
 import { retrieveDocs } from '../operator-docs.js'
 import { summarizeHistory, type ConversationFacts } from '../operator-memory.js'
 import {
+  OperatorAiConflictError,
   OperatorAiKeyRequiredError,
   OperatorAiNotFoundError,
   OperatorAiUnavailableError,
@@ -1224,8 +1225,9 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   const ProviderSlugParams = z.object({ slug: ProviderSlug })
 
   // Maps a manager error to its HTTP shape: a missing governance prerequisite is a 409 the
-  // console explains, and an unknown provider is a 404. Any other error propagates to the
-  // shared handler.
+  // console explains, an unknown provider is a 404, a duplicate slug is a 409 rather than a
+  // silent replacement, and reconciliation that cannot continue without the key is a 400. Any
+  // other error propagates to the shared handler.
   function sendAiError(reply: FastifyReply, err: unknown): boolean {
     if (err instanceof OperatorAiUnavailableError) {
       reply.code(409).send({ error: 'governed_execution_unconfigured' })
@@ -1235,8 +1237,12 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       reply.code(404).send({ error: 'provider_not_found' })
       return true
     }
+    if (err instanceof OperatorAiConflictError) {
+      reply.code(409).send({ error: 'provider_already_exists' })
+      return true
+    }
     if (err instanceof OperatorAiKeyRequiredError) {
-      reply.code(400).send({ error: 'api_key_required_for_base_url_change' })
+      reply.code(400).send({ error: 'api_key_required' })
       return true
     }
     return false
