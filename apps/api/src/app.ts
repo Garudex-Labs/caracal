@@ -34,7 +34,12 @@ import { buildOperatorAuthority } from './operator-authority.js'
 import { researcherRoleScopes, executorRoleScopes } from './operator-agent-roles.js'
 import { isReservedZone } from './reserved-namespace.js'
 import type { ProviderConfig } from './operator-gateway.js'
-import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiManager } from './operator-ai-manager.js'
+import {
+  createOperatorAiManager,
+  buildStoreProviderConfigs,
+  loadStoreProviderConfigs,
+  type OperatorAiManager,
+} from './operator-ai-manager.js'
 import { listAiProviders } from './operator-ai-store.js'
 import type { OperatorControlIdentity } from './config.js'
 import { getTraceContext, parseTraceparent, bindTrace, buildPinoRedactPaths, CaracalError, createLogger } from '@caracalai/core'
@@ -69,6 +74,7 @@ import { operatorRoutes } from './routes/operator.js'
 import { buildAutopilotPolicy } from './operator-autopilot.js'
 import { buildGovernanceLimits } from './operator-ai-governance.js'
 import { createOperatorAiHealthStore, renderOperatorAiHealthMetrics, type ProviderHealthObservation } from './operator-ai-health.js'
+import { createOperatorAiRegistrySync } from './operator-ai-registry-sync.js'
 import { createOperatorRunLimiter } from './operator-run-limiter.js'
 
 import './fastify-augmentation.js'
@@ -370,6 +376,24 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   let storeConfigs: ProviderConfig[] = []
   const loadAiProviders = (): ProviderConfig[] => [...envConfigs, ...storeConfigs]
   const operatorAiHealth = createOperatorAiHealthStore(redis, app.log)
+  const aiRegistrySync = governedFetch
+    ? createOperatorAiRegistrySync({
+        redis,
+        refresh: async () => {
+          const identity = currentIdentity()
+          if (!identity) throw new Error('operator governed execution is not configured')
+          storeConfigs = await loadStoreProviderConfigs(
+            db,
+            identity.zoneId,
+            identity.llm.applicationId,
+            app.secrets,
+            cfg.gatewayUrl,
+            governedFetch,
+          )
+        },
+        logger: app.log,
+      })
+    : null
 
   // The env upstreams that must always remain in the desired set the reconciler prunes against,
   // so a store reconcile never archives an env-sealed provider.
@@ -396,6 +420,9 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
           onRegistryChange: (configs) => {
             storeConfigs = configs
           },
+          onRegistryMutation: async () => {
+            await aiRegistrySync?.publish()
+          },
         })
       : null
 
@@ -406,6 +433,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     systemZones: cfg.operatorSystemZones,
     loadAiProviders,
     aiManager,
+    aiRegistrySync,
     autopilotPolicy: buildAutopilotPolicy({
       enabled: cfg.operatorAutopilotEnabled,
       conversationWriteBudget: cfg.operatorAutopilotWriteBudget,
@@ -517,9 +545,12 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     let rotation: ReturnType<typeof setInterval> | undefined
     app.addHook('onClose', async () => {
       if (rotation) clearInterval(rotation)
+      aiRegistrySync?.stop()
     })
     app.addHook('onListen', async () => {
+      await aiRegistrySync?.captureVersion()
       await provisionIdentities()
+      await aiRegistrySync?.start()
       // Rotate well inside the credential deadline, so a healthy instance never runs up to
       // expiry and a transient rotation failure has headroom to retry on the next tick.
       rotation = setInterval(() => {

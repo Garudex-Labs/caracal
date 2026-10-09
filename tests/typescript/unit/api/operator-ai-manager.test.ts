@@ -3,12 +3,14 @@
 //
 // Unit tests for the runtime governed model-provider manager and its pure registry helpers.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { AdminClient } from '@caracalai/admin'
+import type { SecretBackend } from '@caracalai/server-core'
 import type { Queryable } from '../../../../apps/api/src/db.js'
 import {
   createOperatorAiManager,
   buildStoreProviderConfigs,
+  loadStoreProviderConfigs,
   mergeDesiredUpstreams,
   providerConfigId,
   OperatorAiUnavailableError,
@@ -28,6 +30,94 @@ interface StoreRow {
   sort_order: number
   auth_config: unknown
 }
+
+describe('replica registry refresh', () => {
+  it('builds configs from DB metadata only when the sealed resource and active grant exist', async () => {
+    const metadataRows: StoreRow[] = [
+      {
+        slug: 'sealed',
+        label: 'Sealed',
+        base_url: 'https://sealed.example/v1',
+        models: ['model-a'],
+        context_window: 32_000,
+        enabled: true,
+        sort_order: 1,
+        auth_config: { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' },
+      },
+      {
+        slug: 'unsealed',
+        label: 'Unsealed',
+        base_url: 'https://unsealed.example/v1',
+        models: ['model-b'],
+        context_window: 16_000,
+        enabled: true,
+        sort_order: 2,
+        auth_config: { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' },
+      },
+      {
+        slug: 'ungranted',
+        label: 'Ungranted',
+        base_url: 'https://ungranted.example/v1',
+        models: ['model-c'],
+        context_window: 16_000,
+        enabled: true,
+        sort_order: 3,
+        auth_config: { location: 'header', headerName: 'Authorization', authScheme: 'Bearer' },
+      },
+    ]
+    const grantContent = [
+      '# caracal:data-document',
+      'package caracal.authz',
+      'import rego.v1',
+      'app_ids := {"operator-app":"operator-app"}',
+      'grants := {"caracal-sys://operator-llm-sealed":{"application":"operator-app","roles":{"operator":["llm:invoke"]}}}',
+      '',
+    ].join('\n')
+    const db: Queryable = {
+      query: vi.fn(async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+        if (sql.includes('FROM operator_ai_providers')) return { rows: metadataRows as T[] }
+        return {
+          rows: [
+            {
+              resource_identifier: 'caracal-sys://operator-llm-sealed',
+              provider_id: 'provider-sealed',
+              provider_identifier: 'provider://caracal-sys-operator-llm-sealed',
+              grant_content: grantContent,
+            },
+            {
+              resource_identifier: 'caracal-sys://operator-llm-unsealed',
+              provider_id: 'provider-unsealed',
+              provider_identifier: 'provider://caracal-sys-operator-llm-unsealed',
+              grant_content: grantContent.replace('"caracal-sys://operator-llm-sealed"', '"caracal-sys://operator-llm-unsealed"'),
+            },
+            {
+              resource_identifier: 'caracal-sys://operator-llm-ungranted',
+              provider_id: 'provider-ungranted',
+              provider_identifier: 'provider://caracal-sys-operator-llm-ungranted',
+              grant_content: grantContent,
+            },
+          ] as T[],
+        }
+      }),
+    }
+    const secrets: SecretBackend = {
+      kind: 'builtin',
+      get: vi.fn(async (ref: string) =>
+        ref.endsWith('/provider-sealed/secretConfig') ? Buffer.from(JSON.stringify({ api_key: 'sealed-key' })) : null,
+      ),
+      put: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    }
+    const transport = vi.fn() as unknown as typeof fetch
+    const governedFetch = vi.fn(() => transport)
+
+    const configs = await loadStoreProviderConfigs(db, 'system-zone', 'operator-app', secrets, 'http://gateway.test', governedFetch)
+
+    expect(configs).toHaveLength(1)
+    expect(configs[0]).toMatchObject({ id: 'sealed', model: 'model-a', baseUrl: 'http://gateway.test' })
+    expect(governedFetch).toHaveBeenCalledExactlyOnceWith('caracal-sys://operator-llm-sealed')
+  })
+})
 
 // An in-memory Queryable matching the store's four statements by their stable SQL shape, so the
 // manager exercises the real store parameter mapping without a live database.
@@ -189,6 +279,7 @@ function buildManager(identity: typeof IDENTITY | null) {
   const { db } = fakeDb()
   const { admin, state } = fakeAdmin()
   let published: ProviderConfig[] = []
+  let registryMutations = 0
   const manager = createOperatorAiManager({
     db,
     admin,
@@ -199,8 +290,11 @@ function buildManager(identity: typeof IDENTITY | null) {
     onRegistryChange: (configs) => {
       published = configs
     },
+    onRegistryMutation: async () => {
+      registryMutations += 1
+    },
   })
-  return { manager, state, getPublished: () => published }
+  return { manager, state, getPublished: () => published, getRegistryMutations: () => registryMutations }
 }
 
 describe('operator ai manager helpers', () => {
@@ -407,7 +501,7 @@ describe('operator ai manager lifecycle', () => {
   })
 
   it('re-seals the key on rotate', async () => {
-    const { manager, state } = buildManager(IDENTITY)
+    const { manager, state, getRegistryMutations } = buildManager(IDENTITY)
     await manager.create({
       slug: 'openai',
       label: 'OpenAI',
@@ -420,6 +514,27 @@ describe('operator ai manager lifecycle', () => {
     })
     await manager.rotateKey('openai', 'sk-2')
     expect(state.providers[0].config_json.api_key).toBe('sk-2')
+    // Create changes runtime metadata; rotating the shared sealed key does not.
+    expect(getRegistryMutations()).toBe(1)
+  })
+
+  it('re-seals an update key without publishing a metadata registry mutation', async () => {
+    const { manager, state, getRegistryMutations } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'openai',
+      label: 'OpenAI',
+      baseUrl: 'https://api/v1',
+      models: ['gpt-5.5'],
+      contextWindow: 0,
+      apiKey: 'sk-1',
+      enabled: true,
+      auth: AUTH,
+    })
+
+    await manager.update('openai', { apiKey: 'sk-2' })
+
+    expect(state.providers[0].config_json.api_key).toBe('sk-2')
+    expect(getRegistryMutations()).toBe(1)
   })
 
   it('refuses to move the endpoint without a key, so the sealed key is never re-pointed', async () => {
@@ -463,7 +578,7 @@ describe('operator ai manager lifecycle', () => {
   })
 
   it('prunes the sealed provider and clears the registry on delete', async () => {
-    const { manager, state, getPublished } = buildManager(IDENTITY)
+    const { manager, state, getPublished, getRegistryMutations } = buildManager(IDENTITY)
     await manager.create({
       slug: 'openai',
       label: 'OpenAI',
@@ -478,6 +593,25 @@ describe('operator ai manager lifecycle', () => {
     expect(removed).toBe(true)
     expect(state.providers).toHaveLength(0)
     expect(getPublished()).toHaveLength(0)
+    expect(getRegistryMutations()).toBe(2)
+  })
+
+  it('publishes metadata updates, including enable and disable changes', async () => {
+    const { manager, getRegistryMutations } = buildManager(IDENTITY)
+    await manager.create({
+      slug: 'openai',
+      label: 'OpenAI',
+      baseUrl: 'https://api/v1',
+      models: ['gpt-5.5'],
+      contextWindow: 0,
+      apiKey: 'sk-1',
+      enabled: true,
+      auth: AUTH,
+    })
+    await manager.update('openai', { label: 'Primary', models: ['gpt-5.4'], enabled: false })
+    await manager.update('openai', { enabled: true })
+
+    expect(getRegistryMutations()).toBe(3)
   })
 
   it('lists configured providers without keys', async () => {

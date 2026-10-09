@@ -14,6 +14,7 @@ import { isControlExecutable } from '../../../../../apps/api/src/operator-contro
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
 import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
 import type { OperatorAiHealthStore } from '../../../../../apps/api/src/operator-ai-health.js'
+import type { OperatorAiRegistrySync } from '../../../../../apps/api/src/operator-ai-registry-sync.js'
 import type { OperatorControlIdentity } from '../../../../../apps/api/src/config.js'
 import type { OperatorRunLimiter } from '../../../../../apps/api/src/operator-run-limiter.js'
 
@@ -38,6 +39,7 @@ function buildApp(
     autopilotPolicy?: ReturnType<typeof buildAutopilotPolicy>
     aiGovernance?: { maxOutputTokens: number; maxCallsPerTurn: number }
     aiHealth?: OperatorAiHealthStore
+    aiRegistrySync?: OperatorAiRegistrySync
     auditStreamStart?: () => Promise<void>
     runLimiter?: OperatorRunLimiter
   } = {},
@@ -80,6 +82,7 @@ function buildApp(
     autopilotPolicy: authorityOpts.autopilotPolicy,
     aiGovernance: authorityOpts.aiGovernance,
     aiHealth: authorityOpts.aiHealth,
+    aiRegistrySync: authorityOpts.aiRegistrySync,
     runLimiter: authorityOpts.runLimiter,
   })
   return { app, db, clientQuery, redis }
@@ -2506,6 +2509,34 @@ describe('operator AI gateway routes', () => {
     })
     expect(aiHealth.read).toHaveBeenCalledWith(['primary'])
     expect(res.body).not.toContain('sk-secret')
+  })
+
+  it('surfaces the local cross-replica registry propagation state', async () => {
+    const registryStatus = {
+      state: 'error' as const,
+      refresh_interval_ms: 5_000,
+      local_version: '4',
+      observed_version: '5',
+      publish_pending: false,
+      last_success_at: '2026-08-20T12:00:00.000Z',
+      last_refresh_at: '2026-08-20T11:59:55.000Z',
+      last_error_at: '2026-08-20T12:00:05.000Z',
+      last_error_class: 'refresh_failed' as const,
+    }
+    const aiRegistrySync: OperatorAiRegistrySync = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(),
+      publish: vi.fn(async () => {}),
+      poll: vi.fn(async () => {}),
+      status: vi.fn(() => registryStatus),
+    }
+    const { app } = buildApp(true, { aiProviders: [provider], aiRegistrySync })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/operator/ai/status' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().registry_sync).toEqual(registryStatus)
   })
 
   it('preserves configured-provider status with unknown observations when health storage is unavailable', async () => {

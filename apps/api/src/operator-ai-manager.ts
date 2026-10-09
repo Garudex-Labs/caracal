@@ -4,6 +4,7 @@
 // Runtime manager for the Operator's governed model providers: seals keys through Caracal, reconciles the system-zone grants, and rebuilds the gateway registry so a change applies without an env edit.
 
 import type { AdminClient } from '@caracalai/admin'
+import type { SecretBackend } from '@caracalai/server-core'
 import type { Queryable } from './db.js'
 import type { OperatorControlIdentity } from './config.js'
 import type { ProviderConfig } from './operator-gateway.js'
@@ -12,6 +13,7 @@ import {
   deleteAiProvider,
   getAiProvider,
   listAiProviders,
+  listReadyAiProviderResources,
   upsertAiProvider,
   type AuthPlacement,
   type OperatorAiProviderRecord,
@@ -138,6 +140,22 @@ export function buildStoreProviderConfigs(
   return configs
 }
 
+// Rebuilds a replica's runtime registry from shared metadata and the shared governed state.
+// The readiness lookup deliberately excludes metadata-only rows whose key/resource/grant
+// reconciliation did not complete.
+export async function loadStoreProviderConfigs(
+  db: Queryable,
+  zoneId: string,
+  operatorAppId: string,
+  secrets: SecretBackend,
+  gatewayUrl: string,
+  governedFetch: (resourceIdentifier: string) => typeof fetch,
+): Promise<ProviderConfig[]> {
+  const records = await listAiProviders(db)
+  const resourceBySlug = await listReadyAiProviderResources(db, zoneId, operatorAppId, records, secrets)
+  return buildStoreProviderConfigs(records, resourceBySlug, gatewayUrl, governedFetch)
+}
+
 // Merges the env-configured upstreams with the store-managed ones into the single desired set
 // the reconciler prunes against, so neither source erases the other's sealed providers. Env
 // upstreams always carry their key (re-sealed each run); store upstreams carry a key only for
@@ -183,6 +201,10 @@ export interface OperatorAiManagerDeps {
   // Publishes the rebuilt store-provider gateway entries so the next request's gateway includes
   // the change without an env edit or restart.
   onRegistryChange: (configs: ProviderConfig[]) => void
+  // Publishes a cross-replica invalidation only after a metadata mutation and its control-plane
+  // reconciliation both succeed. Key rotation changes the shared sealed credential, not this
+  // metadata registry, and deliberately does not invoke this callback.
+  onRegistryMutation: () => Promise<void>
 }
 
 // Creates the manager that owns the runtime lifecycle of governed model providers. Every write
@@ -222,6 +244,7 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         auth: input.auth,
       })
       await reconcile({ slug: input.slug, apiKey: input.apiKey })
+      await deps.onRegistryMutation()
       return toView(record)
     },
 
@@ -241,7 +264,15 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
         enabled: patch.enabled ?? existing.enabled,
         auth: patch.auth ?? existing.auth,
       })
+      const metadataChanged =
+        patch.label !== undefined ||
+        patch.baseUrl !== undefined ||
+        patch.models !== undefined ||
+        patch.contextWindow !== undefined ||
+        patch.enabled !== undefined ||
+        patch.auth !== undefined
       await reconcile(patch.apiKey ? { slug, apiKey: patch.apiKey } : undefined)
+      if (metadataChanged) await deps.onRegistryMutation()
       return toView(record)
     },
 
@@ -255,7 +286,10 @@ export function createOperatorAiManager(deps: OperatorAiManagerDeps): OperatorAi
     async remove(slug) {
       if (!this.available()) throw new OperatorAiUnavailableError()
       const removed = await deleteAiProvider(deps.db, slug)
-      if (removed) await reconcile()
+      if (removed) {
+        await reconcile()
+        await deps.onRegistryMutation()
+      }
       return removed
     },
   }
