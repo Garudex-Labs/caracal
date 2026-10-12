@@ -35,6 +35,7 @@ function run(command, args, options = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
+run(process.execPath, ['scripts/checkToolchain.mjs'])
 run('pnpm', ['install', '--frozen-lockfile'], { shell: isWindows })
 run('git', ['config', 'core.hooksPath', '.githooks'])
 run('go', ['mod', 'download'])

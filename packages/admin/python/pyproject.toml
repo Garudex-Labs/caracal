@@ -14,7 +14,7 @@ description = "Caracal admin client for Python: control-plane invocation, admin 
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "caracalai-core",
   "httpx>=0.28.0",

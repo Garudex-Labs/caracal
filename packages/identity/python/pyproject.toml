@@ -14,7 +14,7 @@ description = "Caracal JWT verification, JWKS cache, scope evaluation, and claim
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "caracalai-core==1.0.0",
   "PyJWT[crypto]>=2.15.0",
