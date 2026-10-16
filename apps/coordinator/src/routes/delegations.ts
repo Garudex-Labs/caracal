@@ -14,6 +14,7 @@ import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { MAX_DEPTH, terminateSubtree } from './agents.js'
 import { CoordinatorIdPattern, ZoneIdParams, ZoneParams, ZoneSessionParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
+import { bindTransactionZone } from '../db.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency, type IdempotencyStart } from '../idempotency.js'
 
 const LIST_DEFAULT_LIMIT = 100
@@ -127,6 +128,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       let receipt: IdempotencyStart | null = null
       if (idempotencyKey) {
         receipt = await startIdempotency(client, {
@@ -530,6 +532,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
       const { rows: edge } = await client.query<{ issuer_application_id: string }>(
         `SELECT issuer_application_id FROM delegation_edges

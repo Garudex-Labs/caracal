@@ -33,6 +33,14 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
     }
   })
   app.register(agentsRoutes, { prefix: '/v1' })
+  const mockConnectOnce = db.connect.mockResolvedValueOnce.bind(db.connect)
+  db.connect.mockResolvedValueOnce = ((client: { query: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> }) =>
+    mockConnectOnce({
+      ...client,
+      query: vi.fn((sql: string, ...args: unknown[]) =>
+        sql.includes("set_config('caracal.zone_id'") ? Promise.resolve({ rows: [] }) : client.query(sql, ...args),
+      ),
+    })) as typeof db.connect.mockResolvedValueOnce
   return { app, db }
 }
 
@@ -92,8 +100,12 @@ function spawnClient(stages: SpawnStage): { query: ReturnType<typeof vi.fn>; rel
   }
   if (stages.outbox) responses.push({ rows: [] })
   responses.push({ rows: [] })
-  const query = vi.fn()
-  for (const r of responses) query.mockResolvedValueOnce(r)
+  const scriptedQuery = vi.fn()
+  const query = vi.fn((sql: string, ...args: unknown[]) => {
+    if (sql.includes("set_config('caracal.zone_id'")) return Promise.resolve({ rows: [] })
+    return scriptedQuery(sql, ...args)
+  })
+  for (const r of responses) scriptedQuery.mockResolvedValueOnce(r)
   return { query, release: vi.fn() }
 }
 
@@ -908,9 +920,13 @@ function seqClient(responses: Array<{ rows: unknown[] }>): {
   query: ReturnType<typeof vi.fn>
   release: ReturnType<typeof vi.fn>
 } {
-  const query = vi.fn()
-  for (const r of responses) query.mockResolvedValueOnce(r)
-  query.mockResolvedValue({ rows: [] })
+  const scriptedQuery = vi.fn()
+  const query = vi.fn((sql: string, ...args: unknown[]) => {
+    if (sql.includes("set_config('caracal.zone_id'")) return Promise.resolve({ rows: [] })
+    return scriptedQuery(sql, ...args)
+  })
+  for (const r of responses) scriptedQuery.mockResolvedValueOnce(r)
+  scriptedQuery.mockResolvedValue({ rows: [] })
   return { query, release: vi.fn() }
 }
 

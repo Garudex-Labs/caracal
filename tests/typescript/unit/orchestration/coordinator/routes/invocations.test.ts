@@ -27,6 +27,14 @@ function buildApp(scopes = ['coordinator.admin'], clientId = 'app-1') {
     }
   })
   app.register(invocationsRoutes, { prefix: '/v1' })
+  const mockConnectOnce = db.connect.mockResolvedValueOnce.bind(db.connect)
+  db.connect.mockResolvedValueOnce = ((client: { query: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> }) =>
+    mockConnectOnce({
+      ...client,
+      query: vi.fn((sql: string, ...args: unknown[]) =>
+        sql.includes("set_config('caracal.zone_id'") ? Promise.resolve({ rows: [] }) : client.query(sql, ...args),
+      ),
+    })) as typeof db.connect.mockResolvedValueOnce
   return { app, db }
 }
 

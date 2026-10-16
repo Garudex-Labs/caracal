@@ -9,6 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { enqueue, Topics, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
 import { cfg } from '../config.js'
+import { bindTransactionZone } from '../db.js'
 import { redisMinuteBucket } from '../redis.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency } from '../idempotency.js'
@@ -69,6 +70,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const { rows: services } = await client.query<{ application_id: string }>(
         `SELECT application_id FROM agent_services
          WHERE id = $1 AND zone_id = $2 FOR SHARE`,
@@ -243,6 +245,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const owner = await loadInvocationOwner(client, zoneId, id)
       if (!owner) {
         await client.query('ROLLBACK')
@@ -287,6 +290,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const owner = await loadInvocationOwner(client, zoneId, id)
       if (!owner) {
         await client.query('ROLLBACK')
@@ -332,6 +336,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await bindTransactionZone(client, zoneId)
       const owner = await loadInvocationOwner(client, zoneId, id)
       if (!owner) {
         await client.query('ROLLBACK')
