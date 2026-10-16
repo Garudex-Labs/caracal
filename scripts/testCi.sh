@@ -49,6 +49,9 @@ done
 
 step() { say_step "$*"; }
 
+step "toolchain: verify required versions"
+node scripts/checkToolchain.mjs
+
 if $run_smoke; then
   step "smoke: pnpm install"
   pnpm install --frozen-lockfile --prefer-offline

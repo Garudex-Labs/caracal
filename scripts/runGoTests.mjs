@@ -41,6 +41,8 @@ const COVERPKG = [
   'github.com/garudex-labs/caracal/packages/revocation/go',
   'github.com/garudex-labs/caracal/packages/identity/go',
   'github.com/garudex-labs/caracal/packages/adapters/nethttp/go',
+  'github.com/garudex-labs/caracal/sts/...',
+  'github.com/garudex-labs/caracal/gateway/...',
 ].join(',')
 
 function runStatus(command, args) {
@@ -152,7 +154,7 @@ if (mode === '--vet') {
 } else if (mode === '--coverage') {
   const race = raceArgs()
   mkdirSync(join(root, 'coverage', 'go'), { recursive: true })
-  runWithStagedSourceTests(['test', ...race, '-covermode=atomic', '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
+  runWithStagedSourceTests(['test', ...race, '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
   run('go', ['test', ...race, '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/tests.out', ...TEST_DIRS])
   const output = join(root, 'coverage', 'go', 'coverage.out')
   writeFileSync(output, mergeCoverageProfiles([output, join(root, 'coverage', 'go', 'tests.out')]))

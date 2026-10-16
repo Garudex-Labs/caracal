@@ -14,7 +14,7 @@ description = "Framework-neutral mandate verification for Caracal-issued JWTs"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "caracalai-identity==1.0.0",
   "caracalai-revocation==1.0.0",

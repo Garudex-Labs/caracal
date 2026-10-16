@@ -26,6 +26,8 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'release.config.json'
+      - 'toolchain.json'
+      - 'CONTRIBUTING.md'
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
@@ -145,6 +147,11 @@ jobs:
               case "$path" in
                 .github/workflows/test.yml|.prettierrc.json|scripts/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|release.config.json|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
                   typescript=true
+                  style=true
+                  ;;
+              esac
+              case "$path" in
+                .github/workflows/test.yml|toolchain.json|CONTRIBUTING.md)
                   style=true
                   ;;
               esac
@@ -275,6 +282,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: scripts/pythonStyleRequirements.lock
+
+      - name: Verify repository toolchain contract
+        run: node scripts/checkToolchain.mjs
 
       - name: Install style dependencies
         run: |

@@ -17,6 +17,8 @@
 
 </details>
 
+The required versions are defined in [`toolchain.json`](toolchain.json). Run `pnpm run check:toolchain` to verify the local environment before setup or tests.
+
 <details>
 <summary>Modes</summary>
 
