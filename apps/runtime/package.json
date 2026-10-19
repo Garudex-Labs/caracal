@@ -41,7 +41,7 @@
   "dependencies": {
     "@caracalai/server-core": "workspace:*",
     "@caracalai/engine": "workspace:*",
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
