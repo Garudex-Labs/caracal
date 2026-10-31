@@ -7,6 +7,7 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
+import { killTree, leadsProcessGroup } from './processTree.js'
 import { ApprovalRequiredError, pollApprovalState } from '@caracalai/oauth'
 import { fetchRunCredential, fetchRunManifest } from './runClient.js'
 import type { RunBinding, RunCredentialResponse } from './runClient.js'
@@ -21,6 +22,7 @@ const SIGNAL_EXIT_MAP: Record<string, number> = {
   SIGQUIT: 3,
 }
 
+const KILL_GRACE_MS = 5_000
 const STEP_UP_FALLBACK_TIMEOUT_MS = 300_000
 const STEP_UP_MIN_TIMEOUT_MS = 5_000
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -81,6 +83,8 @@ export interface RunExecOpts {
   // Default true for runtime ergonomics. Hosts that own the keymap (UI hosts, embedded
   // libraries) must pass false so engine signals don't tear the parent down.
   forwardSignals?: boolean
+  // How long dispose waits after SIGTERM before force-killing the process tree.
+  killGraceMs?: number
 }
 
 export interface RunExecHandle {
@@ -253,7 +257,7 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
 
   const stdio: StdioOptions = opts.onLine ? ['ignore', 'pipe', 'pipe'] : 'inherit'
   // shell:true is forbidden: argv tokens are passed verbatim to the OS.
-  const child = spawn(cmd!, args, { env, stdio, cwd: opts.cwd })
+  const child = spawn(cmd!, args, { env, stdio, cwd: opts.cwd, detached: leadsProcessGroup(stdio) })
 
   if (opts.onLine) {
     if (child.stdout) {
@@ -270,13 +274,7 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
   if (opts.forwardSignals !== false) {
     const forward: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']
     signalHandlers = forward.map((sig) => {
-      const h = (): void => {
-        try {
-          child.kill(sig)
-        } catch {
-          /* already exited */
-        }
-      }
+      const h = (): void => killTree(child, sig)
       process.on(sig, h)
       return [sig, h] as const
     })
@@ -287,11 +285,9 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
     if (disposed) return
     disposed = true
     for (const [sig, h] of signalHandlers) process.off(sig, h)
-    try {
-      child.kill('SIGTERM')
-    } catch {
-      /* already exited */
-    }
+    // The group outlives its leader, so descendants are swept even after the child exits.
+    killTree(child, 'SIGTERM')
+    setTimeout(() => killTree(child, 'SIGKILL'), opts.killGraceMs ?? KILL_GRACE_MS).unref()
   }
 
   const exitCode = new Promise<number>((resolve) => {

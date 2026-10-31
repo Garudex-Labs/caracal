@@ -1,17 +1,15 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the cross-platform process-tree boundary (spawn, kill, pnpm resolution).
+// Unit tests for the cross-platform process-tree boundary (group leadership, spawn, kill).
 
 import type { ChildProcess } from 'node:child_process'
-import { delimiter, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const spawnMock = vi.hoisted(() => vi.fn())
 const spawnSyncMock = vi.hoisted(() => vi.fn())
-const existsSyncMock = vi.hoisted(() => vi.fn())
-const statSyncMock = vi.hoisted(() => vi.fn())
+const isattyMock = vi.hoisted(() => vi.fn())
 
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
@@ -19,14 +17,12 @@ vi.mock('node:child_process', async (importOriginal) => ({
   spawnSync: spawnSyncMock,
 }))
 
-vi.mock('node:fs', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:fs')>()),
-  existsSync: existsSyncMock,
-  statSync: statSyncMock,
+vi.mock('node:tty', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:tty')>()),
+  isatty: isattyMock,
 }))
 
 const ORIG_PLATFORM = process.platform
-const ORIG_ENV = { ...process.env }
 
 function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true })
@@ -36,7 +32,7 @@ function setPlatform(platform: NodeJS.Platform): void {
 async function loadFor(platform: NodeJS.Platform) {
   setPlatform(platform)
   vi.resetModules()
-  return import('../../../../apps/runtime/src/processTree.ts')
+  return import('../../../../packages/engine/src/processTree.ts')
 }
 
 function fakeChild(pid: number | undefined): ChildProcess {
@@ -47,25 +43,72 @@ beforeEach(() => {
   vi.clearAllMocks()
   spawnMock.mockReturnValue({ on: vi.fn(), kill: vi.fn(), pid: 4321 })
   spawnSyncMock.mockReturnValue({ status: 0 })
-  existsSyncMock.mockReturnValue(false)
-  statSyncMock.mockReturnValue({ isFile: () => true })
-  process.env = { ...ORIG_ENV }
+  isattyMock.mockReturnValue(false)
 })
 
 afterEach(() => {
   Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true })
-  process.env = { ...ORIG_ENV }
   vi.restoreAllMocks()
+})
+
+describe('findExecutable', () => {
+  it('returns the first matching file along the search path', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs')
+    const { join, delimiter } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const mod = await loadFor(ORIG_PLATFORM)
+    const first = mkdtempSync(join(tmpdir(), 'caracal-path-a-'))
+    const second = mkdtempSync(join(tmpdir(), 'caracal-path-b-'))
+    mkdirSync(join(first, 'curl'))
+    writeFileSync(join(second, 'curl'), '')
+    expect(mod.findExecutable(['curl'], [first, '', second].join(delimiter))).toBe(join(second, 'curl'))
+    expect(mod.findExecutable(['bwrap'], [first, second].join(delimiter))).toBeUndefined()
+    expect(mod.findExecutable(['curl'], undefined)).toBeUndefined()
+  })
+})
+
+describe('leadsProcessGroup', () => {
+  it('leads a group on POSIX when no inherited stream is a terminal', async () => {
+    const mod = await loadFor('linux')
+    expect(mod.leadsProcessGroup(['ignore', 'pipe', 'pipe'])).toBe(true)
+    expect(mod.leadsProcessGroup('pipe')).toBe(true)
+    expect(mod.leadsProcessGroup(undefined)).toBe(true)
+    expect(mod.leadsProcessGroup('inherit')).toBe(true)
+  })
+
+  it('stays in the foreground group when an inherited stream is a terminal', async () => {
+    const mod = await loadFor('linux')
+    isattyMock.mockImplementation((fd: number) => fd === 0)
+    expect(mod.leadsProcessGroup('inherit')).toBe(false)
+    expect(mod.leadsProcessGroup(['inherit', 'pipe', 'pipe'])).toBe(false)
+    expect(mod.leadsProcessGroup(['ignore', 'pipe', 'pipe'])).toBe(true)
+
+    isattyMock.mockImplementation((fd: number) => fd === 2)
+    expect(mod.leadsProcessGroup(['ignore', 'pipe', 'inherit'])).toBe(false)
+    expect(mod.leadsProcessGroup(['inherit', 'inherit', 'pipe'])).toBe(true)
+  })
+
+  it('never leads a group on Windows', async () => {
+    const mod = await loadFor('win32')
+    expect(mod.leadsProcessGroup(['ignore', 'pipe', 'pipe'])).toBe(false)
+  })
 })
 
 describe('spawnTree', () => {
   it('detaches into its own process group on POSIX', async () => {
     const mod = await loadFor('linux')
-    mod.spawnTree('node', ['server.js'], { cwd: '/repo' })
+    mod.spawnTree('node', ['server.js'], { cwd: '/repo', stdio: ['ignore', 'pipe', 'pipe'] })
     const opts = spawnMock.mock.calls[0]?.[2] as Record<string, unknown>
     expect(opts.detached).toBe(true)
     expect(opts.shell).toBe(false)
     expect(opts.windowsHide).toBe(true)
+  })
+
+  it('keeps a terminal-attached child in the foreground group on POSIX', async () => {
+    const mod = await loadFor('linux')
+    isattyMock.mockReturnValue(true)
+    mod.spawnTree('node', ['repl.js'], { stdio: 'inherit' })
+    expect((spawnMock.mock.calls[0]?.[2] as Record<string, unknown>).detached).toBe(false)
   })
 
   it('stays attached on Windows and only shells .cmd shims', async () => {
@@ -112,30 +155,5 @@ describe('killTree', () => {
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true)
     mod.killTree(fakeChild(undefined), 'SIGTERM')
     expect(killSpy).not.toHaveBeenCalled()
-  })
-})
-
-describe('resolvePnpm', () => {
-  it('prefers running the pnpm CLI module with the current Node binary', async () => {
-    const mod = await loadFor('linux')
-    process.env.npm_execpath = '/usr/lib/pnpm/pnpm.cjs'
-    const resolved = mod.resolvePnpm()
-    expect(resolved).toEqual({ cmd: process.execPath, prefix: ['/usr/lib/pnpm/pnpm.cjs'] })
-  })
-
-  it('falls back to the pnpm shim on the Windows PATH', async () => {
-    const mod = await loadFor('win32')
-    delete process.env.npm_execpath
-    process.env.PATH = ['shims', 'other'].join(delimiter)
-    const shim = join('shims', 'pnpm.cmd')
-    existsSyncMock.mockImplementation((path: string) => path === shim)
-    expect(mod.resolvePnpm()).toEqual({ cmd: shim, prefix: [] })
-  })
-
-  it('resolves nothing when pnpm is absent from the PATH', async () => {
-    const mod = await loadFor('win32')
-    delete process.env.npm_execpath
-    process.env.PATH = 'shims'
-    expect(mod.resolvePnpm()).toBeUndefined()
   })
 })
