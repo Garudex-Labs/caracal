@@ -5,6 +5,8 @@
       "entry": [
         "tests/typescript/**/*.ts",
         "tests/shared/**/*.ts",
+        "tests/shared/mocks/*.mjs",
+        "tests/typescript/e2e/*.mjs",
         "scripts/*.mjs",
         "scripts/lib/*.mjs",
         "infra/*/*.mjs"
