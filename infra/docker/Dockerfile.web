@@ -51,6 +51,7 @@ RUN set -e; \
     pnpm --filter @caracalai/server-core build; \
     pnpm --filter @caracalai/admin build; \
     pnpm --filter @caracalai/oauth build; \
+    pnpm --filter @caracalai/sdk build; \
     pnpm --filter @caracalai/engine build; \
     VITE_CARACAL_AUTH_URL="${SPA_BACKEND_BASE}" pnpm --filter @caracalai/web build; \
     pnpm --filter @caracalai/auth build; \

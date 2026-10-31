@@ -94,6 +94,12 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     requiresArgs: true,
   },
   {
+    name: 'launch',
+    group: 'runtime',
+    summary: 'Run a coding or autonomous agent under Caracal governance',
+    requiresArgs: true,
+  },
+  {
     name: 'web',
     group: 'runtime',
     summary: 'Open the Caracal Console',
