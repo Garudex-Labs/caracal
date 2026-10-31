@@ -118,10 +118,10 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
   let launcher: SessionHandle | undefined
   let agent: SessionHandle | undefined
   let broker: AgentBroker | undefined
-  // Nothing renews the delegated authority, so the agent stops when it runs out rather than
-  // running on with every tool and model call denied.
   // Private to this launch and outside the workspace: holds agent config the agent must not edit.
   const stateDir = mkdtempSync(join(tmpdir(), 'caracal-launch-'))
+  // Nothing renews the delegated authority, so the agent stops when it runs out rather than
+  // running on with every tool and model call denied.
   const authorityExpiry = setTimeout(() => stop('delegated authority expired'), ttlSeconds * 1000)
   try {
     const metadata = { agent: opts.adapter.name }
@@ -167,11 +167,13 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       },
     })
 
+    const workspace = resolve(opts.cwd ?? '.')
     const plan = opts.adapter.plan({
       command: opts.command ?? opts.adapter.command,
       args: opts.args,
       brokerUrl: broker.url,
       protectedPaths: protectedPaths(opts.env),
+      workspace,
       stateDir,
     })
     for (const [name, content] of Object.entries(plan.files ?? {})) {
@@ -182,7 +184,7 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
     }
     // The agent gets the PATH its sandbox and hook requirements were checked against.
     const env = opts.env.PATH === undefined ? plan.env : { ...plan.env, PATH: opts.env.PATH }
-    child = runExec({ argv: plan.argv, env, cwd: opts.cwd })
+    child = runExec({ argv: plan.argv, env, cwd: plan.cwd ?? workspace })
     if (stopReason) void child.dispose()
     return await child.exitCode
   } finally {
