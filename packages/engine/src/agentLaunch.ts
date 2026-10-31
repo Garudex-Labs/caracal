@@ -3,7 +3,9 @@
 //
 // Governed agent launch: Session lifecycle, delegated authority, broker, and process supervision.
 
-import { isAbsolute, join, resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { Authority, Caracal } from '@caracalai/sdk'
 import type { SessionHandle } from '@caracalai/sdk'
 import type { AgentAdapter, ToolDecision } from './agentAdapters.js'
@@ -115,6 +117,8 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
   let launcher: SessionHandle | undefined
   let agent: SessionHandle | undefined
   let broker: AgentBroker | undefined
+  // Private to this launch and outside the workspace: holds agent config the agent must not edit.
+  const stateDir = mkdtempSync(join(tmpdir(), 'caracal-launch-'))
   try {
     const metadata = { agent: opts.adapter.name }
     launcher = await caracal.startSession({
@@ -159,13 +163,21 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       },
     })
 
+    const workspace = resolve(opts.cwd ?? '.')
     const plan = opts.adapter.plan({
       command: opts.command ?? opts.adapter.command,
       args: opts.args,
       brokerUrl: broker.url,
       protectedPaths: protectedPaths(opts.env),
+      workspace,
+      stateDir,
     })
-    child = runExec({ argv: plan.argv, env: plan.env, cwd: opts.cwd })
+    for (const [name, content] of Object.entries(plan.files ?? {})) {
+      const path = join(stateDir, name)
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+      writeFileSync(path, content, { mode: 0o600 })
+    }
+    child = runExec({ argv: plan.argv, env: plan.env, cwd: plan.cwd ?? workspace })
     if (stopReason) child.dispose()
     return await child.exitCode
   } finally {
@@ -179,5 +191,6 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       }
     }
     await caracal.close()
+    rmSync(stateDir, { recursive: true, force: true })
   }
 }

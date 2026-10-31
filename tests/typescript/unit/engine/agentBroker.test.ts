@@ -157,3 +157,28 @@ describe('agent broker model forwarding', () => {
     expect(await res.json()).toEqual({ type: 'error', error: { type: 'api_error', message: 'caracal: error' } })
   })
 })
+
+describe('agent broker guard readiness', () => {
+  const guarded = agentAdapter('openclaw')
+
+  it('refuses model calls until the agent guard reports it loaded', async () => {
+    const forward = vi.fn(async () => new Response('{}'))
+    const b = await start({ adapter: guarded, forward })
+    let res = await fetch(`${b.url}/model/v1/messages`, { method: 'POST', body: '{}' })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ type: 'error', error: { type: 'permission_error', message: 'caracal: agent guard not loaded' } })
+    expect(forward).not.toHaveBeenCalled()
+
+    res = await fetch(`${b.url}${guarded.readyPath}`, { method: 'POST' })
+    expect(res.status).toBe(204)
+    res = await fetch(`${b.url}/model/v1/messages`, { method: 'POST', body: '{}' })
+    expect(res.status).toBe(200)
+    expect(forward).toHaveBeenCalledOnce()
+  })
+
+  it('answers the guard in its own decision format', async () => {
+    const b = await start({ adapter: guarded, decide: async () => ({ allow: false, reason: 'caracal: access_denied' }) })
+    const res = await fetch(`${b.url}${guarded.hookPath}`, { method: 'POST', body: JSON.stringify({ toolName: 'exec' }) })
+    expect(await res.json()).toEqual({ allow: false, reason: 'caracal: access_denied' })
+  })
+})

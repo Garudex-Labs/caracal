@@ -3,11 +3,17 @@
 //
 // Agent adapters: how each supported agent is launched, routed through the broker, and asked about tool calls.
 
+import { join } from 'node:path'
+
 export type ToolDecision = { allow: true } | { allow: false; reason: string }
 
 export interface AgentLaunchPlan {
   argv: string[]
   env: Record<string, string | undefined>
+  // Working directory for the agent process; defaults to the workspace.
+  cwd?: string
+  // Files written owner-only into the launch's private directory before the agent starts.
+  files?: Record<string, string>
 }
 
 export interface AgentLaunchInput {
@@ -16,6 +22,10 @@ export interface AgentLaunchInput {
   brokerUrl: string
   // Absolute paths of credential stores the agent's tool commands must not read.
   protectedPaths: string[]
+  // Directory the agent works in.
+  workspace: string
+  // Private launch directory (0700, outside the workspace) that holds plan files.
+  stateDir: string
 }
 
 export interface AgentAdapter {
@@ -24,6 +34,9 @@ export interface AgentAdapter {
   readonly command: string
   // Broker path the agent's pre-tool hook posts to.
   readonly hookPath: string
+  // Broker path the agent's guard posts to once loaded; when set, model calls are refused
+  // until it arrives, so an agent whose guard failed to load cannot act.
+  readonly readyPath?: string
   // Tool name from the agent's hook payload; undefined when the payload is unusable.
   toolName(payload: unknown): string | undefined
   // Hook response body for a decision, in the agent's own format.
@@ -114,7 +127,138 @@ const claudeCode: AgentAdapter = {
   },
 }
 
-const ADAPTERS: ReadonlyMap<string, AgentAdapter> = new Map([[claudeCode.name, claudeCode]])
+const OPENCLAW_GUARD_ID = 'caracal-guard'
+const OPENCLAW_MODEL = 'claude-sonnet-5-5'
+// --config, --isolated, and --auth-env-only replace the pinned config that loads the guard;
+// --model, --fallback, and --cwd would move the run off the broker or the workspace.
+const OPENCLAW_BLOCKED_FLAGS = ['--config', '--isolated', '--auth-env-only', '--model', '--fallback', '--cwd']
+// Tools that manage OpenClaw itself, its scheduler, or remote execution; tool scopes would gate
+// them too, but they have no place in a governed run.
+const OPENCLAW_DENIED_TOOLS = ['plugins', 'openclaw', 'gateway', 'cron', 'nodes', 'browser', 'code_execution']
+
+// OpenClaw plugin loaded from a bare load path: it reports that it loaded, then asks the broker
+// about every tool call and blocks on any answer other than an explicit allow, including errors.
+const OPENCLAW_GUARD = `export default {
+  id: '${OPENCLAW_GUARD_ID}',
+  name: 'Caracal guard',
+  description: 'Asks Caracal before every tool call',
+  register(api) {
+    const { hookUrl, readyUrl } = api.pluginConfig ?? {}
+    fetch(readyUrl, { method: 'POST' }).catch(() => {})
+    api.on(
+      'before_tool_call',
+      async (event, ctx) => {
+        try {
+          const res = await fetch(hookUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ toolName: event.toolName, toolKind: event.toolKind, toolCallId: event.toolCallId }),
+            signal: ctx?.abortSignal,
+          })
+          const decision = res.ok ? await res.json() : undefined
+          if (decision?.allow === true) return undefined
+          return { block: true, blockReason: decision?.reason ?? 'caracal: tool call denied' }
+        } catch {
+          return { block: true, blockReason: 'caracal: tool decision unavailable' }
+        }
+      },
+      { priority: 1000 },
+    )
+  },
+}
+`
+
+const openclaw: AgentAdapter = {
+  name: 'openclaw',
+  command: 'openclaw',
+  hookPath: '/hooks/openclaw/before-tool-call',
+  readyPath: '/hooks/openclaw/ready',
+  toolName(payload) {
+    if (!payload || typeof payload !== 'object') return undefined
+    const name = (payload as Record<string, unknown>).toolName
+    return typeof name === 'string' && name !== '' ? name : undefined
+  },
+  hookResponse(decision) {
+    return decision.allow ? { allow: true } : { allow: false, reason: decision.reason }
+  },
+  requiredCommands() {
+    return []
+  },
+  plan({ command, args, brokerUrl, workspace, stateDir }) {
+    for (const arg of args) {
+      const flag = OPENCLAW_BLOCKED_FLAGS.find((blocked) => arg === blocked || arg.startsWith(`${blocked}=`))
+      if (flag) throw new Error(`openclaw: ${flag} is not allowed under a governed launch because it can bypass Caracal's guard or broker`)
+    }
+    const configPath = join(stateDir, 'openclaw.json')
+    const config = {
+      models: {
+        mode: 'replace',
+        providers: {
+          // A provider id with no stored credentials, so OpenClaw sends only the placeholder key.
+          caracal: {
+            baseUrl: `${brokerUrl}/model`,
+            api: 'anthropic-messages',
+            apiKey: GATEWAY_INJECTED_KEY,
+            models: [{ id: OPENCLAW_MODEL, name: 'Claude via Caracal', input: ['text'], contextWindow: 200000, maxTokens: 32000 }],
+          },
+        },
+      },
+      agents: { defaults: { model: { primary: `caracal/${OPENCLAW_MODEL}`, fallbacks: [] } } },
+      plugins: {
+        enabled: true,
+        allow: [OPENCLAW_GUARD_ID],
+        load: { paths: [join(stateDir, 'plugins', OPENCLAW_GUARD_ID)] },
+        entries: {
+          [OPENCLAW_GUARD_ID]: {
+            enabled: true,
+            config: { hookUrl: `${brokerUrl}${openclaw.hookPath}`, readyUrl: `${brokerUrl}${openclaw.readyPath}` },
+          },
+        },
+      },
+      tools: { deny: OPENCLAW_DENIED_TOOLS, elevated: { enabled: false } },
+    }
+    return {
+      argv: [
+        command,
+        'agent',
+        'exec',
+        ...args,
+        '--config',
+        configPath,
+        '--cwd',
+        workspace,
+        '--model',
+        `caracal/${OPENCLAW_MODEL}`,
+        '--code-mode',
+        'direct',
+      ],
+      env: {
+        // Keeps OpenClaw off the user's stored auth profiles, ambient config, and .env files.
+        OPENCLAW_HOME: join(stateDir, 'home'),
+        OPENCLAW_EXEC_SHELL_SNAPSHOT: '0',
+      },
+      cwd: stateDir,
+      files: {
+        'openclaw.json': JSON.stringify(config, null, 2),
+        [`plugins/${OPENCLAW_GUARD_ID}/openclaw.plugin.json`]: JSON.stringify({
+          id: OPENCLAW_GUARD_ID,
+          activation: { onStartup: true },
+          configSchema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { hookUrl: { type: 'string' }, readyUrl: { type: 'string' } },
+          },
+        }),
+        [`plugins/${OPENCLAW_GUARD_ID}/index.mjs`]: OPENCLAW_GUARD,
+      },
+    }
+  },
+}
+
+const ADAPTERS: ReadonlyMap<string, AgentAdapter> = new Map([
+  [claudeCode.name, claudeCode],
+  [openclaw.name, openclaw],
+])
 
 export function agentAdapter(name: string): AgentAdapter {
   const adapter = ADAPTERS.get(name)

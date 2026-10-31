@@ -1,9 +1,9 @@
 ---
 title: Launch a Coding Agent with caracal launch
-description: Run Claude Code under a Caracal Session so model calls go through the Gateway and every tool call is decided before it runs.
+description: Run Claude Code or OpenClaw under a Caracal Session so model calls go through the Gateway and every tool call is decided before it runs.
 ---
 
-`caracal launch` runs a supported agent, such as Claude Code, inside a Caracal-governed runtime. The agent receives no Caracal credential and no provider credential. Its model calls go through a loopback broker to the Gateway, which injects the provider key, and each tool call the agent is about to make is decided by Caracal first. The agent runs under a delegated agent Session, so terminating or revoking that Session stops the agent and every process it started.
+`caracal launch` runs a supported agent, Claude Code or OpenClaw, inside a Caracal-governed runtime. The agent receives no Caracal credential and no provider credential. Its model calls go through a loopback broker to the Gateway, which injects the provider key, and each tool call the agent is about to make is decided by Caracal first. The agent runs under a delegated agent Session, so terminating or revoking that Session stops the agent and every process it started.
 
 Use it for coding and autonomous agents that you run as CLIs and cannot rebuild around an SDK. For a script that only needs provider credentials in its environment, use [`caracal run`](/guides/runtime-run/); for your own services, use an SDK transport.
 
@@ -36,6 +36,21 @@ Tool hooks are cooperative: they run inside the agent, and Claude Code runs the 
 
 On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (`sandbox-exec`). The hook needs `sh` and `curl`. Claude Code runs commands unsandboxed when its sandbox dependencies are missing, so `caracal launch` checks for all of them and refuses to start without them. Native Windows has no Claude Code sandbox and is refused; macOS has not been verified yet.
 
+## OpenClaw
+
+`caracal launch openclaw -- "<task>"` runs one headless `openclaw agent exec` turn. The launcher writes a pinned OpenClaw config into a private launch directory outside the workspace: a model provider with no stored credentials that points at the broker, and a guard plugin that asks Caracal before every tool call and blocks on anything but an explicit allow. OpenClaw runs with its own home in that directory, so stored auth profiles, ambient config, and `.env` files are not loaded. The broker refuses model calls until the guard reports that it loaded, so a run whose guard failed to load cannot act.
+
+| OpenClaw behavior | Notes |
+| --- | --- |
+| Model | `claude-sonnet-5-5` over the Anthropic Messages API, through the model Resource. |
+| Tool calls | Decided as `tool:<id>` on the tools Resource, for example `tool:exec`, `tool:read`, `tool:write`, `tool:apply_patch`, `tool:process`. |
+| Refused flags | `--config`, `--isolated`, `--auth-env-only`, `--model`, `--fallback`, `--cwd`. |
+| Shell commands | Not sandboxed: OpenClaw only offers container sandboxes, which the launcher does not configure. An allowed `exec` command can reach the network and read the user's files. It still holds no Caracal or provider credential. |
+| A nested `openclaw` started from `exec` | Would run without the guard. Its model calls still go through the broker and Gateway, and it holds no credential. |
+| Stopping | After its Session is terminated, OpenClaw usually exits on its own when its next model call is refused; otherwise the heartbeat stops it. |
+
+OpenClaw needs Node 24.22.1 or later.
+
 ## Prepare the zone
 
 1. Run `caracal up` and sign in to the web console.
@@ -48,7 +63,7 @@ On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (
    | `POST` | `/v1/messages` |
    | `POST` | `/v1/messages/count_tokens` |
 
-4. Create the **tools Resource**, for example `resource://claude-code-tools`, with one scope per tool the agent may use, named `tool:<ToolName>`: `tool:Read`, `tool:Edit`, `tool:Bash`, `tool:mcp__pipernet__search`. Its upstream is never called; use a provider of kind `none`.
+4. Create the **tools Resource**, for example `resource://claude-code-tools`, with one scope per tool the agent may use, named `tool:<ToolName>`: `tool:Read`, `tool:Edit`, `tool:Bash`, `tool:mcp__pipernet__search` for Claude Code, or `tool:exec`, `tool:read`, `tool:write` for OpenClaw. Its upstream is never called; use a provider of kind `none`.
 5. Grant the Application the model scope and the tool scopes it should have, then activate the policy. A tool scope that is not granted is denied and audited.
 
 ## Write a launch profile

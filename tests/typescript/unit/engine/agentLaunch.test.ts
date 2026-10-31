@@ -162,6 +162,32 @@ describe('launchAgent', () => {
     expect(seen.protectedPaths).toContain('/home/richard/.ssh')
   })
 
+  it('writes plan files owner-only into a private launch directory and removes it afterwards', async () => {
+    const { existsSync, readFileSync } = await import('node:fs')
+    const report = join(mkdtempSync(join(tmpdir(), 'caracal-plan-report-')), 'report.json')
+    // The agent records what it sees from its own working directory, the launch directory.
+    const script = [
+      "const fs = require('node:fs')",
+      "const file = 'nested/config.json'",
+      `fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ cwd: process.cwd(), mode: fs.statSync(file).mode & 0o777, dirMode: fs.statSync('.').mode & 0o777, content: fs.readFileSync(file, 'utf8') }))`,
+    ].join(';')
+    let seen: { stateDir?: string; workspace?: string } = {}
+    const adapter: AgentAdapter = {
+      ...agentAdapter('claude-code'),
+      plan: ({ stateDir, workspace }) => {
+        seen = { stateDir, workspace }
+        return { argv: [process.execPath, '-e', script], env: {}, cwd: stateDir, files: { 'nested/config.json': '{"guard":true}' } }
+      },
+    }
+
+    expect(await launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin }, cwd: '/tmp' })).toBe(0)
+
+    const observed = JSON.parse(readFileSync(report, 'utf8'))
+    expect(seen.workspace).toBe('/tmp')
+    expect(observed).toEqual({ cwd: seen.stateDir, mode: 0o600, dirMode: 0o700, content: '{"guard":true}' })
+    expect(existsSync(seen.stateDir!)).toBe(false)
+  })
+
   it('uses profile labels for grant matching when given', async () => {
     await launchAgent({
       adapter: fakeAgent('process.exit(0)'),

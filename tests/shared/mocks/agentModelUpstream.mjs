@@ -1,12 +1,14 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Scripted Anthropic Messages API upstream for agent e2e tests: requests one Bash tool call, then ends the turn.
+// Scripted Anthropic Messages API upstream for agent e2e tests: requests one shell tool call, then ends the turn.
 
 import { createServer } from 'node:http'
 
 const port = Number(process.argv[2] ?? 18090)
 const command = process.env.STUB_COMMAND ?? 'true'
+// The agent's shell tool name: `Bash` for Claude Code, `exec` for OpenClaw.
+const toolName = process.env.STUB_TOOL ?? 'Bash'
 const REDACT = new Set(['x-api-key', 'authorization', 'cookie'])
 
 function redact(name, value) {
@@ -28,8 +30,8 @@ function message(content, stopReason) {
 function reply(body) {
   const last = body.messages?.at(-1)
   const sawToolResult = Array.isArray(last?.content) && last.content.some((c) => c.type === 'tool_result')
-  const offersBash = Array.isArray(body.tools) && body.tools.some((t) => t.name === 'Bash')
-  if (offersBash && !sawToolResult) return { kind: 'tool', input: { command, description: 'stub tool call' } }
+  const offersTool = Array.isArray(body.tools) && body.tools.some((t) => t.name === toolName)
+  if (offersTool && !sawToolResult) return { kind: 'tool', input: { command, description: 'stub tool call' } }
   return { kind: 'text', text: 'DONE' }
 }
 
@@ -38,7 +40,7 @@ function stream(res, r) {
   const block =
     r.kind === 'tool'
       ? [
-          { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_stub', name: 'Bash', input: {} } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_stub', name: toolName, input: {} } },
           { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(r.input) } },
         ]
       : [
@@ -69,7 +71,7 @@ createServer((req, res) => {
     // One JSON line per request, auth values redacted, so tests can assert what reached the upstream.
     const expected = process.env.STUB_EXPECT_KEY
     const keyMatchesInjected = expected ? req.headers['x-api-key'] === expected : undefined
-    process.stdout.write(JSON.stringify({ method: req.method, url: req.url, headers, keyMatchesInjected, stream: body.stream, model: body.model, tools: body.tools?.length }) + '\n')
+    process.stdout.write(JSON.stringify({ method: req.method, url: req.url, headers, keyMatchesInjected, stream: body.stream, model: body.model, tools: body.tools?.map((t) => t.name) }) + '\n')
     if (req.method === 'POST' && path === '/v1/messages/count_tokens') {
       res.writeHead(200, { 'content-type': 'application/json' })
       return res.end(JSON.stringify({ input_tokens: 1 }))
@@ -77,7 +79,7 @@ createServer((req, res) => {
     if (req.method === 'POST' && path === '/v1/messages') {
       const r = reply(body)
       if (body.stream) return stream(res, r)
-      const content = r.kind === 'tool' ? [{ type: 'tool_use', id: 'toolu_stub', name: 'Bash', input: r.input }] : [{ type: 'text', text: r.text }]
+      const content = r.kind === 'tool' ? [{ type: 'tool_use', id: 'toolu_stub', name: toolName, input: r.input }] : [{ type: 'text', text: r.text }]
       res.writeHead(200, { 'content-type': 'application/json' })
       return res.end(JSON.stringify(message(content, r.kind === 'tool' ? 'tool_use' : 'end_turn')))
     }

@@ -19,6 +19,8 @@ const network = process.env.CARACAL_E2E_NETWORK ?? 'caracalDevData'
 const nodeImage = process.env.CARACAL_E2E_NODE_IMAGE ?? 'node:24-alpine'
 const nodeBin = process.env.CARACAL_E2E_NODE_BIN ?? 'node'
 const agentCommand = process.env.CARACAL_E2E_AGENT_COMMAND ?? 'claude'
+// Optional: also exercise the OpenClaw adapter when its CLI is available.
+const openclawCommand = process.env.CARACAL_E2E_OPENCLAW_COMMAND
 
 if (!adminTokenFile) throw new Error('CARACAL_ADMIN_TOKEN_FILE is required')
 if (!coordinatorTokenFile) throw new Error('CARACAL_COORDINATOR_TOKEN_FILE is required')
@@ -27,6 +29,8 @@ if (spawnSync(agentCommand, ['--version'], { stdio: 'ignore' }).status !== 0) th
 const modelResource = 'resource://pipernet-models'
 const toolsResource = 'resource://claude-code-tools'
 const toolScopes = ['tool:Read', 'tool:Edit', 'tool:Bash', 'tool:WebFetch']
+const openclawToolsResource = 'resource://openclaw-tools'
+const openclawToolScopes = ['tool:exec', 'tool:process', 'tool:read', 'tool:write', 'tool:edit', 'tool:apply_patch', 'tool:ls']
 const suffix = `${Date.now()}-${process.pid}`
 const injectedKey = `sk-gateway-e2e-${suffix}`
 const admin = new AdminClient({ apiUrl, adminToken: readFileSync(adminTokenFile, 'utf8').trim() })
@@ -58,13 +62,15 @@ function check(name, ok, detail) {
   if (!ok) failures.push(name)
 }
 
-async function grantTools(scopes) {
+async function grantTools(scopes, openclawScopes = ['tool:read']) {
+  const grants = [
+    { applicationId: state.app.id, resourceIdentifier: modelResource, scopes: ['models:invoke'] },
+    { applicationId: state.app.id, resourceIdentifier: toolsResource, scopes },
+  ]
+  if (state.openclawTools) grants.push({ applicationId: state.app.id, resourceIdentifier: openclawToolsResource, scopes: openclawScopes })
   const policy = await admin.policies.create(state.zone.id, {
-    name: `Anton tools ${state.policies.length + 1}: ${scopes.join(' ')}`,
-    content: authorGrantsDocument([
-      { applicationId: state.app.id, resourceIdentifier: modelResource, scopes: ['models:invoke'] },
-      { applicationId: state.app.id, resourceIdentifier: toolsResource, scopes },
-    ]),
+    name: `Anton tools ${state.policies.length + 1}: ${[...scopes, ...openclawScopes].join(' ')}`,
+    content: authorGrantsDocument(grants),
   })
   state.policies.push(policy)
   const version = await admin.policySets.addVersion(state.zone.id, state.policySet.id, [{ policy_version_id: policy.version_id }])
@@ -76,12 +82,12 @@ async function grantTools(scopes) {
   throw new Error('policy activation timed out')
 }
 
-// Points the model Resource at a fresh scripted upstream that asks for one Bash call running `command`.
-async function scriptModel(name, command) {
+// Points the model Resource at a fresh scripted upstream that asks for one `tool` call running `command`.
+async function scriptModel(name, command, tool = 'Bash') {
   const container = `caracal-agent-e2e-${name}-${process.pid}`
   const run = spawnSync('docker', [
     'run', '-d', '--rm', '--name', container, '--network', network,
-    '-e', 'STUB_HOST=0.0.0.0', '-e', `STUB_EXPECT_KEY=${injectedKey}`, '-e', `STUB_COMMAND=${command}`,
+    '-e', 'STUB_HOST=0.0.0.0', '-e', `STUB_EXPECT_KEY=${injectedKey}`, '-e', `STUB_COMMAND=${command}`, '-e', `STUB_TOOL=${tool}`,
     '-v', `${join(root, 'tests/shared/mocks')}:/mocks:ro`, '--entrypoint', nodeBin, nodeImage, '/mocks/agentModelUpstream.mjs', '18090',
   ], { encoding: 'utf8' })
   if (run.status !== 0) throw new Error(`model upstream ${name} failed to start: ${run.stderr}`)
@@ -96,16 +102,16 @@ function upstreamRequests(container) {
   return out.split('\n').filter((line) => line.startsWith('{')).map((line) => JSON.parse(line))
 }
 
-// Runs `caracal launch claude-code`; onSession receives the agent Session id once printed.
-function launch(agentArgs, onSession) {
+// Runs `caracal launch <agent>`; onSession receives the agent Session id once printed.
+function launch(agentArgs, onSession, agent = { name: 'claude-code', profile: () => state.profile, command: agentCommand }) {
   const env = { ...process.env, CARACAL_ZONE_ID: state.zone.id, CARACAL_APPLICATION_ID: state.app.id, CARACAL_APP_CLIENT_SECRET_FILE: secretFile }
   delete env.ANTHROPIC_API_KEY
   delete env.ANTHROPIC_AUTH_TOKEN
-  const child = spawn(process.execPath, [join(root, 'apps/runtime/bin/caracal.mjs'), 'launch', 'claude-code', '--profile', state.profile, '--command', agentCommand, '--', ...agentArgs], { env, cwd: work, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.execPath, [join(root, 'apps/runtime/bin/caracal.mjs'), 'launch', agent.name, '--profile', agent.profile(), '--command', agent.command, '--', ...agentArgs], { env, cwd: work, stdio: ['ignore', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.on('data', (chunk) => {
     stderr += chunk
-    const match = /claude-code Session (\S+)/.exec(stderr)
+    const match = / Session (\S+) \(launcher/.exec(stderr)
     if (match && onSession) {
       const notify = onSession
       onSession = undefined
@@ -113,7 +119,7 @@ function launch(agentArgs, onSession) {
     }
   })
   child.stdout.resume()
-  return new Promise((done) => child.on('exit', (code) => done({ code, stderr, session: /claude-code Session (\S+)/.exec(stderr)?.[1] })))
+  return new Promise((done) => child.on('exit', (code) => done({ code, stderr, session: / Session (\S+) \(launcher/.exec(stderr)?.[1] })))
 }
 
 async function terminate(sessionId) {
@@ -129,6 +135,7 @@ async function cleanup() {
     () => state.policySet && admin.policySets.delete(state.zone.id, state.policySet.id),
     ...state.policies.map((policy) => () => admin.policies.delete(state.zone.id, policy.id)),
     () => state.tools && admin.resources.delete(state.zone.id, state.tools.id),
+    () => state.openclawTools && admin.resources.delete(state.zone.id, state.openclawTools.id),
     () => state.model && admin.resources.delete(state.zone.id, state.model.id),
     () => state.toolsProvider && admin.providers.delete(state.zone.id, state.toolsProvider.id),
     () => state.modelProvider && admin.providers.delete(state.zone.id, state.modelProvider.id),
@@ -177,6 +184,18 @@ try {
     scopes: toolScopes,
     operation_enforcement: 'transport_uniform',
   })
+  if (openclawCommand) {
+    state.openclawTools = await admin.resources.create(state.zone.id, {
+      name: 'OpenClaw Tools',
+      identifier: openclawToolsResource,
+      upstream_url: 'https://agent-tools.invalid',
+      credential_provider_id: state.toolsProvider.id,
+      scopes: openclawToolScopes,
+      operation_enforcement: 'transport_uniform',
+    })
+    state.openclawProfile = join(work, 'anton-openclaw.json')
+    writeFileSync(state.openclawProfile, JSON.stringify({ model: { resource: modelResource, scopes: ['models:invoke'] }, tools: { resource: openclawToolsResource, scopes: openclawToolScopes } }))
+  }
   writeFileSync(secretFile, state.app.client_secret, { mode: 0o600 })
   state.policySet = await admin.policySets.create(state.zone.id, 'Anton Agent Launch E2E')
   state.profile = join(work, 'anton.json')
@@ -260,9 +279,68 @@ try {
   const bare = await launch(['--bare', '-p', 'hi'])
   check('flags that disable hooks are refused', bare.code === 1 && bare.stderr.includes('--bare is not allowed'), {})
 
+  if (openclawCommand) {
+    const openclaw = { name: 'openclaw', profile: () => state.openclawProfile, command: openclawCommand }
+    const task = ['run the stub task']
+
+    await grantTools(['tool:Read'], ['tool:read', 'tool:exec'])
+    const ranMarker = join(work, 'openclaw-allowed.marker')
+    const ranUpstream = await scriptModel('openclaw-allowed', `touch ${ranMarker}`, 'exec')
+    const ran = await launch(task, undefined, openclaw)
+    const ranSeen = upstreamRequests(ranUpstream)
+    check('openclaw: granted exec runs and the upstream sees only the injected key', ran.code === 0 && existsSync(ranMarker) && ranSeen.length > 0 && ranSeen.every((r) => r.keyMatchesInjected === true), {
+      exit: ran.code,
+      upstreamRequests: ranSeen.length,
+    })
+
+    const openclawEnv = join(work, 'openclaw-env.txt')
+    await scriptModel('openclaw-env', `env > ${openclawEnv}`, 'exec')
+    await launch(task, undefined, openclaw)
+    const openclawDump = existsSync(openclawEnv) ? readFileSync(openclawEnv, 'utf8') : ''
+    check('openclaw: exec sees no Caracal or provider credential', openclawDump !== '' && !openclawDump.includes(state.app.client_secret) && !openclawDump.includes(injectedKey) && !/^CARACAL_/m.test(openclawDump), {})
+
+    await grantTools(['tool:Read'], ['tool:read'])
+    const deniedOpenclaw = join(work, 'openclaw-denied.marker')
+    await scriptModel('openclaw-denied', `touch ${deniedOpenclaw}`, 'exec')
+    const blocked = await launch(task, undefined, openclaw)
+    check('openclaw: ungranted exec is denied before it runs', !existsSync(deniedOpenclaw) && blocked.stderr.includes('caracal: denied exec'), { exit: blocked.code })
+
+    await grantTools(['tool:Read'], ['tool:read', 'tool:exec'])
+    const openclawKilledMarker = join(work, 'openclaw-killed.marker')
+    const openclawToken = `31.${process.pid}`
+    await scriptModel('openclaw-killed', `sh -c 'sleep ${openclawToken} & wait; touch ${openclawKilledMarker}'`, 'exec')
+    let openclawDelete
+    let openclawTerminatedAt = 0
+    const openclawKilled = await launch(
+      task,
+      (id) =>
+        setTimeout(async () => {
+          openclawTerminatedAt = Date.now()
+          openclawDelete = await terminate(id)
+        }, 6000),
+      openclaw,
+    )
+    const openclawStoppedAfterMs = Date.now() - openclawTerminatedAt
+    await sleep(1000)
+    // OpenClaw usually stops on its own first: its next model call is refused once the Session
+    // is gone (exit 1). Otherwise the launcher's heartbeat stops it (exit 143).
+    check(
+      'openclaw: terminating the agent Session stops it and its subprocesses',
+      openclawDelete === 204 &&
+        [1, 143].includes(openclawKilled.code) &&
+        openclawStoppedAfterMs < 10_000 &&
+        !existsSync(openclawKilledMarker) &&
+        hostProcesses(`sleep\u0000${openclawToken}`).length === 0,
+      { exit: openclawKilled.code, stoppedAfterMs: openclawStoppedAfterMs },
+    )
+
+    const isolated = await launch(['run the stub task', '--isolated'], undefined, openclaw)
+    check('openclaw: flags that replace the pinned config are refused', isolated.code === 1 && isolated.stderr.includes('--isolated is not allowed'), {})
+  }
+
   await sleep(3000)
   const events = await admin.audit.list(state.zone.id, { limit: 500 })
-  const toolDecisions = events.filter((e) => e.event_type === 'token_exchange' && e.metadata_json?.resource === toolsResource)
+  const toolDecisions = events.filter((e) => e.event_type === 'token_exchange' && [toolsResource, openclawToolsResource].includes(e.metadata_json?.resource))
   check('tool decisions are audited', toolDecisions.some((e) => e.decision === 'allow') && toolDecisions.some((e) => e.decision === 'deny'), {
     allow: toolDecisions.filter((e) => e.decision === 'allow').length,
     deny: toolDecisions.filter((e) => e.decision === 'deny').length,
