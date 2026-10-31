@@ -531,6 +531,9 @@ importers:
       '@caracalai/oauth':
         specifier: workspace:*
         version: link:../oauth/ts
+      '@caracalai/sdk':
+        specifier: workspace:*
+        version: link:../sdk/ts
       '@caracalai/server-core':
         specifier: workspace:*
         version: link:../serverCore/ts

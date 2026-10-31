@@ -8,6 +8,7 @@
 import '@caracalai/engine/scrubCwdEnv'
 import { installCrashHandlers } from './crash.ts'
 import { runCommand } from './commands/run.ts'
+import { launchCommand } from './commands/launch.ts'
 import { upCommand, downCommand, statusCommand, upgradeCommand } from './commands/stack.ts'
 import { purgeCommand } from './commands/purge.ts'
 import { allowlistCommand } from './commands/allowlist.ts'
@@ -33,6 +34,7 @@ const executors: Record<string, Executor> = {
   purge: (argv) => purgeCommand([...argv]),
   allowlist: (argv) => allowlistCommand([...argv]),
   run: (argv, cfg) => runCommand([...argv], cfg),
+  launch: (argv) => launchCommand([...argv]),
   web: (argv) => {
     void webCommand([...argv])
   },
@@ -50,6 +52,7 @@ const availableCommands = new Set([
   'purge',
   'allowlist',
   'run',
+  'launch',
   'config',
   ...(webAvailable ? ['web'] : []),
 ])
