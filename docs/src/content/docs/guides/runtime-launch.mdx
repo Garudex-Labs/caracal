@@ -28,9 +28,13 @@ flowchart LR
 | Built-in and MCP tool calls | A tool-scope mint at STS before the tool runs | Grants, delegation narrowing, revocation, and audit apply. Unknown tools are denied. |
 | Agent lifetime | Session heartbeat | A terminated or revoked Session stops the agent's whole process tree within one heartbeat interval (5 seconds). |
 | Switching hooks off | Launcher | `--bare`, `--settings`, and `--setting-sources` are refused for Claude Code, and the launcher's own settings pin `disableAllHooks` to `false`, which outranks any project, local, or user settings file the agent could write. |
-| Network access and file reads by an allowed command | Not governed | A shell command the agent is allowed to run can reach the network and read files the user can read. Treat tool scopes as limits on what the agent may attempt, not as a sandbox. |
+| Shell commands the agent is allowed to run | Claude Code's OS sandbox, pinned by the launcher | No network access, no writes outside the workspace, and no reads of credential stores: Caracal's configuration and client secret file, the agent's own login, SSH, GPG, cloud CLI, container, GitHub CLI, and package registry credentials. The model cannot ask for an unsandboxed command. |
+| Files outside those stores | Not governed | A sandboxed command can still read other files the user can read. |
+| MCP servers the agent starts | Not sandboxed | Their tool calls are decided like any other tool, but the server processes run outside the sandbox. |
 
-Tool hooks are cooperative: they run inside the agent. Caracal answers every hook with an explicit decision and denies on any error, because agents run the tool when a hook fails. The credential boundary does not depend on hooks: the agent never holds a credential worth stealing.
+Tool hooks are cooperative: they run inside the agent, and Claude Code runs the tool when a hook fails. The launcher's hook is a command that denies whenever it cannot get an answer from Caracal, including when the launcher itself is gone, and Caracal denies on any error or late decision. The credential boundary does not depend on hooks: the agent never holds a credential worth stealing.
+
+On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (`sandbox-exec`). The hook needs `sh` and `curl`. Claude Code runs commands unsandboxed when its sandbox dependencies are missing, so `caracal launch` checks for all of them and refuses to start without them. Native Windows has no Claude Code sandbox and is refused; macOS has not been verified yet.
 
 ## Prepare the zone
 

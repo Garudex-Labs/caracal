@@ -36,6 +36,22 @@ const state = { policies: [], upstreams: [] }
 const results = {}
 const failures = []
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// The client secret lives outside the agent's workspace, where only the launcher should read it.
+const secretDir = mkdtempSync(join(tmpdir(), 'caracal-agent-secret-'))
+const secretFile = join(secretDir, 'anton-client-secret')
+
+// Host processes whose command line contains `token`; tool commands may run in their own PID
+// namespace, so pids they report are not host pids.
+function hostProcesses(token) {
+  return readdirSync('/proc').filter((pid) => {
+    if (!/^\d+$/.test(pid)) return false
+    try {
+      return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(token)
+    } catch {
+      return false
+    }
+  })
+}
 
 function check(name, ok, detail) {
   results[name] = { ok, ...detail }
@@ -82,7 +98,7 @@ function upstreamRequests(container) {
 
 // Runs `caracal launch claude-code`; onSession receives the agent Session id once printed.
 function launch(agentArgs, onSession) {
-  const env = { ...process.env, CARACAL_ZONE_ID: state.zone.id, CARACAL_APPLICATION_ID: state.app.id, CARACAL_APP_CLIENT_SECRET: state.app.client_secret }
+  const env = { ...process.env, CARACAL_ZONE_ID: state.zone.id, CARACAL_APPLICATION_ID: state.app.id, CARACAL_APP_CLIENT_SECRET_FILE: secretFile }
   delete env.ANTHROPIC_API_KEY
   delete env.ANTHROPIC_AUTH_TOKEN
   const child = spawn(process.execPath, [join(root, 'apps/runtime/bin/caracal.mjs'), 'launch', 'claude-code', '--profile', state.profile, '--command', agentCommand, '--', ...agentArgs], { env, cwd: work, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -127,6 +143,7 @@ async function cleanup() {
     }
   }
   rmSync(work, { recursive: true, force: true })
+  rmSync(secretDir, { recursive: true, force: true })
 }
 
 try {
@@ -160,6 +177,7 @@ try {
     scopes: toolScopes,
     operation_enforcement: 'transport_uniform',
   })
+  writeFileSync(secretFile, state.app.client_secret, { mode: 0o600 })
   state.policySet = await admin.policySets.create(state.zone.id, 'Anton Agent Launch E2E')
   state.profile = join(work, 'anton.json')
   writeFileSync(state.profile, JSON.stringify({ model: { resource: modelResource, scopes: ['models:invoke'] }, tools: { resource: toolsResource, scopes: toolScopes } }))
@@ -185,6 +203,18 @@ try {
     { anthropicApiKey: /^ANTHROPIC_API_KEY=(.*)$/m.exec(dumped)?.[1] },
   )
 
+  const escapes = [
+    ['network', 'curl -sS -m 8 https://example.com -o {M}'],
+    ['client secret file', `cat ${secretFile} > {M}`],
+    ['write outside the workspace', `sh -c 'echo escaped > ${secretDir}/escape && cp ${secretDir}/escape {M}'`],
+  ]
+  for (const [index, [name, template]] of escapes.entries()) {
+    const marker = join(work, `escape-${index}.marker`)
+    await scriptModel(`escape-${index}`, template.replace('{M}', marker))
+    const escape = await launch(runStub)
+    check(`sandboxed tool command cannot reach ${name}`, escape.code === 0 && !(existsSync(marker) && readFileSync(marker).length > 0), {})
+  }
+
   await grantTools(['tool:Read'])
   const deniedMarker = join(work, 'denied.marker')
   await scriptModel('denied', `touch ${deniedMarker}`)
@@ -201,8 +231,8 @@ try {
 
   await grantTools(['tool:Read', 'tool:Bash'])
   const killedMarker = join(work, 'killed.marker')
-  const grandchildPid = join(work, 'killed.pid')
-  await scriptModel('killed', `sh -c 'sleep 30 & echo $! > ${grandchildPid}; wait; touch ${killedMarker}'`)
+  const killedToken = `30.${process.pid}`
+  await scriptModel('killed', `sh -c 'sleep ${killedToken} & wait; touch ${killedMarker}'`)
   let terminatedAt = 0
   let deleteStatus
   const killed = await launch(runStub, (id) =>
@@ -213,14 +243,8 @@ try {
   )
   const stoppedAfterMs = Date.now() - terminatedAt
   await sleep(1000)
-  const grandchild = Number(readFileSync(grandchildPid, 'utf8'))
-  let grandchildAlive = true
-  try {
-    process.kill(grandchild, 0)
-  } catch {
-    grandchildAlive = false
-  }
-  check('terminating the agent Session stops the agent and its subprocesses', deleteStatus === 204 && killed.code === 143 && !existsSync(killedMarker) && !grandchildAlive && stoppedAfterMs < 10_000, {
+  const leftovers = hostProcesses(`sleep\u0000${killedToken}`)
+  check('terminating the agent Session stops the agent and its subprocesses', deleteStatus === 204 && killed.code === 143 && !existsSync(killedMarker) && leftovers.length === 0 && stoppedAfterMs < 10_000, {
     exit: killed.code,
     stoppedAfterMs,
   })

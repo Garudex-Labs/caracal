@@ -6,7 +6,9 @@
 import { describe, expect, it } from 'vitest'
 import { GATEWAY_INJECTED_KEY, HOOK_TIMEOUT_SECONDS, agentAdapter, agentNames } from '../../../../packages/engine/src/agentAdapters.js'
 
-const broker = 'http://127.0.0.1:41000/0123abcd'
+const broker = 'http://127.0.0.1:41000/0123abcdef'
+const protectedPaths = ['/home/richard/.ssh', '/home/richard/.config/caracal/anton-client-secret']
+const launch = (args: string[]) => ({ command: 'claude', args, brokerUrl: broker, protectedPaths })
 
 describe('agentAdapter', () => {
   it('resolves supported agents and rejects others', () => {
@@ -19,14 +21,32 @@ describe('claude-code adapter', () => {
   const adapter = agentAdapter('claude-code')
 
   it('routes model traffic and every tool hook through the broker', () => {
-    const plan = adapter.plan('claude', ['-p', 'fix the failing test'], broker)
+    const plan = adapter.plan(launch(['-p', 'fix the failing test']))
     expect(plan.argv.slice(0, 3)).toEqual(['claude', '-p', 'fix the failing test'])
     expect(plan.argv[3]).toBe('--settings')
     expect(JSON.parse(plan.argv[4]!)).toEqual({
       disableAllHooks: false,
+      sandbox: { enabled: true, allowUnsandboxedCommands: false },
+      permissions: {
+        deny: [
+          'Read(//home/richard/.ssh)',
+          'Read(//home/richard/.ssh/**)',
+          'Read(//home/richard/.config/caracal/anton-client-secret)',
+          'Read(//home/richard/.config/caracal/anton-client-secret/**)',
+        ],
+      },
       hooks: {
         PreToolUse: [
-          { matcher: '*', hooks: [{ type: 'http', url: `${broker}/hooks/claude-code/pre-tool-use`, timeout: HOOK_TIMEOUT_SECONDS }] },
+          {
+            matcher: '*',
+            hooks: [
+              {
+                type: 'command',
+                command: `curl -fsS --max-time 8 -H 'content-type: application/json' --data-binary @- '${broker}/hooks/claude-code/pre-tool-use' || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`,
+                timeout: HOOK_TIMEOUT_SECONDS,
+              },
+            ],
+          },
         ],
       },
     })
@@ -37,9 +57,19 @@ describe('claude-code adapter', () => {
     })
   })
 
+  it('needs the sandbox and hook executables where Claude Code can sandbox, and nothing runs elsewhere', () => {
+    expect(adapter.requiredCommands('linux')).toEqual(['bwrap', 'socat', 'sh', 'curl'])
+    expect(adapter.requiredCommands('darwin')).toEqual(['sandbox-exec', 'sh', 'curl'])
+    expect(adapter.requiredCommands('win32')).toBeUndefined()
+  })
+
+  it('refuses a broker url that could escape the hook command quoting', () => {
+    expect(() => adapter.plan({ ...launch([]), brokerUrl: "http://127.0.0.1:41000/x'; touch /tmp/pwn; '" })).toThrow(/unexpected hook url/)
+  })
+
   it('refuses flags that can disable the hooks, in either spelling', () => {
     for (const args of [['--bare'], ['-p', 'hi', '--settings', '{}'], ['--settings={}'], ['--setting-sources', 'user']]) {
-      expect(() => adapter.plan('claude', args, broker)).toThrow(/is not allowed under a governed launch/)
+      expect(() => adapter.plan(launch(args))).toThrow(/is not allowed under a governed launch/)
     }
   })
 

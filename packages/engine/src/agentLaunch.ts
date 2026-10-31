@@ -3,11 +3,13 @@
 //
 // Governed agent launch: Session lifecycle, delegated authority, broker, and process supervision.
 
+import { isAbsolute, join, resolve } from 'node:path'
 import { Authority, Caracal } from '@caracalai/sdk'
 import type { SessionHandle } from '@caracalai/sdk'
 import type { AgentAdapter, ToolDecision } from './agentAdapters.js'
 import type { AgentProfile } from './agentProfile.js'
 import { startAgentBroker, type AgentBroker } from './agentBroker.js'
+import { findExecutable } from './processTree.js'
 import { runExec, type RunExecHandle, type RunLineSink } from './run.js'
 
 export interface AgentLaunchOptions {
@@ -31,6 +33,44 @@ export interface AgentLaunchOptions {
 const HEARTBEAT_INTERVAL_MS = 5_000
 const TTL_SECONDS = 8 * 60 * 60
 
+// Credential stores under the user's home that an agent's tool commands must not read: Caracal's
+// own configuration, the agent's login, and the common cloud, VCS, and package registry stores.
+const HOME_CREDENTIAL_STORES = [
+  '.config/caracal',
+  '.local/share/caracal',
+  '.claude/.credentials.json',
+  '.ssh',
+  '.gnupg',
+  '.aws',
+  '.azure',
+  '.config/gcloud',
+  '.kube',
+  '.docker/config.json',
+  '.config/gh',
+  '.git-credentials',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+]
+// Caracal locations named in the launcher's environment, which may sit outside the home directory.
+const CARACAL_PATH_VARIABLES = [
+  'CARACAL_APP_CLIENT_SECRET_FILE',
+  'CARACAL_CONFIG',
+  'CARACAL_CONFIG_HOME',
+  'CARACAL_HOME',
+  'CARACAL_SECRETS_DIR',
+]
+
+export function protectedPaths(env: NodeJS.ProcessEnv): string[] {
+  const home = env.HOME ?? env.USERPROFILE
+  const paths = home && isAbsolute(home) ? HOME_CREDENTIAL_STORES.map((store) => join(home, store)) : []
+  for (const name of CARACAL_PATH_VARIABLES) {
+    const value = env[name]
+    if (value) paths.push(resolve(value))
+  }
+  return [...new Set(paths)]
+}
+
 function appResources(env: NodeJS.ProcessEnv, profile: AgentProfile): string {
   const listed = (env.CARACAL_APP_RESOURCES ?? '')
     .split(',')
@@ -39,10 +79,23 @@ function appResources(env: NodeJS.ProcessEnv, profile: AgentProfile): string {
   return [...new Set([...listed, profile.model.resource, profile.tools.resource])].join(',')
 }
 
+// Refuses a launch whose tool sandbox or hook could not work, before any Session exists.
+function assertSandboxAvailable(adapter: AgentAdapter, env: NodeJS.ProcessEnv): void {
+  const required = adapter.requiredCommands(process.platform)
+  if (!required)
+    throw new Error(
+      `${adapter.name}: governed launch is not supported on ${process.platform} because its tool sandbox is unavailable there`,
+    )
+  const missing = required.filter((command) => !findExecutable([command], env.PATH))
+  if (missing.length)
+    throw new Error(`${adapter.name}: ${missing.join(', ')} not found on PATH; the agent's tool sandbox and hook need them`)
+}
+
 // Runs one governed agent to completion and resolves its exit code. The agent holds no Caracal
 // or upstream credential: model calls and tool decisions go through the loopback broker, which
 // acts under a delegated agent Session the launcher keeps alive and tears down.
 export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
+  assertSandboxAvailable(opts.adapter, opts.env)
   const log = (line: string) => opts.onLine?.(`caracal: ${line}`, 'stderr')
   const ttlSeconds = opts.ttlSeconds ?? TTL_SECONDS
   const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
@@ -106,7 +159,12 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       },
     })
 
-    const plan = opts.adapter.plan(opts.command ?? opts.adapter.command, opts.args, broker.url)
+    const plan = opts.adapter.plan({
+      command: opts.command ?? opts.adapter.command,
+      args: opts.args,
+      brokerUrl: broker.url,
+      protectedPaths: protectedPaths(opts.env),
+    })
     child = runExec({ argv: plan.argv, env: plan.env, cwd: opts.cwd })
     if (stopReason) child.dispose()
     return await child.exitCode

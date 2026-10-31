@@ -51,6 +51,22 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('findExecutable', () => {
+  it('returns the first matching file along the search path', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs')
+    const { join, delimiter } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const mod = await loadFor(ORIG_PLATFORM)
+    const first = mkdtempSync(join(tmpdir(), 'caracal-path-a-'))
+    const second = mkdtempSync(join(tmpdir(), 'caracal-path-b-'))
+    mkdirSync(join(first, 'curl'))
+    writeFileSync(join(second, 'curl'), '')
+    expect(mod.findExecutable(['curl'], [first, '', second].join(delimiter))).toBe(join(second, 'curl'))
+    expect(mod.findExecutable(['bwrap'], [first, second].join(delimiter))).toBeUndefined()
+    expect(mod.findExecutable(['curl'], undefined)).toBeUndefined()
+  })
+})
+
 describe('leadsProcessGroup', () => {
   it('leads a group on POSIX when no inherited stream is a terminal', async () => {
     const mod = await loadFor('linux')

@@ -10,6 +10,14 @@ export interface AgentLaunchPlan {
   env: Record<string, string | undefined>
 }
 
+export interface AgentLaunchInput {
+  command: string
+  args: string[]
+  brokerUrl: string
+  // Absolute paths of credential stores the agent's tool commands must not read.
+  protectedPaths: string[]
+}
+
 export interface AgentAdapter {
   readonly name: string
   // Executable launched when the caller does not name one.
@@ -20,8 +28,11 @@ export interface AgentAdapter {
   toolName(payload: unknown): string | undefined
   // Hook response body for a decision, in the agent's own format.
   hookResponse(decision: ToolDecision): unknown
+  // Executables the agent's tool sandbox and hook need on this platform; undefined when the
+  // agent cannot be sandboxed there at all.
+  requiredCommands(platform: NodeJS.Platform): string[] | undefined
   // argv and environment for one launch; throws when caller args would disable governance.
-  plan(command: string, args: string[], brokerUrl: string): AgentLaunchPlan
+  plan(input: AgentLaunchInput): AgentLaunchPlan
 }
 
 // Placeholder for SDK-mandatory API keys; the Gateway strips it and injects the real credential.
@@ -30,6 +41,15 @@ export const GATEWAY_INJECTED_KEY = 'caracal-gateway-injected'
 // The hook must answer before the agent's own timeout, or the agent treats it as an error and
 // runs the tool anyway; the broker's decision deadline stays below this.
 export const HOOK_TIMEOUT_SECONDS = 10
+
+// Claude Code runs the tool when a hook errors, times out, or cannot reach its endpoint, and its
+// sandbox blocks HTTP hooks from reaching loopback. A command hook runs outside the sandbox, and
+// this one turns every failure to get a decision (broker gone, timeout, no curl) into exit 2, which
+// Claude Code treats as a denial.
+function claudeCodeHookCommand(url: string): string {
+  if (!/^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]+\/[a-z/-]+$/.test(url)) throw new Error(`claude-code: unexpected hook url ${url}`)
+  return `curl -fsS --max-time ${HOOK_TIMEOUT_SECONDS - 2} -H 'content-type: application/json' --data-binary @- '${url}' || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`
+}
 
 // --bare skips every hook; --settings and --setting-sources can load settings that disable them.
 const CLAUDE_CODE_BLOCKED_FLAGS = ['--bare', '--settings', '--setting-sources']
@@ -49,7 +69,14 @@ const claudeCode: AgentAdapter = {
     if (decision.allow) return {}
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: decision.reason } }
   },
-  plan(command, args, brokerUrl) {
+  requiredCommands(platform) {
+    // Claude Code silently runs commands unsandboxed when these are missing, so they are checked
+    // before launch. Native Windows has no Claude Code sandbox.
+    if (platform === 'linux') return ['bwrap', 'socat', 'sh', 'curl']
+    if (platform === 'darwin') return ['sandbox-exec', 'sh', 'curl']
+    return undefined
+  },
+  plan({ command, args, brokerUrl, protectedPaths }) {
     for (const arg of args) {
       const flag = CLAUDE_CODE_BLOCKED_FLAGS.find((blocked) => arg === blocked || arg.startsWith(`${blocked}=`))
       if (flag) throw new Error(`claude-code: ${flag} is not allowed under a governed launch because it can disable Caracal's tool hooks`)
@@ -58,8 +85,21 @@ const claudeCode: AgentAdapter = {
       // Command-line settings outrank project, local, and user settings files, which the agent
       // can write itself; only root-owned managed settings rank higher.
       disableAllHooks: false,
+      // Bash commands run in Claude Code's OS sandbox (bubblewrap on Linux, Seatbelt on macOS):
+      // no network and no writes outside the workspace, and the model cannot opt a command out.
+      sandbox: { enabled: true, allowUnsandboxedCommands: false },
+      // The sandbox leaves reads open; these rules close credential stores to tool commands and
+      // to the Read tool alike. A leading `//` marks an absolute path.
+      permissions: { deny: protectedPaths.flatMap((path) => [`Read(/${path})`, `Read(/${path}/**)`]) },
       hooks: {
-        PreToolUse: [{ matcher: '*', hooks: [{ type: 'http', url: `${brokerUrl}${claudeCode.hookPath}`, timeout: HOOK_TIMEOUT_SECONDS }] }],
+        PreToolUse: [
+          {
+            matcher: '*',
+            hooks: [
+              { type: 'command', command: claudeCodeHookCommand(`${brokerUrl}${claudeCode.hookPath}`), timeout: HOOK_TIMEOUT_SECONDS },
+            ],
+          },
+        ],
       },
     }
     return {
