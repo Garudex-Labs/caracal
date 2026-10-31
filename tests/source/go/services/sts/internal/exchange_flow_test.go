@@ -753,3 +753,58 @@ func TestExchangeSessionOwnership(t *testing.T) {
 		t.Fatalf("revoked Session must deny, code=%d err=%#v", code, apiErr)
 	}
 }
+
+// A rejected Session or delegation reference must leave a deny event, so a revoked agent's
+// continued attempts and out-of-delegation requests are visible in the audit stream.
+func TestExchangeAuditsRejectedSessionReferences(t *testing.T) {
+	now := time.Now()
+	session := func(id, status string) *Session {
+		return &Session{ID: id, ZoneID: "zone1", ApplicationID: "app1", Lifecycle: "task", Status: status, StartedAt: now.Add(-time.Minute), TTLSeconds: 600}
+	}
+	edge := &DelegationEdge{
+		ID:              "edge-1",
+		ZoneID:          "zone1",
+		SourceSessionID: "launcher-1",
+		TargetSessionID: "agent-1",
+		IssuerAppID:     "app1",
+		ReceiverAppID:   "app1",
+		Scopes:          []string{"pipernet:read"},
+		Status:          "active",
+		ExpiresAt:       now.Add(time.Minute),
+	}
+	cases := []struct {
+		name     string
+		sessions []*Session
+		edge     *DelegationEdge
+		scope    string
+		reason   string
+	}{
+		{"terminated session", []*Session{session("agent-1", "terminated")}, nil, "pipernet:read", "inactive"},
+		{"scope outside delegation", []*Session{session("launcher-1", "active"), session("agent-1", "active")}, edge, "pipernet:write", "requested scopes exceed delegation scopes"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := exchangeFlowDB(t)
+			db.sessions = tc.sessions
+			db.edge = tc.edge
+			srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+			req := baseExchangeRequest()
+			req.Scope = tc.scope
+			req.SessionID = "agent-1"
+			if tc.edge != nil {
+				req.DelegationEdgeID = tc.edge.ID
+			}
+			_, _, code, apiErr := srv.exchange(context.Background(), req, "req-ref")
+			if code != http.StatusForbidden || apiErr == nil || !strings.Contains(apiErr.Description, tc.reason) {
+				t.Fatalf("expected 403 %q, got code=%d err=%#v", tc.reason, code, apiErr)
+			}
+			meta := auditMetaFor(t, srv, "deny", "session_reference_invalid")
+			if meta["reason"] != apiErr.Description || meta["agent_session_id"] != "agent-1" || meta["application_id"] != "app1" {
+				t.Fatalf("deny event must name the reason, Session, and application: %v", meta)
+			}
+			if tc.edge != nil && meta["delegation_edge_id"] != tc.edge.ID {
+				t.Fatalf("deny event must name the delegation edge: %v", meta)
+			}
+		})
+	}
+}
