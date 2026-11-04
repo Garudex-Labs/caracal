@@ -6,7 +6,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { AgentAdapter } from '../../../../packages/engine/src/agentAdapters.js'
 import { agentAdapter } from '../../../../packages/engine/src/agentAdapters.js'
 
@@ -61,6 +61,8 @@ vi.mock('@caracalai/sdk', () => ({
     },
   },
 }))
+
+const ORIG_PLATFORM = process.platform
 
 // Launch tests use stand-in agents, which have no version to check.
 const claudeCode = { ...agentAdapter('claude-code'), versions: undefined }
@@ -351,6 +353,21 @@ describe('launchAgent', () => {
       expect(seen).toContain(sandboxBin)
       expect(seen).not.toContain('piper-secret')
     })
+  })
+
+  it('refuses a Windows shell shim that the launch could not run', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    onTestFinished(() => Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true }))
+    const adapter = { ...claudeCode, requiredCommands: () => [] }
+    await expect(launchAgent({ adapter, profile, args: [], env: {}, command: 'C:\\tools\\openclaw.cmd' })).rejects.toThrow(/shell shim/)
+    expect(sdk.startSession).not.toHaveBeenCalled()
+  })
+
+  it('gives the agent the HOME its credential stores were protected under', async () => {
+    const out = join(mkdtempSync(join(tmpdir(), 'caracal-home-out-')), 'home')
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, process.env.HOME)`
+    await launchAgent({ adapter: fakeAgent(script), profile, args: [], env: { PATH: sandboxBin, HOME: '/home/richard' } })
+    expect(readFileSync(out, 'utf8')).toBe('/home/richard')
   })
 
   it('refuses to start when host policy would switch off governance', async () => {

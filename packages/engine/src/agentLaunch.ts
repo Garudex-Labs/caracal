@@ -126,7 +126,13 @@ function assertAgentVersion(adapter: AgentAdapter, command: string, env: NodeJS.
 export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
   assertSandboxAvailable(opts.adapter, opts.env)
   const log = (line: string) => opts.onLine?.(`caracal: ${line}`, 'stderr')
-  assertAgentVersion(opts.adapter, opts.command ?? opts.adapter.command, opts.env, log)
+  const command = opts.command ?? opts.adapter.command
+  // runExec never uses a shell, which Windows requires for these shims.
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command))
+    throw new Error(
+      `${opts.adapter.name}: ${command} is a shell shim, which a governed launch cannot run; pass the agent's executable with --command`,
+    )
+  assertAgentVersion(opts.adapter, command, opts.env, log)
   const ttlSeconds = opts.ttlSeconds ?? TTL_SECONDS
   const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
   const { model, tools } = opts.profile
@@ -196,7 +202,7 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
 
     const workspace = resolve(opts.cwd ?? '.')
     const plan = opts.adapter.plan({
-      command: opts.command ?? opts.adapter.command,
+      command,
       args: opts.args,
       brokerUrl: broker.url,
       protectedPaths: protectedPaths(opts.env),
@@ -209,8 +215,13 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
       writeFileSync(path, content, { mode: 0o600 })
     }
-    // The agent gets the PATH its sandbox and hook requirements were checked against.
-    const env = opts.env.PATH === undefined ? plan.env : { ...plan.env, PATH: opts.env.PATH }
+    // The agent gets the PATH its requirements were checked against and the HOME its credential
+    // stores were protected under.
+    const env = {
+      ...(opts.env.HOME === undefined ? {} : { HOME: opts.env.HOME }),
+      ...(opts.env.PATH === undefined ? {} : { PATH: opts.env.PATH }),
+      ...plan.env,
+    }
     child = runExec({ argv: plan.argv, env, cwd: plan.cwd ?? workspace })
     if (stopReason) void child.dispose()
     return await child.exitCode

@@ -9,6 +9,7 @@ const port = Number(process.argv[2] ?? 18090)
 const command = process.env.STUB_COMMAND ?? 'true'
 // Optional second tool call, requested after the first one reports back.
 const nextCommand = process.env.STUB_NEXT_COMMAND
+const nextDelayMs = Number(process.env.STUB_NEXT_DELAY_MS ?? 0)
 // The agent's shell tool name: `Bash` for Claude Code, `exec` for OpenClaw.
 const toolName = process.env.STUB_TOOL ?? 'Bash'
 const REDACT = new Set(['x-api-key', 'authorization', 'cookie'])
@@ -35,7 +36,7 @@ function reply(body) {
   const toolResults = (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((c) => c.type === 'tool_result').length
   if (nextCommand && toolResults === 1) return { kind: 'tool', id: 'toolu_stub_next', input: { command: nextCommand, description: 'next stub tool call' } }
   const offersTool = Array.isArray(body.tools) && body.tools.some((t) => t.name === toolName)
-  if (offersTool && !sawToolResult) return { kind: 'tool', input: { command, description: 'stub tool call', ...(toolName === 'Bash' ? { timeout: 300_000 } : {}) } }
+  if (offersTool && !sawToolResult) return { kind: 'tool', input: { command, description: 'stub tool call', ...(toolName === 'Bash' ? { timeout: 300_000 } : { yieldMs: 120_000 }) } }
   return { kind: 'text', text: 'DONE' }
 }
 
@@ -63,7 +64,7 @@ function stream(res, r) {
 createServer((req, res) => {
   let raw = ''
   req.on('data', (c) => (raw += c))
-  req.on('end', () => {
+  req.on('end', async () => {
     const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, redact(k, v)]))
     let body = {}
     try {
@@ -82,6 +83,7 @@ createServer((req, res) => {
     }
     if (req.method === 'POST' && path === '/v1/messages') {
       const r = reply(body)
+      if (r.id) await new Promise((resolve) => setTimeout(resolve, nextDelayMs))
       if (body.stream) return stream(res, r)
       const content = r.kind === 'tool' ? [{ type: 'tool_use', id: r.id ?? 'toolu_stub', name: toolName, input: r.input }] : [{ type: 'text', text: r.text }]
       res.writeHead(200, { 'content-type': 'application/json' })

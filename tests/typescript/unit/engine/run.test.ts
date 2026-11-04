@@ -320,7 +320,11 @@ describe('runExec', () => {
       }
     })
 
+  // A left-behind process is told apart from the launcher's peers by starting a second or more after it.
+  const afterStartupWindow = () => vi.waitFor(() => expect(process.uptime()).toBeGreaterThan(2), { timeout: 3000 })
+
   it.skipIf(process.platform === 'win32')('stops what a terminal child left behind after it exited', async () => {
+    await afterStartupWindow()
     const parent = [
       "const { spawn } = require('node:child_process')",
       "const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' })",
@@ -337,6 +341,7 @@ describe('runExec', () => {
   })
 
   it.skipIf(process.platform === 'win32')('stops what a terminal child starts during the stop', async () => {
+    await afterStartupWindow()
     const parent = [
       "const { spawn } = require('node:child_process')",
       "process.on('SIGTERM', () => { const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' }); process.stdout.write(c.pid + '\\n', () => setTimeout(() => process.exit(0), 50)) })",

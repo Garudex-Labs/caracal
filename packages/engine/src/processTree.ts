@@ -135,7 +135,7 @@ interface ProcessRow {
 // ps prints elapsed time as [[dd-]hh:]mm:ss on every POSIX platform.
 function elapsedSeconds(value: string): number {
   const [days, clock] = value.includes('-') ? value.split('-') : ['0', value]
-  return (clock ?? '').split(':').reduce((total, part) => total * 60 + Number(part), Number(days) * 24 * 60)
+  return Number(days) * 24 * 60 * 60 + (clock ?? '').split(':').reduce((total, part) => total * 60 + Number(part), 0)
 }
 
 function processTable(): ProcessRow[] {
@@ -149,8 +149,8 @@ function processTable(): ProcessRow[] {
 
 // The processes of a child that shares the caller's terminal, and so the caller's process group:
 // its descendants, plus any it left behind. A process whose parent exited is reparented out of the
-// tree but stays in the group, so it is found there by having started after this process with a
-// parent outside the group. The launcher's own ancestors and whatever they started, such as the
+// tree but stays in the group, so it is found there by having started at least a second after this
+// process, which also rules out anything started alongside it, with a parent outside the group. The launcher's own ancestors and whatever they started, such as the
 // other side of a pipeline, are spared; the ancestor just outside the group counts only when it sits
 // on a terminal, because otherwise it is a reaper that adopts the very processes being looked for.
 // A process that moved to its own group cannot be found.
@@ -171,7 +171,7 @@ function terminalTree(root: number): number[] {
       !spared.has(row.pid) &&
       !spared.has(row.ppid) &&
       byPid.get(row.ppid)?.pgid !== group &&
-      row.elapsedSeconds <= Math.floor(process.uptime()),
+      row.elapsedSeconds < Math.floor(process.uptime()),
   )
   const tree = [root, ...leftBehind.map((row) => row.pid)]
   for (const pid of tree) tree.push(...(children.get(pid) ?? []))

@@ -107,7 +107,7 @@ Everything after `--` goes to the agent unchanged. Interactive sessions work the
 
 Terminate the agent Session from the web console or through the Coordinator. Any model call or tool decision made after that is refused by STS. Within one heartbeat the launcher sends `SIGTERM` to the agent and its subprocesses, then `SIGKILL` to anything still running 5 seconds later, and it stays up until they are gone.
 
-An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table while it stops the agent, including ones the agent left behind or starts during the stop. A process that moved itself to its own process group or session is not stopped.
+An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table while it stops the agent, including ones the agent left behind or starts during the stop. A process that moved itself to its own process group or session is not stopped, and neither is one the agent left behind within a second of the launcher starting, because it cannot be told apart from something started alongside the launcher. A process left behind by something else in the launcher's own process group during the launch cannot be told apart from the agent's, so avoid backgrounding unrelated work from a script in the same group as an interactive launch.
 
 If the launcher itself is killed with `SIGKILL`, it cannot stop anything. The agent process keeps running but can no longer reach the model or get a tool call approved, because the broker went with the launcher, and STS stops honouring its Session about two minutes later. Stop that process yourself.
 

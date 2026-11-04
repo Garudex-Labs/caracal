@@ -170,6 +170,32 @@ describe('killTree', () => {
     expect(spawnSyncMock).toHaveBeenLastCalledWith('taskkill', ['/pid', '99', '/T', '/F'], expect.objectContaining({ windowsHide: true }))
   })
 
+  it('reads elapsed times with a day field when finding what a terminal child left behind', async () => {
+    const mod = await loadFor('linux')
+    const self = process.pid
+    const parent = process.ppid
+    spawnSyncMock.mockReturnValue({
+      status: 0,
+      stdout: [
+        `${self} ${parent} 500 pts/1 3-00:00:00`,
+        `${parent} 1 400 pts/1 4-00:00:00`,
+        '1 0 1 ? 9-00:00:00',
+        // Left behind by the agent a day into this launch.
+        '999991 1 500 pts/1 1-00:00:00',
+        // Started before the launcher, by something else in its group.
+        '999992 1 500 pts/1 4-00:00:00',
+        // Started alongside the launcher: the other side of a pipeline, with no terminal to go by.
+        '999993 1 500 ? 3-00:00:00',
+      ].join('\n'),
+    })
+    vi.spyOn(process, 'uptime').mockReturnValue(3 * 24 * 60 * 60)
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true)
+    mod.forwardSignal(fakeChild(999990), 'SIGTERM', false)
+    expect(killSpy).toHaveBeenCalledWith(999991, 'SIGTERM')
+    expect(killSpy).not.toHaveBeenCalledWith(999992, 'SIGTERM')
+    expect(killSpy).not.toHaveBeenCalledWith(999993, 'SIGTERM')
+  })
+
   it('escalates to SIGKILL only after the grace period', async () => {
     const mod = await loadFor('linux')
     vi.useFakeTimers()
