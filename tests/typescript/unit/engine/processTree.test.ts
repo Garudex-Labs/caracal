@@ -6,7 +6,7 @@
 import type { ChildProcess } from 'node:child_process'
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const spawnMock = vi.hoisted(() => vi.fn())
 const spawnSyncMock = vi.hoisted(() => vi.fn())
@@ -139,6 +139,38 @@ describe('killTree', () => {
 
     mod.killTree(fakeChild(99), 'SIGKILL')
     expect(spawnSyncMock).toHaveBeenLastCalledWith('taskkill', ['/pid', '99', '/T', '/F'], expect.objectContaining({ windowsHide: true }))
+  })
+
+  it('escalates to SIGKILL only after the grace period', async () => {
+    const mod = await loadFor('linux')
+    vi.useFakeTimers()
+    onTestFinished(() => void vi.useRealTimers())
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true)
+    const stopped = mod.stopTree(fakeChild(1234), 1000, true)
+    expect(killSpy).toHaveBeenCalledWith(-1234, 'SIGTERM')
+    await vi.advanceTimersByTimeAsync(999)
+    expect(killSpy).not.toHaveBeenCalledWith(-1234, 'SIGKILL')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(killSpy).toHaveBeenCalledWith(-1234, 'SIGKILL')
+    await vi.advanceTimersByTimeAsync(2000)
+    await stopped
+  })
+
+  it('does not escalate once the group is gone', async () => {
+    const mod = await loadFor('linux')
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw new Error('ESRCH')
+      return true
+    })
+    await mod.stopTree(fakeChild(1234), 1000, true)
+    expect(killSpy).not.toHaveBeenCalledWith(-1234, 'SIGKILL')
+  })
+
+  it('forces the whole tree at once on Windows, while taskkill can still find it', async () => {
+    const mod = await loadFor('win32')
+    const child = Object.assign(fakeChild(1234), { exitCode: 1, signalCode: null })
+    await mod.stopTree(child, 1000, false)
+    expect(spawnSyncMock).toHaveBeenCalledWith('taskkill', ['/pid', '1234', '/T', '/F'], expect.objectContaining({ windowsHide: true }))
   })
 
   it('falls back to a direct child kill when taskkill fails', async () => {

@@ -20,9 +20,10 @@ describe('claude-code adapter', () => {
 
   it('routes model traffic and every tool hook through the broker', () => {
     const plan = adapter.plan('claude', ['-p', 'fix the failing test'], broker)
-    expect(plan.argv.slice(0, 3)).toEqual(['claude', '-p', 'fix the failing test'])
-    expect(plan.argv[3]).toBe('--settings')
-    expect(JSON.parse(plan.argv[4]!)).toEqual({
+    expect(plan.argv[0]).toBe('claude')
+    expect(plan.argv[1]).toBe('--settings')
+    expect(plan.argv.slice(3)).toEqual(['-p', 'fix the failing test'])
+    expect(JSON.parse(plan.argv[2]!)).toEqual({
       disableAllHooks: false,
       hooks: {
         PreToolUse: [
@@ -38,6 +39,11 @@ describe('claude-code adapter', () => {
       ANTHROPIC_API_KEY: GATEWAY_INJECTED_KEY,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     })
+  })
+
+  it('pins its settings before an option terminator in the caller args can make them positional', () => {
+    const { argv } = adapter.plan('claude', ['-p', 'task', '--'], broker)
+    expect(argv.indexOf('--settings')).toBeLessThan(argv.indexOf('--'))
   })
 
   it('refuses flags that can disable the hooks, in either spelling', () => {

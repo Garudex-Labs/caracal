@@ -3,11 +3,11 @@
 //
 // Shim-free resolution of the pnpm invocation used by workspace interface launchers.
 
-import { existsSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { delimiter, resolve } from 'node:path'
 
 // pnpm ships as a bare binary on POSIX; on Windows it is pnpm.exe (standalone install)
-// or a pnpm.cmd shim (npm/corepack), probed in PATHEXT order.
+// or a pnpm.cmd shim (npm/corepack), probed in that fixed order.
 const PNPM_BINS = process.platform === 'win32' ? ['pnpm.exe', 'pnpm.cmd'] : ['pnpm']
 const PNPM_ENTRY = /(^|[\\/])pnpm(\.[cm]?js|\.exe|\.cmd)?$/i
 const JS_ENTRY = /\.[cm]?js$/i
@@ -19,7 +19,10 @@ function locate(binNames: string[]): string | undefined {
     for (const name of binNames) {
       const candidate = resolve(dir, name)
       try {
-        if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+        if (existsSync(candidate) && statSync(candidate).isFile()) {
+          accessSync(candidate, constants.X_OK)
+          return candidate
+        }
       } catch {
         /* ignore */
       }
@@ -39,8 +42,10 @@ export interface PnpmInvocation {
 // spawnSyncTree from @caracalai/engine apply the shell opt-in for it.
 export function resolvePnpm(): PnpmInvocation | undefined {
   const execpath = process.env.npm_execpath
-  if (execpath && PNPM_ENTRY.test(execpath)) {
-    return JS_ENTRY.test(execpath) ? { cmd: process.execPath, prefix: [execpath] } : { cmd: execpath, prefix: [] }
+  if (execpath && PNPM_ENTRY.test(execpath) && existsSync(execpath)) {
+    if (!JS_ENTRY.test(execpath)) return { cmd: execpath, prefix: [] }
+    // In a compiled caracal binary process.execPath is caracal itself, which cannot run a script.
+    if (!process.versions.bun) return { cmd: process.execPath, prefix: [execpath] }
   }
   const onPath = locate(PNPM_BINS)
   if (onPath) return { cmd: onPath, prefix: [] }

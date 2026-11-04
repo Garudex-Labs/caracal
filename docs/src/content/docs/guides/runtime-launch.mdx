@@ -30,7 +30,7 @@ flowchart LR
 | Switching hooks off | Launcher | `--bare`, `--settings`, and `--setting-sources` are refused for Claude Code, and the launcher's own settings pin `disableAllHooks` to `false`, which outranks any project, local, or user settings file the agent could write. |
 | Network access and file reads by an allowed command | Not governed | A shell command the agent is allowed to run can reach the network and read files the user can read. Treat tool scopes as limits on what the agent may attempt, not as a sandbox. |
 
-Tool hooks are cooperative: they run inside the agent. Caracal answers every hook with an explicit decision and denies on any error, because agents run the tool when a hook fails. The credential boundary does not depend on hooks: the agent never holds a credential worth stealing.
+Tool hooks are cooperative: they run inside the agent. Caracal answers every hook with an explicit decision and denies on any error, because agents run the tool when a hook fails. The credential boundary does not depend on hooks: the launcher keeps Caracal and provider credentials out of the agent's environment. An allowed shell command can still read any file the user can read, including the Application client secret file.
 
 ## Prepare the zone
 
@@ -78,7 +78,7 @@ Everything after `--` goes to the agent unchanged. Interactive sessions work the
 
 Terminate the agent Session from the web console or through the Coordinator. Any model call or tool decision made after that is refused by STS. Within one heartbeat the launcher sends `SIGTERM` to the agent and its subprocesses, then `SIGKILL` to anything still running 5 seconds later, and it stays up until they are gone.
 
-An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table when it stops the agent, and a process that has already detached from the agent's tree is not stopped.
+An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table while it stops the agent, including ones the agent left behind or starts during the stop. A process that moved itself to its own process group or session is not stopped.
 
 If the launcher itself is killed with `SIGKILL`, it cannot stop anything. The agent process keeps running but can no longer reach the model or get a tool call approved, because the broker went with the launcher, and STS stops honouring its Session about two minutes later. Stop that process yourself.
 

@@ -69,7 +69,8 @@ const claudeCode: AgentAdapter = {
       },
     }
     return {
-      argv: [command, ...args, '--settings', JSON.stringify(settings)],
+      // Pinned first: anything after an `--` in the caller's args would be read as a positional.
+      argv: [command, '--settings', JSON.stringify(settings), ...args],
       env: {
         ANTHROPIC_BASE_URL: `${brokerUrl}/model`,
         ANTHROPIC_API_KEY: GATEWAY_INJECTED_KEY,

@@ -208,7 +208,7 @@ try {
   const killed = await launch(runStub, (id) =>
     setTimeout(async () => {
       terminatedAt = Date.now()
-      deleteStatus = await terminate(id)
+      deleteStatus = await terminate(id).catch(() => undefined)
     }, 4000),
   )
   const stoppedAfterMs = Date.now() - terminatedAt
@@ -226,7 +226,7 @@ try {
   })
 
   await scriptModel('concurrent', `sh -c 'sleep 8; touch ${work}/concurrent-$$.marker'`)
-  const [stopped, survivor] = await Promise.all([launch(runStub, (id) => setTimeout(() => void terminate(id), 3000)), launch(runStub)])
+  const [stopped, survivor] = await Promise.all([launch(runStub, (id) => setTimeout(() => void terminate(id).catch((err) => console.warn(`terminate failed: ${err instanceof Error ? err.message : String(err)}`)), 3000)), launch(runStub)])
   const concurrentMarkers = readdirSync(work).filter((name) => name.startsWith('concurrent-')).length
   check('concurrent launches run in separate Sessions and stop independently', stopped.code === 143 && survivor.code === 0 && concurrentMarkers === 1 && stopped.session !== survivor.session, {
     stoppedExit: stopped.code,

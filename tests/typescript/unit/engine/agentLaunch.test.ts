@@ -168,6 +168,24 @@ describe('launchAgent', () => {
     await expect(fetch(`${seen.brokerUrl}/hooks/claude-code/pre-tool-use`, { method: 'POST', body: '{}' })).rejects.toThrow()
   })
 
+  it('forwards model calls as the agent Session with only the model scopes', async () => {
+    sdk.fetch.mockImplementation(async () => new Response('{"ok":true}'))
+    const seen: { brokerUrl?: string } = {}
+    const run = launchAgent({ adapter: fakeAgent('setInterval(() => {}, 1e6)', seen), profile, args: [], env: {} })
+    await vi.waitFor(() => expect(seen.brokerUrl).toBeDefined())
+    const res = await fetch(`${seen.brokerUrl}/model/v1/messages?beta=true`, { method: 'POST', body: '{}' })
+    expect(res.status).toBe(200)
+    const [resource, path, init, session] = sdk.fetch.mock.calls[0] as [string, string, { scopes: string[] }, string]
+    expect({ resource, path, scopes: init.scopes, session }).toEqual({
+      resource: 'resource://pipernet-models',
+      path: '/v1/messages?beta=true',
+      scopes: ['models:invoke'],
+      session: 'session-agent',
+    })
+    ;(sdk.sessions[1]!.opts.onLeaseLost as (err: unknown) => void)(new Error('done'))
+    await run
+  })
+
   it('stops the agent when its delegated authority expires', async () => {
     const lines: string[] = []
     const code = await launchAgent({
