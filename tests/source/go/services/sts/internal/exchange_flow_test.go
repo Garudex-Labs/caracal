@@ -813,6 +813,10 @@ func TestExchangeAuditsRejectedSessionReferences(t *testing.T) {
 			if code != http.StatusForbidden || apiErr == nil || !strings.Contains(apiErr.Description, tc.reason) {
 				t.Fatalf("expected 403 %q, got code=%d err=%#v", tc.reason, code, apiErr)
 			}
+			// The audit ownership lookup runs last on the denial path.
+			if last := db.lookupIDs[len(db.lookupIDs)-1]; last != req.SessionID {
+				t.Fatalf("audit ownership lookup must read the requested Session: %q", last)
+			}
 			meta := auditMetaFor(t, srv, "deny", "session_reference_invalid")
 			if meta["reason"] != apiErr.Description || meta[tc.key] != "agent-1" || meta["application_id"] != "app1" {
 				t.Fatalf("deny event must name the reason, Session, and application: %v", meta)
