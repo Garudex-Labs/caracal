@@ -107,6 +107,7 @@ interface ProcessRow {
   pid: number
   ppid: number
   pgid: number
+  tty: string
   elapsedSeconds: number
 }
 
@@ -117,12 +118,11 @@ function elapsedSeconds(value: string): number {
 }
 
 function processTable(): ProcessRow[] {
-  const table = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,pgid=,etime='], { encoding: 'utf8', windowsHide: true }).stdout
+  const table = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,pgid=,tty=,etime='], { encoding: 'utf8', windowsHide: true }).stdout
   return (typeof table === 'string' ? table : '').split('\n').flatMap((line) => {
-    const [pid, ppid, pgid, etime] = line.trim().split(/\s+/)
-    return pid && ppid && pgid && etime
-      ? [{ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), elapsedSeconds: elapsedSeconds(etime) }]
-      : []
+    const [pid, ppid, pgid, tty, etime] = line.trim().split(/\s+/)
+    if (!pid || !ppid || !pgid || !tty || !etime) return []
+    return [{ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), tty, elapsedSeconds: elapsedSeconds(etime) }]
   })
 }
 
@@ -130,15 +130,20 @@ function processTable(): ProcessRow[] {
 // its descendants, plus any it left behind. A process whose parent exited is reparented out of the
 // tree but stays in the group, so it is found there by having started after this process with a
 // parent outside the group. The launcher's own ancestors and whatever they started, such as the
-// other side of a pipeline, are spared. A process that moved to its own group cannot be found.
+// other side of a pipeline, are spared; the ancestor just outside the group counts only when it sits
+// on a terminal, because otherwise it is a reaper that adopts the very processes being looked for.
+// A process that moved to its own group cannot be found.
 function terminalTree(root: number): number[] {
   const rows = processTable()
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   const children = new Map<number, number[]>()
   for (const row of rows) children.set(row.ppid, [...(children.get(row.ppid) ?? []), row.pid])
   const group = byPid.get(process.pid)?.pgid
-  const spared = new Set<number>([process.pid, process.ppid])
-  for (let row = byPid.get(process.ppid); row && row.pgid === group; row = byPid.get(row.ppid)) spared.add(row.ppid)
+  const spared = new Set<number>([process.pid])
+  for (let row = byPid.get(process.pid); row; row = byPid.get(row.ppid)) {
+    if (row.pgid === group || !row.tty.startsWith('?')) spared.add(row.pid)
+    if (row.pgid !== group) break
+  }
   const leftBehind = rows.filter(
     (row) =>
       row.pgid === group &&
