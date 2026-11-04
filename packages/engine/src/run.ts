@@ -83,7 +83,8 @@ export interface RunExecOpts {
   // Default true for runtime ergonomics. Hosts that own the keymap (UI hosts, embedded
   // libraries) must pass false so engine signals don't tear the parent down.
   forwardSignals?: boolean
-  // How long dispose waits after SIGTERM before force-killing the process tree.
+  // How long dispose waits after SIGTERM before force-killing the process tree. A child
+  // sharing the caller's terminal leads no group, so only that direct child is signaled.
   killGraceMs?: number
 }
 

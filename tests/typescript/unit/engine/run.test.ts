@@ -216,7 +216,7 @@ describe('runExec', () => {
   })
 
   // A workload's descendants (shells, tool subprocesses) must not outlive it.
-  function spawnWithGrandchild(grandchild: string, killGraceMs?: number) {
+  function spawnWithGrandchild(grandchild: string, killGraceMs?: number, forwardSignals = false) {
     const parent = [
       "const { spawn } = require('node:child_process')",
       `const c = spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'ignore' })`,
@@ -227,7 +227,7 @@ describe('runExec', () => {
     const handle = runExec({
       argv: [process.execPath, '-e', parent],
       onLine: (l, stream) => stream === 'stdout' && pids.push(Number(l)),
-      forwardSignals: false,
+      forwardSignals,
       killGraceMs,
     })
     // Dispose's escalation timer is unref'd and can die with the worker, so a failed test
@@ -253,5 +253,13 @@ describe('runExec', () => {
     await handle.exitCode
     expect(() => process.kill(pids[0]!, 0)).not.toThrow()
     await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow(), { timeout: 2000 })
+  })
+
+  it.skipIf(process.platform === 'win32')('forwards signals to descendants', async () => {
+    const { handle, pids } = spawnWithGrandchild('setInterval(() => {}, 1e6)', undefined, true)
+    await vi.waitFor(() => expect(pids).toHaveLength(1))
+    process.kill(process.pid, 'SIGHUP')
+    expect(await handle.exitCode).toBe(129)
+    await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow())
   })
 })
