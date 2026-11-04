@@ -240,6 +240,11 @@ try {
   const denied = await launch(runStub)
   check('ungranted tool is denied before it runs', !existsSync(deniedMarker) && denied.stderr.includes('caracal: denied Bash'), { exit: denied.code })
 
+  const terminatorMarker = join(work, 'terminator.marker')
+  await scriptModel('terminator', `touch ${terminatorMarker}`)
+  const terminator = await launch([...runStub, '--'])
+  check('a trailing -- in the agent args cannot detach the pinned settings', !existsSync(terminatorMarker) && terminator.stderr.includes('caracal: denied Bash'), { exit: terminator.code })
+
   const settingsMarker = join(work, 'settings.marker')
   mkdirSync(join(work, '.claude'), { recursive: true })
   for (const file of ['settings.json', 'settings.local.json']) writeFileSync(join(work, '.claude', file), JSON.stringify({ disableAllHooks: true }))
@@ -304,6 +309,11 @@ try {
     await scriptModel('openclaw-denied', `touch ${deniedOpenclaw}`, 'exec')
     const blocked = await launch(task, undefined, openclaw)
     check('openclaw: ungranted exec is denied before it runs', !existsSync(deniedOpenclaw) && blocked.stderr.includes('caracal: denied exec'), { exit: blocked.code })
+
+    const terminatorOpenclaw = join(work, 'openclaw-terminator.marker')
+    await scriptModel('openclaw-terminator', `touch ${terminatorOpenclaw}`, 'exec')
+    const detached = await launch([...task, '--'], undefined, openclaw)
+    check('openclaw: a trailing -- in the agent args cannot detach the pinned config', !existsSync(terminatorOpenclaw) && detached.stderr.includes('caracal: denied exec'), { exit: detached.code })
 
     await grantTools(['tool:Read'], ['tool:read', 'tool:exec'])
     const openclawKilledMarker = join(work, 'openclaw-killed.marker')

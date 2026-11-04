@@ -173,14 +173,17 @@ describe('openclaw adapter', () => {
     stateDir: '/tmp/caracal-launch-x',
   })
 
+  it('pins its config before an option terminator in the caller args can make it positional', () => {
+    const { argv } = adapter.plan(input(['task', '--']))
+    expect(argv.indexOf('--config')).toBeLessThan(argv.indexOf('--'))
+  })
+
   it('runs one pinned-config turn from the private launch directory', () => {
     const plan = adapter.plan(input(['fix the failing test', '--json']))
     expect(plan.argv).toEqual([
       'openclaw',
       'agent',
       'exec',
-      'fix the failing test',
-      '--json',
       '--config',
       '/tmp/caracal-launch-x/openclaw.json',
       '--cwd',
@@ -189,10 +192,13 @@ describe('openclaw adapter', () => {
       'caracal/claude-sonnet-5-5',
       '--code-mode',
       'direct',
+      'fix the failing test',
+      '--json',
     ])
     expect(plan.cwd).toBe('/tmp/caracal-launch-x')
     expect(plan.env).toEqual({ OPENCLAW_HOME: '/tmp/caracal-launch-x/home', OPENCLAW_EXEC_SHELL_SNAPSHOT: '0' })
-    expect(adapter.requiredCommands('linux')).toEqual([])
+    expect(adapter.requiredCommands('linux')).toEqual(['ps'])
+    expect(adapter.requiredCommands('win32')).toEqual([])
   })
 
   it('routes the model through the broker with a credential-free provider and loads only the guard', () => {
@@ -233,7 +239,7 @@ describe('openclaw adapter', () => {
   })
 
   describe('guard plugin', () => {
-    async function loadGuard(fetchImpl: typeof fetch) {
+    async function loadGuard(fetchImpl: typeof fetch, on?: () => void) {
       const { mkdtempSync, writeFileSync } = await import('node:fs')
       const { tmpdir } = await import('node:os')
       const { join } = await import('node:path')
@@ -246,12 +252,21 @@ describe('openclaw adapter', () => {
       vi.stubGlobal('fetch', fetchImpl)
       guard.register({
         pluginConfig: { hookUrl: 'http://127.0.0.1:1/hook', readyUrl: 'http://127.0.0.1:1/ready' },
-        on: (name: string, fn: never) => (handlers[name] = fn),
+        on: on ?? ((name: string, fn: never) => (handlers[name] = fn)),
       })
       return { guard, beforeToolCall: handlers.before_tool_call! }
     }
 
     afterEach(() => vi.unstubAllGlobals())
+
+    it('does not report ready when its hook cannot be registered', async () => {
+      const fetchMock = vi.fn()
+      const refuse = () => {
+        throw new Error('hook registration failed')
+      }
+      await expect(loadGuard(fetchMock as unknown as typeof fetch, refuse)).rejects.toThrow('hook registration failed')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
 
     it('reports readiness and allows only on an explicit allow', async () => {
       const fetchMock = vi.fn(async (url: string) =>

@@ -214,15 +214,15 @@ const OPENCLAW_BLOCKED_FLAGS = ['--config', '--isolated', '--auth-env-only', '--
 // them too, but they have no place in a governed run.
 const OPENCLAW_DENIED_TOOLS = ['plugins', 'openclaw', 'gateway', 'cron', 'nodes', 'browser', 'code_execution']
 
-// OpenClaw plugin loaded from a bare load path: it reports that it loaded, then asks the broker
-// about every tool call and blocks on any answer other than an explicit allow, including errors.
+// OpenClaw plugin loaded from a bare load path: it asks the broker about every tool call and blocks
+// on any answer other than an explicit allow, including errors. It reports ready only once that
+// hook is registered, because the broker then opens the model gate.
 const OPENCLAW_GUARD = `export default {
   id: '${OPENCLAW_GUARD_ID}',
   name: 'Caracal guard',
   description: 'Asks Caracal before every tool call',
   register(api) {
     const { hookUrl, readyUrl } = api.pluginConfig ?? {}
-    fetch(readyUrl, { method: 'POST' }).catch(() => {})
     api.on(
       'before_tool_call',
       async (event, ctx) => {
@@ -242,6 +242,7 @@ const OPENCLAW_GUARD = `export default {
       },
       { priority: 1000 },
     )
+    fetch(readyUrl, { method: 'POST' }).catch(() => {})
   },
 }
 `
@@ -259,8 +260,9 @@ const openclaw: AgentAdapter = {
   hookResponse(decision) {
     return decision.allow ? { allow: true } : { allow: false, reason: decision.reason }
   },
-  requiredCommands() {
-    return []
+  requiredCommands(platform) {
+    // A stop needs ps to find the subprocesses of an agent on the caller's terminal.
+    return platform === 'win32' ? [] : ['ps']
   },
   plan({ command, args, brokerUrl, workspace, stateDir }) {
     for (const arg of args) {
@@ -296,11 +298,11 @@ const openclaw: AgentAdapter = {
       tools: { deny: OPENCLAW_DENIED_TOOLS, elevated: { enabled: false } },
     }
     return {
+      // Pinned first: anything after an `--` in the caller's args would be read as a positional.
       argv: [
         command,
         'agent',
         'exec',
-        ...args,
         '--config',
         configPath,
         '--cwd',
@@ -309,6 +311,7 @@ const openclaw: AgentAdapter = {
         `caracal/${OPENCLAW_MODEL}`,
         '--code-mode',
         'direct',
+        ...args,
       ],
       env: {
         // Keeps OpenClaw off the user's stored auth profiles, ambient config, and .env files.
