@@ -3,7 +3,7 @@
 //
 // Tests for governed agent launch: Session and delegation shape, tool decisions, and supervision.
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -66,7 +66,7 @@ const { launchAgent, protectedPaths } = await import('../../../../packages/engin
 
 // Stand-ins for the sandbox and hook executables the launcher checks for on PATH.
 const sandboxBin = mkdtempSync(join(tmpdir(), 'caracal-sandbox-bin-'))
-for (const name of ['bwrap', 'socat', 'sh', 'curl', 'sandbox-exec']) writeFileSync(join(sandboxBin, name), '')
+for (const name of ['bwrap', 'socat', 'sh', 'curl', 'sandbox-exec']) writeFileSync(join(sandboxBin, name), '', { mode: 0o755 })
 
 const profile = {
   model: { resource: 'resource://pipernet-models', scopes: ['models:invoke'] },
@@ -248,10 +248,29 @@ describe('launchAgent', () => {
     expect(sdk.closed).toEqual(['session-agent', 'session-launcher'])
   })
 
+  it('refuses to start when host policy would switch off governance', async () => {
+    const adapter = {
+      ...agentAdapter('claude-code'),
+      requiredCommands: () => [],
+      assertHostPolicy: () => {
+        throw new Error('claude-code: managed settings set disableAllHooks')
+      },
+    }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/disableAllHooks/)
+    expect(sdk.startSession).not.toHaveBeenCalled()
+  })
+
+  it('runs the agent with the PATH its requirements were checked against', async () => {
+    const out = join(mkdtempSync(join(tmpdir(), 'caracal-path-out-')), 'path')
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, process.env.PATH)`
+    await launchAgent({ adapter: fakeAgent(script), profile, args: [], env: { PATH: sandboxBin } })
+    expect(readFileSync(out, 'utf8')).toBe(sandboxBin)
+  })
+
   it('refuses to start without the sandbox and hook executables', async () => {
     const partial = mkdtempSync(join(tmpdir(), 'caracal-partial-bin-'))
-    writeFileSync(join(partial, 'curl'), '')
-    writeFileSync(join(partial, 'sh'), '')
+    writeFileSync(join(partial, 'curl'), '', { mode: 0o755 })
+    writeFileSync(join(partial, 'sh'), '', { mode: 0o755 })
     const adapter = { ...agentAdapter('claude-code'), requiredCommands: () => ['bwrap', 'socat', 'sh', 'curl'] }
     await expect(launchAgent({ adapter, profile, args: [], env: { PATH: partial } })).rejects.toThrow(
       'claude-code: bwrap, socat not found on PATH',

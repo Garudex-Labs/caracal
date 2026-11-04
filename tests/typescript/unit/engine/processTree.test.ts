@@ -53,6 +53,19 @@ afterEach(() => {
 })
 
 describe('findExecutable', () => {
+  it.skipIf(ORIG_PLATFORM === 'win32')('skips a file the process cannot execute', async () => {
+    const { mkdtempSync, writeFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs')
+    const { join, delimiter } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const mod = await loadFor(ORIG_PLATFORM)
+    const first = mkdtempSync(join(tmpdir(), 'caracal-path-a-'))
+    const second = mkdtempSync(join(tmpdir(), 'caracal-path-b-'))
+    writeFileSync(join(first, 'bwrap'), '', { mode: 0o644 })
+    writeFileSync(join(second, 'bwrap'), '', { mode: 0o755 })
+    expect(mod.findExecutable(['bwrap'], first)).toBeUndefined()
+    expect(mod.findExecutable(['bwrap'], [first, second].join(delimiter))).toBe(join(second, 'bwrap'))
+  })
+
   it('returns the first matching file along the search path', async () => {
     const { mkdtempSync, mkdirSync, writeFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs')
     const { join, delimiter } = await import('node:path')
@@ -61,7 +74,7 @@ describe('findExecutable', () => {
     const first = mkdtempSync(join(tmpdir(), 'caracal-path-a-'))
     const second = mkdtempSync(join(tmpdir(), 'caracal-path-b-'))
     mkdirSync(join(first, 'curl'))
-    writeFileSync(join(second, 'curl'), '')
+    writeFileSync(join(second, 'curl'), '', { mode: 0o755 })
     expect(mod.findExecutable(['curl'], [first, '', second].join(delimiter))).toBe(join(second, 'curl'))
     expect(mod.findExecutable(['bwrap'], [first, second].join(delimiter))).toBeUndefined()
     expect(mod.findExecutable(['curl'], undefined)).toBeUndefined()

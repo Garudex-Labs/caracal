@@ -3,6 +3,9 @@
 //
 // Agent adapters: how each supported agent is launched, routed through the broker, and asked about tool calls.
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 export type ToolDecision = { allow: true } | { allow: false; reason: string }
 
 export interface AgentLaunchPlan {
@@ -31,6 +34,8 @@ export interface AgentAdapter {
   // Executables the agent's tool sandbox and hook need on this platform; undefined when the
   // agent cannot be sandboxed there at all.
   requiredCommands(platform: NodeJS.Platform): string[] | undefined
+  // Throws when host policy would silently switch off the agent's hook or sandbox.
+  assertHostPolicy?(platform: NodeJS.Platform): void
   // argv and environment for one launch; throws when caller args would disable governance.
   plan(input: AgentLaunchInput): AgentLaunchPlan
 }
@@ -51,8 +56,56 @@ function claudeCodeHookCommand(url: string): string {
   return `curl -fsS --max-time ${HOOK_TIMEOUT_SECONDS - 2} -H 'content-type: application/json' --data-binary @- '${url}' || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`
 }
 
-// --bare skips every hook; --settings and --setting-sources can load settings that disable them.
-const CLAUDE_CODE_BLOCKED_FLAGS = ['--bare', '--settings', '--setting-sources']
+// --bare skips every hook; the others can load settings that disable them, and --managed-settings
+// outranks the launcher's own.
+const CLAUDE_CODE_BLOCKED_FLAGS = ['--bare', '--settings', '--setting-sources', '--managed-settings']
+
+const CLAUDE_CODE_MANAGED_DIRS: Partial<Record<NodeJS.Platform, string>> = {
+  linux: '/etc/claude-code',
+  darwin: '/Library/Application Support/ClaudeCode',
+}
+
+function readManagedSettings(path: string): Record<string, unknown> | undefined {
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw new Error(`claude-code: cannot read managed settings ${path}, so its effect on Caracal's hook is unknown`, { cause: err })
+  }
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch (err) {
+    throw new Error(`claude-code: cannot parse managed settings ${path}, so its effect on Caracal's hook is unknown`, { cause: err })
+  }
+}
+
+// Managed settings outrank the launcher's command-line settings, and Claude Code then drops the
+// hook or sandbox without an error while the launch still succeeds. Server-managed settings and
+// macOS managed preferences are not visible on the host, so only the managed files are checked.
+export function assertClaudeCodeManagedSettings(dir: string): void {
+  let dropIns: string[] = []
+  try {
+    dropIns = readdirSync(join(dir, 'managed-settings.d')).filter((name) => name.endsWith('.json'))
+  } catch {
+    /* no drop-in folder */
+  }
+  for (const path of [join(dir, 'managed-settings.json'), ...dropIns.map((name) => join(dir, 'managed-settings.d', name))]) {
+    const settings = readManagedSettings(path)
+    const sandbox = settings?.sandbox as Record<string, unknown> | undefined
+    const conflict =
+      settings?.disableAllHooks === true
+        ? 'disableAllHooks'
+        : settings?.allowManagedHooksOnly === true
+          ? 'allowManagedHooksOnly'
+          : sandbox?.enabled === false
+            ? 'sandbox.enabled'
+            : sandbox?.allowUnsandboxedCommands === true
+              ? 'sandbox.allowUnsandboxedCommands'
+              : undefined
+    if (conflict) throw new Error(`claude-code: managed settings ${path} set ${conflict}, which would switch off Caracal's governance`)
+  }
+}
 
 const claudeCode: AgentAdapter = {
   name: 'claude-code',
@@ -75,6 +128,10 @@ const claudeCode: AgentAdapter = {
     if (platform === 'linux') return ['bwrap', 'socat', 'sh', 'curl']
     if (platform === 'darwin') return ['sandbox-exec', 'sh', 'curl']
     return undefined
+  },
+  assertHostPolicy(platform) {
+    const dir = CLAUDE_CODE_MANAGED_DIRS[platform]
+    if (dir) assertClaudeCodeManagedSettings(dir)
   },
   plan({ command, args, brokerUrl, protectedPaths }) {
     for (const arg of args) {

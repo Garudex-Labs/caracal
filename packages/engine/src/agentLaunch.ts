@@ -89,6 +89,7 @@ function assertSandboxAvailable(adapter: AgentAdapter, env: NodeJS.ProcessEnv): 
   const missing = required.filter((command) => !findExecutable([command], env.PATH))
   if (missing.length)
     throw new Error(`${adapter.name}: ${missing.join(', ')} not found on PATH; the agent's tool sandbox and hook need them`)
+  adapter.assertHostPolicy?.(process.platform)
 }
 
 // Runs one governed agent to completion and resolves its exit code. The agent holds no Caracal
@@ -168,7 +169,9 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       brokerUrl: broker.url,
       protectedPaths: protectedPaths(opts.env),
     })
-    child = runExec({ argv: plan.argv, env: plan.env, cwd: opts.cwd })
+    // The agent gets the PATH its sandbox and hook requirements were checked against.
+    const env = opts.env.PATH === undefined ? plan.env : { ...plan.env, PATH: opts.env.PATH }
+    child = runExec({ argv: plan.argv, env, cwd: opts.cwd })
     if (stopReason) void child.dispose()
     return await child.exitCode
   } finally {

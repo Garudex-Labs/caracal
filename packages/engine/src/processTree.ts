@@ -4,7 +4,7 @@
 // Single OS boundary for spawning and terminating killable process trees across every supported platform.
 
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncReturns } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { delimiter, resolve } from 'node:path'
 import { isatty } from 'node:tty'
 
@@ -19,14 +19,17 @@ function shellFor(command: string): boolean {
   return isWindows && /\.(cmd|bat)$/i.test(command)
 }
 
-// First file named one of `names` in a PATH-style directory list, found without a shell.
+// First executable file named one of `names` in a PATH-style directory list, found without a shell.
 export function findExecutable(names: string[], searchPath: string | undefined): string | undefined {
   for (const dir of (searchPath ?? '').split(delimiter)) {
     if (!dir) continue
     for (const name of names) {
       const candidate = resolve(dir, name)
       try {
-        if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+        if (existsSync(candidate) && statSync(candidate).isFile()) {
+          accessSync(candidate, constants.X_OK)
+          return candidate
+        }
       } catch {
         /* ignore */
       }
