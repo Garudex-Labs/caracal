@@ -256,8 +256,11 @@ describe('runExec', () => {
   })
 
   it.skipIf(process.platform === 'win32')('forwards signals to descendants', async () => {
+    const listeners = process.listenerCount('SIGHUP')
     const { handle, pids } = spawnWithGrandchild('setInterval(() => {}, 1e6)', undefined, true)
     await vi.waitFor(() => expect(pids).toHaveLength(1))
+    // An unhandled SIGHUP would kill this worker before the test could report a failure.
+    expect(process.listenerCount('SIGHUP')).toBe(listeners + 1)
     process.kill(process.pid, 'SIGHUP')
     expect(await handle.exitCode).toBe(129)
     await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow())
