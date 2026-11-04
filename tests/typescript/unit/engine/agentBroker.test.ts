@@ -62,8 +62,10 @@ describe('agent broker tool hook', () => {
   it('denies within the deadline when the hook body never finishes arriving', async () => {
     const decide = vi.fn(async (): Promise<ToolDecision> => ({ allow: true }))
     const b = await start({ decide, decisionTimeoutMs: 50 })
+    let connection: string | undefined
     const answer = await new Promise<string>((resolve, reject) => {
       const req = request(`${b.url}${adapter.hookPath}`, { method: 'POST', headers: { 'content-length': '1024' } }, (res) => {
+        connection = res.headers.connection
         let body = ''
         res.on('data', (chunk) => (body += chunk))
         res.on('end', () => resolve(body))
@@ -72,6 +74,7 @@ describe('agent broker tool hook', () => {
       req.write('{"tool_name":')
     })
     expect(JSON.parse(answer)).toEqual(denial('caracal: tool decision timed out'))
+    expect(connection).toBe('close')
     expect(decide).not.toHaveBeenCalled()
   })
 

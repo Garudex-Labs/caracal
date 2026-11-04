@@ -80,6 +80,8 @@ Terminate the agent Session from the web console or through the Coordinator. Any
 
 An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table when it stops the agent, and a process that has already detached from the agent's tree is not stopped.
 
+If the launcher itself is killed with `SIGKILL`, it cannot stop anything. The agent process keeps running but can no longer reach the model or get a tool call approved, because the broker went with the launcher, and STS stops honouring its Session about two minutes later. Stop that process yourself.
+
 ## Validate the launch
 
 | Check | How |

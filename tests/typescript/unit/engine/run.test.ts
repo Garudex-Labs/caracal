@@ -24,7 +24,7 @@ vi.mock('../../../../packages/engine/src/runClient.js', () => ({
   fetchRunManifest: fetchRunManifestMock,
 }))
 
-import { killTree, stopTree } from '../../../../packages/engine/src/processTree.js'
+import { forwardSignal, killTree, stopTree } from '../../../../packages/engine/src/processTree.js'
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { ApprovalRequiredError } from '@caracalai/oauth'
@@ -262,6 +262,44 @@ describe('runExec', () => {
     await new Promise((r) => setTimeout(r, 200))
     await handle.dispose()
     expect(() => process.kill(pids[0]!, 0)).toThrow()
+  })
+
+  // A workload that leads no group, as on a terminal, with a grandchild that keeps the default handlers.
+  async function spawnOutsideGroup() {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' })",
+      "process.stdout.write(c.pid + '\\n')",
+      'setInterval(() => {}, 1e6)',
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', parent], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const pid = await new Promise<number>((resolve) => child.stdout.once('data', (d: Buffer) => resolve(Number(d))))
+    onTestFinished(() => {
+      for (const target of [pid, child.pid!]) {
+        try {
+          process.kill(target, 'SIGKILL')
+        } catch {
+          /* already gone */
+        }
+      }
+    })
+    return { child, pid }
+  }
+
+  it.skipIf(process.platform === 'win32')('forwards SIGTERM and SIGHUP to a tree that leads no process group', async () => {
+    for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
+      const { child, pid } = await spawnOutsideGroup()
+      forwardSignal(child, signal)
+      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
+      await vi.waitFor(() => expect(() => process.kill(child.pid!, 0)).toThrow())
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('leaves terminal keystrokes to reach only the child of a tree that leads no group', async () => {
+    const { child, pid } = await spawnOutsideGroup()
+    forwardSignal(child, 'SIGINT')
+    await vi.waitFor(() => expect(() => process.kill(child.pid!, 0)).toThrow())
+    expect(() => process.kill(pid, 0)).not.toThrow()
   })
 
   it.skipIf(process.platform === 'win32')('stops a tree that leads no process group, as on a terminal', async () => {

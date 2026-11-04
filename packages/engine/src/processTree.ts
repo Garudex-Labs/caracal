@@ -106,6 +106,21 @@ function descendantsOf(root: number): number[] {
   return tree
 }
 
+// Pass a signal the launcher received on to its child's tree. A POSIX child sharing the caller's
+// terminal leads no group, so its tree comes from the process table; SIGINT and SIGQUIT are left
+// to reach only the child because the terminal already sent those keystrokes to the whole group.
+export function forwardSignal(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid
+  if (pid === undefined || isWindows || targetAlive(-pid) || signal === 'SIGINT' || signal === 'SIGQUIT') return killTree(child, signal)
+  for (const member of descendantsOf(pid)) {
+    try {
+      process.kill(member, signal)
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 // Stop a child's tree and resolve once it is gone: SIGTERM now, SIGKILL for anything still
 // running after graceMs. A POSIX child sharing the caller's terminal leads no group, so its
 // tree is snapshotted from the process table while it runs; that keeps it on the terminal,

@@ -120,6 +120,8 @@ export async function startAgentBroker(opts: AgentBrokerOptions): Promise<AgentB
       return tool && TOOL_NAME.test(tool) ? opts.decide(`tool:${tool}`) : { allow: false, reason: 'caracal: unrecognized tool call' }
     }, timeoutMs)
     opts.onDecision?.(tool, decision)
+    // An unread body leaves the connection unusable for another request.
+    if (!req.complete) res.setHeader('connection', 'close')
     json(res, 200, opts.adapter.hookResponse(decision))
   }
 

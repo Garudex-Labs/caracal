@@ -7,7 +7,7 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { killTree, leadsProcessGroup, stopTree } from './processTree.js'
+import { forwardSignal, leadsProcessGroup, stopTree } from './processTree.js'
 import { ApprovalRequiredError, pollApprovalState } from '@caracalai/oauth'
 import { fetchRunCredential, fetchRunManifest } from './runClient.js'
 import type { RunBinding, RunCredentialResponse } from './runClient.js'
@@ -276,7 +276,7 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
   if (opts.forwardSignals !== false) {
     const forward: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']
     signalHandlers = forward.map((sig) => {
-      const h = (): void => killTree(child, sig)
+      const h = (): void => forwardSignal(child, sig)
       process.on(sig, h)
       return [sig, h] as const
     })
