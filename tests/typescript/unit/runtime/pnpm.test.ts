@@ -3,8 +3,6 @@
 //
 // Unit tests for shim-free pnpm resolution.
 
-import { delimiter, join } from 'node:path'
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const existsSyncMock = vi.hoisted(() => vi.fn())
@@ -23,10 +21,15 @@ function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true })
 }
 
-// The pnpm binary names depend on process.platform at module load, so each platform needs a cold import.
+// The pnpm binary names depend on process.platform at module load, so each platform needs a cold
+// import. node:path binds to the host OS instead, so Windows runs swap in its win32 flavor.
 async function loadFor(platform: NodeJS.Platform) {
   setPlatform(platform)
   vi.resetModules()
+  vi.doUnmock('node:path')
+  if (platform === 'win32') {
+    vi.doMock('node:path', async (importOriginal) => (await importOriginal<typeof import('node:path')>()).win32)
+  }
   return import('../../../../apps/runtime/src/pnpm.ts')
 }
 
@@ -54,8 +57,8 @@ describe('resolvePnpm', () => {
   it('falls back to the pnpm shim on the Windows PATH', async () => {
     const mod = await loadFor('win32')
     delete process.env.npm_execpath
-    process.env.PATH = ['shims', 'other'].join(delimiter)
-    const shim = join('shims', 'pnpm.cmd')
+    process.env.PATH = 'D:\\other;C:\\shims'
+    const shim = 'C:\\shims\\pnpm.cmd'
     existsSyncMock.mockImplementation((path: string) => path === shim)
     expect(mod.resolvePnpm()).toEqual({ cmd: shim, prefix: [] })
   })

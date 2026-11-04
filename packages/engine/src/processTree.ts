@@ -19,11 +19,15 @@ function shellFor(command: string): boolean {
 // descendant. Node's `detached` also starts a new session without a controlling terminal,
 // which breaks /dev/tty for a child attached to the caller's terminal; such a child stays
 // in the foreground group, where terminal signals already reach its whole tree. Windows
-// has no POSIX groups and is always reaped with taskkill /T.
+// has no POSIX groups and is always reaped with taskkill /T. A stdio slot shares a parent
+// descriptor when it is 'inherit', a descriptor number, or a stream backed by a descriptor.
 export function leadsProcessGroup(stdio: SpawnOptions['stdio']): boolean {
   if (isWindows) return false
   const slots = Array.isArray(stdio) ? stdio.slice(0, 3) : [stdio, stdio, stdio]
-  return !slots.some((slot, fd) => slot === 'inherit' && isatty(fd))
+  return !slots.some((slot, index) => {
+    const fd = slot === 'inherit' ? index : typeof slot === 'number' ? slot : (slot as { fd?: unknown } | null | undefined)?.fd
+    return typeof fd === 'number' && isatty(fd)
+  })
 }
 
 // Spawn a child as a process tree that can later be torn down whole. Callers never set

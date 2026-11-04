@@ -3,7 +3,7 @@
 //
 // Tests for run verb bodies: credential env building and safe spawning.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const fetchRunCredentialMock = vi.hoisted(() => vi.fn())
 const fetchRunManifestMock = vi.hoisted(() => vi.fn())
@@ -22,6 +22,7 @@ vi.mock('../../../../packages/engine/src/runClient.js', () => ({
   fetchRunManifest: fetchRunManifestMock,
 }))
 
+import { killTree } from '../../../../packages/engine/src/processTree.js'
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { ApprovalRequiredError } from '@caracalai/oauth'
@@ -229,6 +230,9 @@ describe('runExec', () => {
       forwardSignals: false,
       killGraceMs,
     })
+    // Dispose's escalation timer is unref'd and can die with the worker, so a failed test
+    // force-kills the tree itself to leave nothing running.
+    onTestFinished(() => killTree(handle.child, 'SIGKILL'))
     return { handle, pids }
   }
 

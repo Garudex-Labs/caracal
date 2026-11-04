@@ -4,6 +4,7 @@
 // Unit tests for the cross-platform process-tree boundary (group leadership, spawn, kill).
 
 import type { ChildProcess } from 'node:child_process'
+import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -70,6 +71,22 @@ describe('leadsProcessGroup', () => {
     isattyMock.mockImplementation((fd: number) => fd === 2)
     expect(mod.leadsProcessGroup(['ignore', 'pipe', 'inherit'])).toBe(false)
     expect(mod.leadsProcessGroup(['inherit', 'inherit', 'pipe'])).toBe(true)
+  })
+
+  it('checks the descriptor a numeric slot shares, not the slot position', async () => {
+    const mod = await loadFor('linux')
+    isattyMock.mockImplementation((fd: number) => fd === 0)
+    expect(mod.leadsProcessGroup([0, 'pipe', 'pipe'])).toBe(false)
+    expect(mod.leadsProcessGroup(['pipe', 0, 'pipe'])).toBe(false)
+    expect(mod.leadsProcessGroup([1, 'pipe', 'pipe'])).toBe(true)
+  })
+
+  it('checks the descriptor behind a stream slot', async () => {
+    const mod = await loadFor('linux')
+    isattyMock.mockImplementation((fd: number) => fd === 0)
+    expect(mod.leadsProcessGroup([Object.assign(new PassThrough(), { fd: 0 }), 'pipe', 'pipe'])).toBe(false)
+    expect(mod.leadsProcessGroup([Object.assign(new PassThrough(), { fd: 1 }), 'pipe', 'pipe'])).toBe(true)
+    expect(mod.leadsProcessGroup([new PassThrough(), 'pipe', 'pipe'])).toBe(true)
   })
 
   it('never leads a group on Windows', async () => {

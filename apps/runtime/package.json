@@ -36,6 +36,7 @@
     "dev": "node bin/caracal.mjs",
     "pretypecheck": "node scripts/stampVersion.mjs",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm run sync-embedded && pnpm run stamp",
     "test": "vitest run --root ../.. tests/typescript/unit/runtime"
   },
   "dependencies": {
