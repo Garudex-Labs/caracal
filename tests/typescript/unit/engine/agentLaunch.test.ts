@@ -66,7 +66,7 @@ const { launchAgent, protectedPaths } = await import('../../../../packages/engin
 
 // Stand-ins for the sandbox and hook executables the launcher checks for on PATH.
 const sandboxBin = mkdtempSync(join(tmpdir(), 'caracal-sandbox-bin-'))
-for (const name of ['bwrap', 'socat', 'sh', 'curl', 'sandbox-exec']) writeFileSync(join(sandboxBin, name), '', { mode: 0o755 })
+for (const name of ['bwrap', 'socat', 'sh', 'curl', 'ps', 'sandbox-exec']) writeFileSync(join(sandboxBin, name), '', { mode: 0o755 })
 
 const profile = {
   model: { resource: 'resource://pipernet-models', scopes: ['models:invoke'] },
@@ -162,6 +162,32 @@ describe('launchAgent', () => {
     expect(seen.protectedPaths).toContain('/home/richard/.ssh')
   })
 
+  it('writes plan files owner-only and removes the launch directory afterwards', async () => {
+    const { existsSync } = await import('node:fs')
+    const report = join(mkdtempSync(join(tmpdir(), 'caracal-plan-report-')), 'report.json')
+    let dir = ''
+    const adapter: AgentAdapter = {
+      ...agentAdapter('claude-code'),
+      plan: ({ stateDir }) => {
+        dir = stateDir
+        const script = `const fs = require('node:fs'); const f = ${JSON.stringify(join(stateDir, 'nested/c.json'))}; fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ mode: fs.statSync(f).mode & 0o777, dirMode: fs.statSync(${JSON.stringify(stateDir)}).mode & 0o777, content: fs.readFileSync(f, 'utf8') }))`
+        return { argv: [process.execPath, '-e', script], env: {}, files: { 'nested/c.json': '{"pinned":true}' } }
+      },
+    }
+    expect(await launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).toBe(0)
+    expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ mode: 0o600, dirMode: 0o700, content: '{"pinned":true}' })
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  it('refuses a plan file outside the launch directory', async () => {
+    const adapter: AgentAdapter = {
+      ...agentAdapter('claude-code'),
+      plan: () => ({ argv: [process.execPath, '-e', 'process.exit(0)'], env: {}, files: { '../outside.json': '{}' } }),
+    }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/outside the launch directory/)
+    expect(sdk.closed).toEqual(['session-agent', 'session-launcher'])
+  })
+
   it('uses profile labels for grant matching when given', async () => {
     await launchAgent({
       adapter: fakeAgent('process.exit(0)'),
@@ -218,7 +244,7 @@ describe('launchAgent', () => {
   it('forwards model calls as the agent Session with only the model scopes', async () => {
     sdk.fetch.mockImplementation(async () => new Response('{"ok":true}'))
     const seen: { brokerUrl?: string } = {}
-    const run = launchAgent({ adapter: fakeAgent('setInterval(() => {}, 1e6)', seen), profile, args: [], env: {} })
+    const run = launchAgent({ adapter: fakeAgent('setInterval(() => {}, 1e6)', seen), profile, args: [], env: { PATH: sandboxBin } })
     await vi.waitFor(() => expect(seen.brokerUrl).toBeDefined())
     const res = await fetch(`${seen.brokerUrl}/model/v1/messages?beta=true`, { method: 'POST', body: '{}' })
     expect(res.status).toBe(200)

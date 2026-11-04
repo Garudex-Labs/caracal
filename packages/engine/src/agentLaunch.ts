@@ -3,7 +3,9 @@
 //
 // Governed agent launch: Session lifecycle, delegated authority, broker, and process supervision.
 
-import { isAbsolute, join, resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { Authority, Caracal } from '@caracalai/sdk'
 import type { SessionHandle } from '@caracalai/sdk'
 import type { AgentAdapter, ToolDecision } from './agentAdapters.js'
@@ -118,6 +120,8 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
   let broker: AgentBroker | undefined
   // Nothing renews the delegated authority, so the agent stops when it runs out rather than
   // running on with every tool and model call denied.
+  // Private to this launch and outside the workspace: holds agent config the agent must not edit.
+  const stateDir = mkdtempSync(join(tmpdir(), 'caracal-launch-'))
   const authorityExpiry = setTimeout(() => stop('delegated authority expired'), ttlSeconds * 1000)
   try {
     const metadata = { agent: opts.adapter.name }
@@ -168,7 +172,14 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       args: opts.args,
       brokerUrl: broker.url,
       protectedPaths: protectedPaths(opts.env),
+      stateDir,
     })
+    for (const [name, content] of Object.entries(plan.files ?? {})) {
+      const path = resolve(stateDir, name)
+      if (!path.startsWith(`${stateDir}${sep}`)) throw new Error(`${opts.adapter.name}: plan file ${name} is outside the launch directory`)
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+      writeFileSync(path, content, { mode: 0o600 })
+    }
     // The agent gets the PATH its sandbox and hook requirements were checked against.
     const env = opts.env.PATH === undefined ? plan.env : { ...plan.env, PATH: opts.env.PATH }
     child = runExec({ argv: plan.argv, env, cwd: opts.cwd })
@@ -186,5 +197,6 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       }
     }
     await caracal.close()
+    rmSync(stateDir, { recursive: true, force: true })
   }
 }

@@ -3,6 +3,8 @@
 //
 // `caracal launch <agent>`: runs a supported agent inside a Caracal-governed runtime.
 
+import { userInfo } from 'node:os'
+import { isAbsolute } from 'node:path'
 import { agentAdapter, agentNames, launchAgent, readAgentProfile } from '@caracalai/engine'
 import { printError } from '../style.ts'
 
@@ -71,11 +73,14 @@ export async function launchCommand(argv: string[]): Promise<void> {
     const args = parseArgs(argv)
     const profilePath = args.profile ?? process.env.CARACAL_AGENT_PROFILE
     if (!profilePath) throw new Error('a launch profile is required; pass --profile or set CARACAL_AGENT_PROFILE')
+    // The credential stores denied to the agent's tools are found under this, so it must be real.
+    const home = [process.env.HOME, process.env.USERPROFILE, userInfo().homedir].find((value) => value && isAbsolute(value))
+    if (!home) throw new Error('an absolute home directory is required to protect credential stores from the agent')
     code = await launchAgent({
       adapter: agentAdapter(args.agent),
       profile: readAgentProfile(profilePath),
       args: args.agentArgs,
-      env: process.env,
+      env: { ...process.env, HOME: home },
       command: args.command,
       onLine: (line) => process.stderr.write(`${line}\n`),
     })

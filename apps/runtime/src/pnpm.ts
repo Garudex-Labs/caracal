@@ -3,6 +3,7 @@
 //
 // Shim-free resolution of the pnpm invocation used by workspace interface launchers.
 
+import { existsSync } from 'node:fs'
 import { findExecutable } from '@caracalai/engine'
 
 // pnpm ships as a bare binary on POSIX; on Windows it is pnpm.exe (standalone install)

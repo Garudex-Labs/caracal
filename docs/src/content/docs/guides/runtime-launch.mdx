@@ -36,7 +36,7 @@ Tool hooks are cooperative: they run inside the agent, and Claude Code runs the 
 
 Managed settings outrank the launcher's own. The launcher refuses to start when a `managed-settings.json` file or `managed-settings.d` drop-in on the host sets `disableAllHooks`, `allowManagedHooksOnly`, `sandbox.enabled` to `false`, or `sandbox.allowUnsandboxedCommands` to `true`. Server-managed settings and macOS managed preferences are not visible on the host, so review those separately.
 
-On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (`sandbox-exec`). The hook needs `sh` and `curl`. Claude Code runs commands unsandboxed when its sandbox dependencies are missing, so `caracal launch` checks for all of them and refuses to start without them. Native Windows has no Claude Code sandbox and is refused; macOS has not been verified yet.
+On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (`sandbox-exec`). The hook needs `sh` and `curl`, and stopping an agent on your terminal needs `ps`. Claude Code runs commands unsandboxed when its sandbox dependencies are missing, so `caracal launch` checks for all of them and refuses to start without them. Native Windows has no Claude Code sandbox and is refused; macOS has not been verified yet.
 
 ## Prepare the zone
 

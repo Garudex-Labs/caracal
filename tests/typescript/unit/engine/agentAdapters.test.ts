@@ -18,7 +18,8 @@ import {
 
 const broker = 'http://127.0.0.1:41000/0123abcdef'
 const protectedPaths = ['/home/richard/.ssh', '/home/richard/.config/caracal/anton-client-secret']
-const launch = (args: string[]) => ({ command: 'claude', args, brokerUrl: broker, protectedPaths })
+const stateDir = '/tmp/caracal-launch-x'
+const launch = (args: string[]) => ({ command: 'claude', args, brokerUrl: broker, protectedPaths, stateDir })
 
 describe('agentAdapter', () => {
   it('resolves supported agents and rejects others', () => {
@@ -33,9 +34,9 @@ describe('claude-code adapter', () => {
   it('routes model traffic and every tool hook through the broker', () => {
     const plan = adapter.plan(launch(['-p', 'fix the failing test']))
     expect(plan.argv[0]).toBe('claude')
-    expect(plan.argv[1]).toBe('--settings')
-    expect(plan.argv.slice(3)).toEqual(['-p', 'fix the failing test'])
-    expect(JSON.parse(plan.argv[2]!)).toEqual({
+    expect(plan.argv.slice(1)).toEqual(['--settings', `${stateDir}/claude-settings.json`, '-p', 'fix the failing test'])
+    expect(plan.files!['claude-hook.curl']).toBe(`url = "${broker}/hooks/claude-code/pre-tool-use"\n`)
+    expect(JSON.parse(plan.files!['claude-settings.json']!)).toEqual({
       disableAllHooks: false,
       sandbox: { enabled: true, allowUnsandboxedCommands: false },
       permissions: {
@@ -44,6 +45,7 @@ describe('claude-code adapter', () => {
           'Read(//home/richard/.ssh/**)',
           'Read(//home/richard/.config/caracal/anton-client-secret)',
           'Read(//home/richard/.config/caracal/anton-client-secret/**)',
+          `Edit(/${stateDir}/**)`,
         ],
       },
       hooks: {
@@ -53,7 +55,7 @@ describe('claude-code adapter', () => {
             hooks: [
               {
                 type: 'command',
-                command: `curl -fsS --max-time 8 -H 'content-type: application/json' --data-binary @- '${broker}/hooks/claude-code/pre-tool-use' || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`,
+                command: `curl -fsS --max-time 8 -H 'content-type: application/json' --data-binary @- -K '${stateDir}/claude-hook.curl' || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`,
                 timeout: HOOK_TIMEOUT_SECONDS,
                 onFailure: 'block',
               },
@@ -69,14 +71,21 @@ describe('claude-code adapter', () => {
     })
   })
 
+  it('keeps the broker secret out of every process command line', () => {
+    const plan = adapter.plan(launch(['-p', 'task']))
+    const hook = JSON.parse(plan.files!['claude-settings.json']!).hooks.PreToolUse[0].hooks[0].command as string
+    expect(plan.argv.join(' ')).not.toContain('0123abcdef')
+    expect(hook).not.toContain('0123abcdef')
+  })
+
   it('pins its settings before an option terminator in the caller args can make them positional', () => {
     const { argv } = adapter.plan(launch(['-p', 'task', '--']))
     expect(argv.indexOf('--settings')).toBeLessThan(argv.indexOf('--'))
   })
 
   it('needs the sandbox and hook executables where Claude Code can sandbox, and nothing runs elsewhere', () => {
-    expect(adapter.requiredCommands('linux')).toEqual(['bwrap', 'socat', 'sh', 'curl'])
-    expect(adapter.requiredCommands('darwin')).toEqual(['sandbox-exec', 'sh', 'curl'])
+    expect(adapter.requiredCommands('linux')).toEqual(['bwrap', 'socat', 'sh', 'curl', 'ps'])
+    expect(adapter.requiredCommands('darwin')).toEqual(['sandbox-exec', 'sh', 'curl', 'ps'])
     expect(adapter.requiredCommands('win32')).toBeUndefined()
   })
 

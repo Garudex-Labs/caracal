@@ -11,6 +11,8 @@ export type ToolDecision = { allow: true } | { allow: false; reason: string }
 export interface AgentLaunchPlan {
   argv: string[]
   env: Record<string, string | undefined>
+  // Files written owner-only into the launch's private directory before the agent starts.
+  files?: Record<string, string>
 }
 
 export interface AgentLaunchInput {
@@ -19,6 +21,8 @@ export interface AgentLaunchInput {
   brokerUrl: string
   // Absolute paths of credential stores the agent's tool commands must not read.
   protectedPaths: string[]
+  // Private launch directory (0700, outside the workspace) that holds plan files.
+  stateDir: string
 }
 
 export interface AgentAdapter {
@@ -51,13 +55,15 @@ export const HOOK_TIMEOUT_SECONDS = 10
 // sandbox blocks HTTP hooks from reaching loopback. A command hook runs outside the sandbox, and
 // this one turns every failure to get a decision (broker gone, timeout, no curl) into exit 2, which
 // Claude Code treats as a denial.
-function claudeCodeHookCommand(url: string): string {
-  if (!/^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]+\/[a-z/-]+$/.test(url)) throw new Error(`claude-code: unexpected hook url ${url}`)
-  return `curl -fsS --max-time ${HOOK_TIMEOUT_SECONDS - 2} -H 'content-type: application/json' --data-binary @- '${url}' || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`
+function claudeCodeHookCommand(curlConfig: string): string {
+  const quoted = `'${curlConfig.replaceAll("'", `'\\''`)}'`
+  return `curl -fsS --max-time ${HOOK_TIMEOUT_SECONDS - 2} -H 'content-type: application/json' --data-binary @- -K ${quoted} || { echo 'caracal: tool decision unavailable' >&2; exit 2; }`
 }
 
 // --bare skips every hook; the others can load settings that disable them, and --managed-settings
 // outranks the launcher's own.
+const CLAUDE_CODE_SETTINGS = 'claude-settings.json'
+const CLAUDE_CODE_CURL_CONFIG = 'claude-hook.curl'
 const CLAUDE_CODE_BLOCKED_FLAGS = ['--bare', '--settings', '--setting-sources', '--managed-settings']
 
 const CLAUDE_CODE_MANAGED_DIRS: Partial<Record<NodeJS.Platform, string>> = {
@@ -123,21 +129,25 @@ const claudeCode: AgentAdapter = {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: decision.reason } }
   },
   requiredCommands(platform) {
-    // Claude Code silently runs commands unsandboxed when these are missing, so they are checked
-    // before launch. Native Windows has no Claude Code sandbox.
-    if (platform === 'linux') return ['bwrap', 'socat', 'sh', 'curl']
-    if (platform === 'darwin') return ['sandbox-exec', 'sh', 'curl']
+    // Claude Code silently runs commands unsandboxed when its sandbox tools are missing, and without
+    // ps a stop cannot find the agent's subprocesses, so all are checked before launch. Native
+    // Windows has no Claude Code sandbox.
+    if (platform === 'linux') return ['bwrap', 'socat', 'sh', 'curl', 'ps']
+    if (platform === 'darwin') return ['sandbox-exec', 'sh', 'curl', 'ps']
     return undefined
   },
   assertHostPolicy(platform) {
     const dir = CLAUDE_CODE_MANAGED_DIRS[platform]
     if (dir) assertClaudeCodeManagedSettings(dir)
   },
-  plan({ command, args, brokerUrl, protectedPaths }) {
+  plan({ command, args, brokerUrl, protectedPaths, stateDir }) {
     for (const arg of args) {
       const flag = CLAUDE_CODE_BLOCKED_FLAGS.find((blocked) => arg === blocked || arg.startsWith(`${blocked}=`))
       if (flag) throw new Error(`claude-code: ${flag} is not allowed under a governed launch because it can disable Caracal's tool hooks`)
     }
+    const hookUrl = `${brokerUrl}${claudeCode.hookPath}`
+    if (!/^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]+\/[a-z/-]+$/.test(hookUrl)) throw new Error(`claude-code: unexpected hook url ${hookUrl}`)
+    const curlConfig = join(stateDir, CLAUDE_CODE_CURL_CONFIG)
     const settings = {
       // Command-line settings outrank project, local, and user settings files, which the agent
       // can write itself; only root-owned managed settings rank higher.
@@ -147,7 +157,8 @@ const claudeCode: AgentAdapter = {
       sandbox: { enabled: true, allowUnsandboxedCommands: false },
       // The sandbox leaves reads open; these rules close credential stores to tool commands and
       // to the Read tool alike. A leading `//` marks an absolute path.
-      permissions: { deny: protectedPaths.flatMap((path) => [`Read(/${path})`, `Read(/${path}/**)`]) },
+      // The launch directory holds these settings, so no tool may edit them.
+      permissions: { deny: [...protectedPaths.flatMap((path) => [`Read(/${path})`, `Read(/${path}/**)`]), `Edit(/${stateDir}/**)`] },
       hooks: {
         PreToolUse: [
           {
@@ -156,7 +167,7 @@ const claudeCode: AgentAdapter = {
             hooks: [
               {
                 type: 'command',
-                command: claudeCodeHookCommand(`${brokerUrl}${claudeCode.hookPath}`),
+                command: claudeCodeHookCommand(curlConfig),
                 timeout: HOOK_TIMEOUT_SECONDS,
                 onFailure: 'block',
               },
@@ -167,7 +178,10 @@ const claudeCode: AgentAdapter = {
     }
     return {
       // Pinned first: anything after an `--` in the caller's args would be read as a positional.
-      argv: [command, '--settings', JSON.stringify(settings), ...args],
+      // The settings and hook read the broker URL from files, because it carries the per-launch
+      // secret and a process command line is visible to other local users.
+      argv: [command, '--settings', join(stateDir, CLAUDE_CODE_SETTINGS), ...args],
+      files: { [CLAUDE_CODE_SETTINGS]: JSON.stringify(settings), [CLAUDE_CODE_CURL_CONFIG]: `url = "${hookUrl}"\n` },
       env: {
         ANTHROPIC_BASE_URL: `${brokerUrl}/model`,
         ANTHROPIC_API_KEY: GATEWAY_INJECTED_KEY,
