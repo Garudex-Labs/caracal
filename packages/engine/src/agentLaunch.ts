@@ -22,7 +22,7 @@ export interface AgentLaunchOptions {
   cwd?: string
   // Lease renewal cadence, which bounds how long a revoked agent keeps running.
   heartbeatIntervalMs?: number
-  // Lifetime of the authority delegated to the agent Session.
+  // Lifetime of the authority delegated to the agent Session; the launch stops when it ends.
   ttlSeconds?: number
   // Launcher diagnostics: Session ids, tool denials, and why the agent was stopped.
   onLine?: RunLineSink
@@ -56,12 +56,15 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
     if (stopReason) return
     stopReason = reason
     log(`stopping ${opts.adapter.name}: ${reason}`)
-    child?.dispose()
+    void child?.dispose()
   }
 
   let launcher: SessionHandle | undefined
   let agent: SessionHandle | undefined
   let broker: AgentBroker | undefined
+  // Nothing renews the delegated authority, so the agent stops when it runs out rather than
+  // running on with every tool and model call denied.
+  const authorityExpiry = setTimeout(() => stop('delegated authority expired'), ttlSeconds * 1000)
   try {
     const metadata = { agent: opts.adapter.name }
     launcher = await caracal.startSession({
@@ -108,10 +111,11 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
 
     const plan = opts.adapter.plan(opts.command ?? opts.adapter.command, opts.args, broker.url)
     child = runExec({ argv: plan.argv, env: plan.env, cwd: opts.cwd })
-    if (stopReason) child.dispose()
+    if (stopReason) void child.dispose()
     return await child.exitCode
   } finally {
-    child?.dispose()
+    clearTimeout(authorityExpiry)
+    await child?.dispose()
     await broker?.close()
     for (const session of [agent, launcher]) {
       try {

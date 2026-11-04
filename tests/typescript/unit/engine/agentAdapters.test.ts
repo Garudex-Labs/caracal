@@ -26,7 +26,10 @@ describe('claude-code adapter', () => {
       disableAllHooks: false,
       hooks: {
         PreToolUse: [
-          { matcher: '*', hooks: [{ type: 'http', url: `${broker}/hooks/claude-code/pre-tool-use`, timeout: HOOK_TIMEOUT_SECONDS }] },
+          {
+            matcher: '*',
+            hooks: [{ type: 'http', url: `${broker}/hooks/claude-code/pre-tool-use`, timeout: HOOK_TIMEOUT_SECONDS, onFailure: 'block' }],
+          },
         ],
       },
     })

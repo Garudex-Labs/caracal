@@ -7,6 +7,8 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncR
 import { isatty } from 'node:tty'
 
 const isWindows = process.platform === 'win32'
+const STOP_POLL_MS = 50
+const STOP_KILL_SETTLE_MS = 1_000
 
 // Windows refuses to spawn .cmd/.bat shims without a shell (Node's CVE-2024-27980 fix),
 // so those launches must opt into the platform shell. Every other executable runs
@@ -63,8 +65,7 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
     const args = ['/pid', String(pid), '/T']
     if (signal === 'SIGKILL') args.push('/F')
     try {
-      spawnSync('taskkill', args, { stdio: 'ignore', windowsHide: true })
-      return
+      if (spawnSync('taskkill', args, { stdio: 'ignore', windowsHide: true }).status === 0) return
     } catch {
       /* fall through to a direct kill */
     }
@@ -81,4 +82,59 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
   } catch {
     /* already gone */
   }
+}
+
+function targetAlive(target: number): boolean {
+  try {
+    process.kill(target, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// A process and its current descendants, read from the process table.
+function descendantsOf(root: number): number[] {
+  const children = new Map<number, number[]>()
+  const table = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', windowsHide: true }).stdout
+  for (const line of (typeof table === 'string' ? table : '').split('\n')) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number)
+    if (pid && ppid !== undefined) children.set(ppid, [...(children.get(ppid) ?? []), pid])
+  }
+  const tree = [root]
+  for (const pid of tree) tree.push(...(children.get(pid) ?? []))
+  return tree
+}
+
+// Stop a child's tree and resolve once it is gone: SIGTERM now, SIGKILL for anything still
+// running after graceMs. A POSIX child sharing the caller's terminal leads no group, so its
+// tree is snapshotted from the process table while it runs; that keeps it on the terminal,
+// and only a process that already detached from the tree can outlive the stop.
+export async function stopTree(child: ChildProcess, graceMs: number): Promise<void> {
+  const pid = child.pid
+  if (pid === undefined) return
+  const members = !isWindows && !targetAlive(-pid) ? descendantsOf(pid) : undefined
+  const send = (signal: NodeJS.Signals): void => {
+    if (!members) return killTree(child, signal)
+    for (const member of members) {
+      try {
+        process.kill(member, signal)
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+  const running = (): boolean => {
+    if (members) return members.some(targetAlive)
+    return isWindows ? child.exitCode === null && child.signalCode === null : targetAlive(-pid)
+  }
+  const settle = async (ms: number): Promise<void> => {
+    const deadline = Date.now() + ms
+    while (running() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, STOP_POLL_MS))
+  }
+  send('SIGTERM')
+  await settle(graceMs)
+  if (!running()) return
+  send('SIGKILL')
+  await settle(STOP_KILL_SETTLE_MS)
 }

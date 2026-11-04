@@ -59,11 +59,15 @@ export function parseAgentProfile(source: string, raw: string): AgentProfile {
   const unknown = Object.keys(body).filter((key) => !PROFILE_KEYS.has(key))
   if (unknown.length) throw new RuntimeConfigValidationError(source, `unsupported keys: ${unknown.join(', ')}`)
   const profile: AgentProfile = { model: grant(source, 'model', body.model), tools: grant(source, 'tools', body.tools) }
+  // The launcher hands the SDK its Resources as a comma-separated list.
+  if (profile.model.resource.includes(',') || profile.tools.resource.includes(','))
+    throw new RuntimeConfigValidationError(source, 'model and tools Resource identifiers must not contain commas')
   if (profile.model.resource === profile.tools.resource)
     throw new RuntimeConfigValidationError(source, 'model and tools must name different Resources')
   if (body.labels !== undefined) {
     if (!Array.isArray(body.labels)) throw new RuntimeConfigValidationError(source, 'labels must be an array')
-    profile.labels = body.labels.map((label, i) => token(source, `labels[${i}]`, label))
+    const labels = body.labels.map((label, i) => token(source, `labels[${i}]`, label))
+    if (labels.length) profile.labels = labels
   }
   return profile
 }

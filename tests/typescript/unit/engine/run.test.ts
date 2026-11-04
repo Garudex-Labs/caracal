@@ -3,6 +3,8 @@
 //
 // Tests for run verb bodies: credential env building and safe spawning.
 
+import { spawn } from 'node:child_process'
+
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const fetchRunCredentialMock = vi.hoisted(() => vi.fn())
@@ -22,7 +24,7 @@ vi.mock('../../../../packages/engine/src/runClient.js', () => ({
   fetchRunManifest: fetchRunManifestMock,
 }))
 
-import { killTree } from '../../../../packages/engine/src/processTree.js'
+import { killTree, stopTree } from '../../../../packages/engine/src/processTree.js'
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { ApprovalRequiredError } from '@caracalai/oauth'
@@ -230,8 +232,7 @@ describe('runExec', () => {
       forwardSignals,
       killGraceMs,
     })
-    // Dispose's escalation timer is unref'd and can die with the worker, so a failed test
-    // force-kills the tree itself to leave nothing running.
+    // A test that fails before dispose force-kills the tree itself to leave nothing running.
     onTestFinished(() => killTree(handle.child, 'SIGKILL'))
     return { handle, pids }
   }
@@ -253,6 +254,38 @@ describe('runExec', () => {
     await handle.exitCode
     expect(() => process.kill(pids[0]!, 0)).not.toThrow()
     await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow(), { timeout: 2000 })
+  })
+
+  it.skipIf(process.platform === 'win32')('resolves dispose only after the tree is gone', async () => {
+    const { handle, pids } = spawnWithGrandchild("process.on('SIGTERM', () => {}); setInterval(() => {}, 1e6)", 500)
+    await vi.waitFor(() => expect(pids).toHaveLength(1))
+    await new Promise((r) => setTimeout(r, 200))
+    await handle.dispose()
+    expect(() => process.kill(pids[0]!, 0)).toThrow()
+  })
+
+  it.skipIf(process.platform === 'win32')('stops a tree that leads no process group, as on a terminal', async () => {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const c = spawn(process.execPath, ['-e', \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1e6)\"], { stdio: 'ignore' })",
+      "process.stdout.write(c.pid + '\\n')",
+      'setInterval(() => {}, 1e6)',
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', parent], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const pid = await new Promise<number>((resolve) => child.stdout.once('data', (d: Buffer) => resolve(Number(d))))
+    onTestFinished(() => {
+      for (const target of [pid, child.pid!]) {
+        try {
+          process.kill(target, 'SIGKILL')
+        } catch {
+          /* already gone */
+        }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    await stopTree(child, 500)
+    expect(() => process.kill(child.pid!, 0)).toThrow()
+    expect(() => process.kill(pid, 0)).toThrow()
   })
 
   it.skipIf(process.platform === 'win32')('forwards signals to descendants', async () => {

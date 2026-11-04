@@ -168,6 +168,21 @@ describe('launchAgent', () => {
     await expect(fetch(`${seen.brokerUrl}/hooks/claude-code/pre-tool-use`, { method: 'POST', body: '{}' })).rejects.toThrow()
   })
 
+  it('stops the agent when its delegated authority expires', async () => {
+    const lines: string[] = []
+    const code = await launchAgent({
+      adapter: fakeAgent('setInterval(() => {}, 1e6)'),
+      profile,
+      args: [],
+      env: {},
+      ttlSeconds: 0.3,
+      onLine: (l) => lines.push(l),
+    })
+    expect(code).toBe(143)
+    expect(lines).toContain('caracal: stopping claude-code: delegated authority expired')
+    expect(sdk.closed).toEqual(['session-agent', 'session-launcher'])
+  })
+
   it('retires the launcher Session when the agent Session cannot start', async () => {
     sdk.startSession.mockImplementationOnce(async (opts: Record<string, unknown>) => {
       const session: FakeSession = {

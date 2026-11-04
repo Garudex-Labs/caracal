@@ -3,6 +3,8 @@
 //
 // Tests for the governed agent broker: fail-closed tool hooks and credential-free model forwarding.
 
+import { request } from 'node:http'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentAdapter } from '../../../../packages/engine/src/agentAdapters.js'
 import type { ToolDecision } from '../../../../packages/engine/src/agentAdapters.js'
@@ -55,6 +57,22 @@ describe('agent broker tool hook', () => {
   it('denies when the decision outlives its deadline instead of letting the agent time out open', async () => {
     const b = await start({ decide: () => new Promise(() => {}), decisionTimeoutMs: 50 })
     expect(await hook(b, toolCall('Bash'))).toEqual({ status: 200, json: denial('caracal: tool decision timed out') })
+  })
+
+  it('denies within the deadline when the hook body never finishes arriving', async () => {
+    const decide = vi.fn(async (): Promise<ToolDecision> => ({ allow: true }))
+    const b = await start({ decide, decisionTimeoutMs: 50 })
+    const answer = await new Promise<string>((resolve, reject) => {
+      const req = request(`${b.url}${adapter.hookPath}`, { method: 'POST', headers: { 'content-length': '1024' } }, (res) => {
+        let body = ''
+        res.on('data', (chunk) => (body += chunk))
+        res.on('end', () => resolve(body))
+      })
+      req.on('error', reject)
+      req.write('{"tool_name":')
+    })
+    expect(JSON.parse(answer)).toEqual(denial('caracal: tool decision timed out'))
+    expect(decide).not.toHaveBeenCalled()
   })
 
   it('denies payloads it cannot attribute to a tool without asking Caracal', async () => {
@@ -138,6 +156,18 @@ describe('agent broker model forwarding', () => {
     const b = await start({ forward: async () => new Response('ignored', { headers: { trailer: 'X-Caracal-Revoked' } }) })
     const res = await fetch(`${b.url}/model/api/hello`, { method: 'HEAD' })
     expect(res.status).toBe(200)
+  })
+
+  it('refuses a model body over the limit before forwarding it', async () => {
+    const forward = vi.fn(async () => new Response('{}'))
+    const b = await start({ forward, maxModelBodyBytes: 8 })
+    const res = await fetch(`${b.url}/model/v1/messages`, { method: 'POST', body: 'x'.repeat(64) })
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual({
+      type: 'error',
+      error: { type: 'request_too_large', message: 'caracal: model request body too large' },
+    })
+    expect(forward).not.toHaveBeenCalled()
   })
 
   it('reports Caracal denials as final and other failures as retryable', async () => {

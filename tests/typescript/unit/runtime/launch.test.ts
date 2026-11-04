@@ -103,6 +103,7 @@ describe('launchCommand', () => {
       [['claude-code'], 'a launch profile is required'],
       [['--profile', 'anton.json'], 'an agent name is required'],
       [['claude-code', '--profile'], '--profile requires a value'],
+      [['claude-code', '--profile', '--command', 'claude'], '--profile requires a value'],
       [['claude-code', '--profile', 'anton.json', '-p', 'hi'], "unknown option '-p'; pass agent arguments after --"],
     ] as const) {
       stderr = ''

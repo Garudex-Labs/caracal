@@ -43,6 +43,14 @@ describe('parseAgentProfile', () => {
     expect(() => parse({ ...valid, model: { ...valid.model, resource: '' } })).toThrow(/model.resource/)
   })
 
+  it('rejects a Resource identifier the launcher would split into two audiences', () => {
+    expect(() => parse({ ...valid, tools: { ...valid.tools, resource: 'resource://a,b' } })).toThrow(/must not contain commas/)
+  })
+
+  it('treats empty labels as absent so the application id default applies', () => {
+    expect(parse({ ...valid, labels: [] }).labels).toBeUndefined()
+  })
+
   it('requires distinct model and tools Resources', () => {
     expect(() => parse({ ...valid, tools: { ...valid.tools, resource: valid.model.resource } })).toThrow(/different Resources/)
   })

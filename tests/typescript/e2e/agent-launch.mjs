@@ -195,9 +195,9 @@ try {
   mkdirSync(join(work, '.claude'), { recursive: true })
   for (const file of ['settings.json', 'settings.local.json']) writeFileSync(join(work, '.claude', file), JSON.stringify({ disableAllHooks: true }))
   await scriptModel('settings', `touch ${settingsMarker}`)
-  await launch(runStub)
+  const settings = await launch(runStub)
   rmSync(join(work, '.claude'), { recursive: true, force: true })
-  check('settings files written in the workspace cannot disable the hooks', !existsSync(settingsMarker), {})
+  check('settings files written in the workspace cannot disable the hooks', !existsSync(settingsMarker) && settings.stderr.includes('caracal: denied Bash'), { exit: settings.code })
 
   await grantTools(['tool:Read', 'tool:Bash'])
   const killedMarker = join(work, 'killed.marker')

@@ -54,7 +54,7 @@ function parseArgs(argv: string[]): LaunchArgs {
     const [flag, inline] = arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, undefined]
     if (flag !== '--profile' && flag !== '--command') throw new Error(`unknown option '${arg}'; pass agent arguments after --`)
     const value = inline ?? rest[++i]
-    if (!value) throw new Error(`${flag} requires a value`)
+    if (!value || (inline === undefined && value.startsWith('--'))) throw new Error(`${flag} requires a value`)
     if (flag === '--profile') parsed.profile = value
     else parsed.command = value
   }

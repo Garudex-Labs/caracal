@@ -59,7 +59,13 @@ const claudeCode: AgentAdapter = {
       // can write itself; only root-owned managed settings rank higher.
       disableAllHooks: false,
       hooks: {
-        PreToolUse: [{ matcher: '*', hooks: [{ type: 'http', url: `${brokerUrl}${claudeCode.hookPath}`, timeout: HOOK_TIMEOUT_SECONDS }] }],
+        PreToolUse: [
+          {
+            matcher: '*',
+            // Without onFailure, Claude Code runs the tool when this hook errors or times out.
+            hooks: [{ type: 'http', url: `${brokerUrl}${claudeCode.hookPath}`, timeout: HOOK_TIMEOUT_SECONDS, onFailure: 'block' }],
+          },
+        ],
       },
     }
     return {

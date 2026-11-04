@@ -26,7 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | Model calls | Gateway and STS on every request | The agent only holds a placeholder key; the Gateway injects the provider key. Revocation applies on the next request. |
 | Built-in and MCP tool calls | A tool-scope mint at STS before the tool runs | Grants, delegation narrowing, revocation, and audit apply. Unknown tools are denied. |
-| Agent lifetime | Session heartbeat | A terminated or revoked Session stops the agent's whole process tree within one heartbeat interval (5 seconds). |
+| Agent lifetime | Session heartbeat | A terminated or revoked Session reaches the launcher within one heartbeat interval (5 seconds). The launcher then sends `SIGTERM` to the agent's process tree and `SIGKILL` to anything still running 5 seconds later, so a stop takes at most about 10 seconds. A launch also stops when its delegated authority expires, 8 hours after it starts. |
 | Switching hooks off | Launcher | `--bare`, `--settings`, and `--setting-sources` are refused for Claude Code, and the launcher's own settings pin `disableAllHooks` to `false`, which outranks any project, local, or user settings file the agent could write. |
 | Network access and file reads by an allowed command | Not governed | A shell command the agent is allowed to run can reach the network and read files the user can read. Treat tool scopes as limits on what the agent may attempt, not as a sandbox. |
 
@@ -76,7 +76,9 @@ Everything after `--` goes to the agent unchanged. Interactive sessions work the
 
 ## Stop an agent
 
-Terminate the agent Session from the web console or through the Coordinator. Within one heartbeat the launcher stops the agent and its subprocesses, and any model call or tool decision already in flight is refused by STS.
+Terminate the agent Session from the web console or through the Coordinator. Any model call or tool decision made after that is refused by STS. Within one heartbeat the launcher sends `SIGTERM` to the agent and its subprocesses, then `SIGKILL` to anything still running 5 seconds later, and it stays up until they are gone.
+
+An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table when it stops the agent, and a process that has already detached from the agent's tree is not stopped.
 
 ## Validate the launch
 

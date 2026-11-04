@@ -18,6 +18,7 @@ export interface AgentBrokerOptions {
   // Sends one model request, path including its query, through the Gateway.
   forward: (path: string, init: RequestInit) => Promise<Response>
   decisionTimeoutMs?: number
+  maxModelBodyBytes?: number
   onDecision?: (tool: string | undefined, decision: ToolDecision) => void
 }
 
@@ -33,6 +34,8 @@ const DECISION_TIMEOUT_MS = Math.min(4_000, HOOK_TIMEOUT_SECONDS * 1000 - 2_000)
 const TOOL_NAME = /^[A-Za-z0-9_.-]{1,128}$/
 // Hook payloads carry the full tool input, such as a file being written.
 const MAX_HOOK_BODY_BYTES = 64 * 1024 * 1024
+// Model requests are buffered before forwarding, so this bounds the launcher's memory per request.
+const MAX_MODEL_BODY_BYTES = 64 * 1024 * 1024
 const DROP_REQUEST = new Set([
   'host',
   'connection',
@@ -58,30 +61,35 @@ function describe(err: unknown): string {
   return scrubTokens(`${code}${requestId}`)
 }
 
-async function decideWithin(decide: (scope: string) => Promise<ToolDecision>, scope: string, timeoutMs: number): Promise<ToolDecision> {
+async function decideWithin(decide: () => Promise<ToolDecision>, timeoutMs: number): Promise<ToolDecision> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const late = new Promise<ToolDecision>((resolve) => {
     timer = setTimeout(() => resolve({ allow: false, reason: 'caracal: tool decision timed out' }), timeoutMs)
   })
   try {
-    return await Promise.race([
-      decide(scope).catch((err: unknown) => ({ allow: false, reason: `caracal: ${describe(err)}` }) as const),
-      late,
-    ])
+    return await Promise.race([decide().catch((err: unknown) => ({ allow: false, reason: `caracal: ${describe(err)}` }) as const), late])
   } finally {
     clearTimeout(timer)
   }
 }
 
-async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length
-    if (size > limit) throw new Error('request body too large')
-    chunks.push(chunk as Buffer)
-  }
-  return Buffer.concat(chunks)
+// Rejects at the limit without destroying the socket, so the caller can still answer.
+function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > limit) {
+        chunks.length = 0
+        req.removeAllListeners('data')
+        req.pause()
+        reject(new Error('request body too large'))
+      } else chunks.push(chunk)
+    })
+    req.once('end', () => resolve(Buffer.concat(chunks)))
+    req.once('error', reject)
+  })
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -102,19 +110,15 @@ function modelError(res: ServerResponse, err: unknown): void {
 export async function startAgentBroker(opts: AgentBrokerOptions): Promise<AgentBroker> {
   const base = `/${randomBytes(16).toString('hex')}`
   const timeoutMs = opts.decisionTimeoutMs ?? DECISION_TIMEOUT_MS
+  const maxModelBodyBytes = opts.maxModelBodyBytes ?? MAX_MODEL_BODY_BYTES
 
   async function hook(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let tool: string | undefined
-    let decision: ToolDecision
-    try {
+    // The deadline covers reading the body, so a slow body cannot outlast the agent's hook timeout.
+    const decision = await decideWithin(async () => {
       tool = opts.adapter.toolName(JSON.parse((await readBody(req, MAX_HOOK_BODY_BYTES)).toString('utf8')))
-      decision =
-        tool && TOOL_NAME.test(tool)
-          ? await decideWithin(opts.decide, `tool:${tool}`, timeoutMs)
-          : { allow: false, reason: 'caracal: unrecognized tool call' }
-    } catch (err) {
-      decision = { allow: false, reason: `caracal: ${describe(err)}` }
-    }
+      return tool && TOOL_NAME.test(tool) ? opts.decide(`tool:${tool}`) : { allow: false, reason: 'caracal: unrecognized tool call' }
+    }, timeoutMs)
     opts.onDecision?.(tool, decision)
     json(res, 200, opts.adapter.hookResponse(decision))
   }
@@ -129,7 +133,14 @@ export async function startAgentBroker(opts: AgentBrokerOptions): Promise<AgentB
       if (value === undefined || DROP_REQUEST.has(key) || key.startsWith('x-caracal-')) continue
       headers.set(key, Array.isArray(value) ? value.join(', ') : value)
     }
-    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req, Number.POSITIVE_INFINITY)
+    let body: Buffer | undefined
+    try {
+      body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req, maxModelBodyBytes)
+    } catch {
+      res.setHeader('connection', 'close')
+      json(res, 413, { type: 'error', error: { type: 'request_too_large', message: 'caracal: model request body too large' } })
+      return
+    }
     let upstream: Response
     try {
       upstream = await opts.forward(path, { method: req.method, headers, body: body && new Uint8Array(body), signal: abort.signal })

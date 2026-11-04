@@ -7,7 +7,7 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { killTree, leadsProcessGroup } from './processTree.js'
+import { killTree, leadsProcessGroup, stopTree } from './processTree.js'
 import { ApprovalRequiredError, pollApprovalState } from '@caracalai/oauth'
 import { fetchRunCredential, fetchRunManifest } from './runClient.js'
 import type { RunBinding, RunCredentialResponse } from './runClient.js'
@@ -83,14 +83,15 @@ export interface RunExecOpts {
   // Default true for runtime ergonomics. Hosts that own the keymap (UI hosts, embedded
   // libraries) must pass false so engine signals don't tear the parent down.
   forwardSignals?: boolean
-  // How long dispose waits after SIGTERM before force-killing the process tree. A child
-  // sharing the caller's terminal leads no group, so only that direct child is signaled.
+  // How long dispose waits after SIGTERM before force-killing the process tree.
   killGraceMs?: number
 }
 
 export interface RunExecHandle {
   child: ChildProcess
-  dispose: () => void
+  // Stops the process tree; resolves once it is gone, so a caller can exit without leaving
+  // a descendant that ignored SIGTERM running.
+  dispose: () => Promise<void>
   exitCode: Promise<number>
 }
 
@@ -281,14 +282,14 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
     })
   }
 
-  let disposed = false
-  const dispose = (): void => {
-    if (disposed) return
-    disposed = true
-    for (const [sig, h] of signalHandlers) process.off(sig, h)
-    // The group outlives its leader, so descendants are swept even after the child exits.
-    killTree(child, 'SIGTERM')
-    setTimeout(() => killTree(child, 'SIGKILL'), opts.killGraceMs ?? KILL_GRACE_MS).unref()
+  let disposal: Promise<void> | undefined
+  const dispose = (): Promise<void> => {
+    if (!disposal) {
+      for (const [sig, h] of signalHandlers) process.off(sig, h)
+      // The group outlives its leader, so descendants are swept even after the child exits.
+      disposal = stopTree(child, opts.killGraceMs ?? KILL_GRACE_MS)
+    }
+    return disposal
   }
 
   const exitCode = new Promise<number>((resolve) => {

@@ -141,6 +141,14 @@ describe('killTree', () => {
     expect(spawnSyncMock).toHaveBeenLastCalledWith('taskkill', ['/pid', '99', '/T', '/F'], expect.objectContaining({ windowsHide: true }))
   })
 
+  it('falls back to a direct child kill when taskkill fails', async () => {
+    const mod = await loadFor('win32')
+    spawnSyncMock.mockReturnValue({ status: 1 })
+    const child = fakeChild(1234)
+    mod.killTree(child, 'SIGTERM')
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  })
+
   it('falls back to a direct child kill when the group teardown throws', async () => {
     const mod = await loadFor('linux')
     vi.spyOn(process, 'kill').mockImplementation(() => {

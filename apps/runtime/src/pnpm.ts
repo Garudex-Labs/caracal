@@ -4,18 +4,20 @@
 // Shim-free resolution of the pnpm invocation used by workspace interface launchers.
 
 import { existsSync, statSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, resolve } from 'node:path'
 
 // pnpm ships as a bare binary on POSIX; on Windows it is pnpm.exe (standalone install)
 // or a pnpm.cmd shim (npm/corepack), probed in PATHEXT order.
 const PNPM_BINS = process.platform === 'win32' ? ['pnpm.exe', 'pnpm.cmd'] : ['pnpm']
+const PNPM_ENTRY = /(^|[\\/])pnpm(\.[cm]?js|\.exe|\.cmd)?$/i
+const JS_ENTRY = /\.[cm]?js$/i
 
 function locate(binNames: string[]): string | undefined {
   const path = process.env.PATH ?? ''
   for (const dir of path.split(delimiter)) {
     if (!dir) continue
     for (const name of binNames) {
-      const candidate = join(dir, name)
+      const candidate = resolve(dir, name)
       try {
         if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
       } catch {
@@ -37,7 +39,9 @@ export interface PnpmInvocation {
 // spawnSyncTree from @caracalai/engine apply the shell opt-in for it.
 export function resolvePnpm(): PnpmInvocation | undefined {
   const execpath = process.env.npm_execpath
-  if (execpath && /pnpm/i.test(execpath)) return { cmd: process.execPath, prefix: [execpath] }
+  if (execpath && PNPM_ENTRY.test(execpath)) {
+    return JS_ENTRY.test(execpath) ? { cmd: process.execPath, prefix: [execpath] } : { cmd: execpath, prefix: [] }
+  }
   const onPath = locate(PNPM_BINS)
   if (onPath) return { cmd: onPath, prefix: [] }
   return undefined
