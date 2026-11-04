@@ -147,6 +147,11 @@ describe('claude-code adapter', () => {
     expect(() => assertClaudeCodeManagedSettings(dir)).toThrow(/cannot parse managed settings/)
   })
 
+  it('reads its version only from Claude Code output', () => {
+    expect(adapter.versions!.pattern.exec('2.1.318 (Claude Code)\n')?.[1]).toBe('2.1.318')
+    expect(adapter.versions!.pattern.exec('Running on an unsupported Node (22.23.1)\n')).toBeNull()
+  })
+
   it('reads the tool name from the PreToolUse payload', () => {
     expect(adapter.toolName({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } })).toBe('Bash')
     expect(adapter.toolName({ tool_name: '' })).toBeUndefined()
@@ -176,6 +181,12 @@ describe('openclaw adapter', () => {
   it('pins its config before an option terminator in the caller args can make it positional', () => {
     const { argv } = adapter.plan(input(['task', '--']))
     expect(argv.indexOf('--config')).toBeLessThan(argv.indexOf('--'))
+  })
+
+  it('reads its version only from OpenClaw output', () => {
+    expect(
+      adapter.versions!.pattern.exec('Running on an unsupported Node (22.23.1); diagnostics off\nOpenClaw 2026.10.9 (8b18b55)\n')?.[1],
+    ).toBe('2026.10.9')
   })
 
   it('runs one pinned-config turn from the private launch directory', () => {

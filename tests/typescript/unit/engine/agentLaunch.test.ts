@@ -62,6 +62,9 @@ vi.mock('@caracalai/sdk', () => ({
   },
 }))
 
+// Launch tests use stand-in agents, which have no version to check.
+const claudeCode = { ...agentAdapter('claude-code'), versions: undefined }
+
 const { launchAgent, protectedPaths } = await import('../../../../packages/engine/src/agentLaunch.js')
 
 // Stand-ins for the sandbox and hook executables the launcher checks for on PATH.
@@ -75,9 +78,8 @@ const profile = {
 
 // A stand-in agent: a Node process that runs `script`, launched through the real adapter plan.
 function fakeAgent(script: string, seen: { brokerUrl?: string; protectedPaths?: string[] } = {}): AgentAdapter {
-  const base = agentAdapter('claude-code')
   return {
-    ...base,
+    ...claudeCode,
     plan: ({ brokerUrl, protectedPaths }) => {
       seen.brokerUrl = brokerUrl
       seen.protectedPaths = protectedPaths
@@ -167,7 +169,7 @@ describe('launchAgent', () => {
     const report = join(mkdtempSync(join(tmpdir(), 'caracal-plan-report-')), 'report.json')
     let dir = ''
     const adapter: AgentAdapter = {
-      ...agentAdapter('claude-code'),
+      ...claudeCode,
       plan: ({ stateDir }) => {
         dir = stateDir
         const script = `const fs = require('node:fs'); const f = ${JSON.stringify(join(stateDir, 'nested/c.json'))}; fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ mode: fs.statSync(f).mode & 0o777, dirMode: fs.statSync(${JSON.stringify(stateDir)}).mode & 0o777, content: fs.readFileSync(f, 'utf8') }))`
@@ -181,7 +183,7 @@ describe('launchAgent', () => {
 
   it('refuses a plan file outside the launch directory', async () => {
     const adapter: AgentAdapter = {
-      ...agentAdapter('claude-code'),
+      ...claudeCode,
       plan: () => ({ argv: [process.execPath, '-e', 'process.exit(0)'], env: {}, files: { '../outside.json': '{}' } }),
     }
     await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/outside the launch directory/)
@@ -199,7 +201,7 @@ describe('launchAgent', () => {
     ].join(';')
     let seen: { stateDir?: string; workspace?: string } = {}
     const adapter: AgentAdapter = {
-      ...agentAdapter('claude-code'),
+      ...claudeCode,
       plan: ({ stateDir, workspace }) => {
         seen = { stateDir, workspace }
         return { argv: [process.execPath, '-e', script], env: {}, cwd: stateDir, files: { 'nested/config.json': '{"guard":true}' } }
@@ -300,9 +302,60 @@ describe('launchAgent', () => {
     expect(sdk.closed).toEqual(['session-agent', 'session-launcher'])
   })
 
+  describe('agent version', () => {
+    const versioned = (printed: string) => {
+      const command = join(mkdtempSync(join(tmpdir(), 'caracal-version-')), 'agent')
+      writeFileSync(command, `#!/bin/sh\necho '${printed}'\n`, { mode: 0o755 })
+      return command
+    }
+    const adapter = {
+      ...claudeCode,
+      versions: { pattern: /^(\d+\.\d+\.\d+) \(Agent\)/m, minimum: '2.1.10', tested: '2.1.20' },
+      plan: () => ({ argv: [process.execPath, '-e', 'process.exit(0)'], env: {} }),
+    }
+
+    it.skipIf(process.platform === 'win32')('refuses an agent older than the oldest verified version, comparing numerically', async () => {
+      await expect(
+        launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin }, command: versioned('2.1.9 (Agent)') }),
+      ).rejects.toThrow(/older than 2\.1\.10/)
+      expect(sdk.startSession).not.toHaveBeenCalled()
+    })
+
+    it.skipIf(process.platform === 'win32')('refuses an agent whose version it cannot read', async () => {
+      await expect(
+        launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin }, command: versioned('Running on Node (22.23.1)') }),
+      ).rejects.toThrow(/cannot read the version/)
+      expect(sdk.startSession).not.toHaveBeenCalled()
+    })
+
+    it.skipIf(process.platform === 'win32')('warns about a newer agent and still launches it', async () => {
+      const lines: string[] = []
+      const code = await launchAgent({
+        adapter,
+        profile,
+        args: [],
+        env: { PATH: sandboxBin },
+        command: versioned('2.1.30 (Agent)'),
+        onLine: (l) => lines.push(l),
+      })
+      expect(code).toBe(0)
+      expect(lines).toContain('caracal: claude-code 2.1.30 is newer than 2.1.20, the newest verified version')
+    })
+
+    it.skipIf(process.platform === 'win32')('keeps launcher credentials out of the version check', async () => {
+      const out = join(mkdtempSync(join(tmpdir(), 'caracal-version-env-')), 'env')
+      const command = versioned('2.1.20 (Agent)')
+      writeFileSync(command, `#!/bin/sh\nset > ${out}\necho '2.1.20 (Agent)'\n`, { mode: 0o755 })
+      await launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin, CARACAL_APP_CLIENT_SECRET: 'piper-secret' }, command })
+      const seen = readFileSync(out, 'utf8')
+      expect(seen).toContain(sandboxBin)
+      expect(seen).not.toContain('piper-secret')
+    })
+  })
+
   it('refuses to start when host policy would switch off governance', async () => {
     const adapter = {
-      ...agentAdapter('claude-code'),
+      ...claudeCode,
       requiredCommands: () => [],
       assertHostPolicy: () => {
         throw new Error('claude-code: managed settings set disableAllHooks')
@@ -323,7 +376,7 @@ describe('launchAgent', () => {
     const partial = mkdtempSync(join(tmpdir(), 'caracal-partial-bin-'))
     writeFileSync(join(partial, 'curl'), '', { mode: 0o755 })
     writeFileSync(join(partial, 'sh'), '', { mode: 0o755 })
-    const adapter = { ...agentAdapter('claude-code'), requiredCommands: () => ['bwrap', 'socat', 'sh', 'curl'] }
+    const adapter = { ...claudeCode, requiredCommands: () => ['bwrap', 'socat', 'sh', 'curl'] }
     await expect(launchAgent({ adapter, profile, args: [], env: { PATH: partial } })).rejects.toThrow(
       'claude-code: bwrap, socat not found on PATH',
     )
@@ -331,7 +384,7 @@ describe('launchAgent', () => {
   })
 
   it('refuses platforms where the agent cannot be sandboxed', async () => {
-    const adapter = { ...agentAdapter('claude-code'), requiredCommands: () => undefined }
+    const adapter = { ...claudeCode, requiredCommands: () => undefined }
     await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/not supported on/)
     expect(sdk.startSession).not.toHaveBeenCalled()
   })
@@ -349,9 +402,7 @@ describe('launchAgent', () => {
     })
     sdk.startSession.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'access_denied' }))
     const plan = vi.fn()
-    await expect(
-      launchAgent({ adapter: { ...agentAdapter('claude-code'), plan }, profile, args: [], env: { PATH: sandboxBin } }),
-    ).rejects.toThrow('denied')
+    await expect(launchAgent({ adapter: { ...claudeCode, plan }, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow('denied')
     expect(plan).not.toHaveBeenCalled()
     expect(sdk.closed).toEqual(['session-launcher'])
     expect(sdk.close).toHaveBeenCalledOnce()

@@ -523,6 +523,7 @@ export default defineConfig({
                 { label: 'Map the System', link: '/architecture/system-topology/' },
                 { label: 'Exchange Tokens', link: '/architecture/token-exchange-flow/' },
                 { label: 'Coordinate Sessions', link: '/architecture/delegation-flow/' },
+                { label: 'Govern Agent Runtimes', link: '/architecture/agent-runtime/' },
               ],
             },
             {

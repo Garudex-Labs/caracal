@@ -36,6 +36,13 @@ Tool hooks are cooperative: they run inside the agent, and Claude Code runs the 
 
 Managed settings outrank the launcher's own. The launcher refuses to start when a `managed-settings.json` file or `managed-settings.d` drop-in on the host sets `disableAllHooks`, `allowManagedHooksOnly`, `sandbox.enabled` to `false`, or `sandbox.allowUnsandboxedCommands` to `true`. Server-managed settings and macOS managed preferences are not visible on the host, so review those separately.
 
+The launcher also checks the agent's version before any Session exists, because governance relies on how the agent handles hook failures. It refuses a version it cannot read or one older than the oldest verified, and warns about one newer than the newest verified:
+
+| Agent | Oldest verified | Newest verified |
+| --- | --- | --- |
+| Claude Code | 2.1.318 | 2.1.318 |
+| OpenClaw | 2026.10.9 | 2026.10.9 |
+
 On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (`sandbox-exec`). The hook needs `sh` and `curl`, and stopping an agent on your terminal needs `ps`. Claude Code runs commands unsandboxed when its sandbox dependencies are missing, so `caracal launch` checks for all of them and refuses to start without them. Native Windows has no Claude Code sandbox and is refused; macOS has not been verified yet.
 
 ## OpenClaw
@@ -48,6 +55,7 @@ On Linux the sandbox needs `bubblewrap` and `socat`; on macOS it uses Seatbelt (
 | Tool calls | Decided as `tool:<id>` on the tools Resource, for example `tool:exec`, `tool:read`, `tool:write`, `tool:apply_patch`, `tool:process`. |
 | Refused flags | `--config`, `--isolated`, `--auth-env-only`, `--model`, `--fallback`, `--cwd`. |
 | Shell commands | Not sandboxed: OpenClaw only offers container sandboxes, which the launcher does not configure. An allowed `exec` command can reach the network and read the user's files. It still holds no Caracal or provider credential. |
+| An `exec` command still running if OpenClaw crashes | OpenClaw runs these in their own session, so one still running when OpenClaw is killed with `SIGKILL` outlives it until it finishes. It holds no credential and cannot get a tool call approved. Stopping a running OpenClaw does not leave them behind. |
 | A nested `openclaw` started from `exec` | Would run without the guard. Its model calls still go through the broker and Gateway, and it holds no credential. |
 | Stopping | After its Session is terminated, OpenClaw usually exits on its own when its next model call is refused; otherwise the heartbeat stops it. |
 
@@ -102,6 +110,10 @@ Terminate the agent Session from the web console or through the Coordinator. Any
 An interactive agent stays on your terminal, so it has no process group of its own. The launcher finds its subprocesses in the process table while it stops the agent, including ones the agent left behind or starts during the stop. A process that moved itself to its own process group or session is not stopped.
 
 If the launcher itself is killed with `SIGKILL`, it cannot stop anything. The agent process keeps running but can no longer reach the model or get a tool call approved, because the broker went with the launcher, and STS stops honouring its Session about two minutes later. Stop that process yourself.
+
+If the Coordinator is unreachable, the launcher keeps retrying its heartbeat and a short outage does not disturb the agent. Once the Session's 2-minute lease lapses, STS refuses its model calls and tool decisions. If STS or the Gateway is down, no model call or tool decision succeeds, so no tool runs until it returns.
+
+Revoking the agent's tools delegation ends its Session, so the agent stops instead of being denied a single call. Removing a tool grant from the policy denies that tool's next call and lets the agent carry on.
 
 ## Validate the launch
 
