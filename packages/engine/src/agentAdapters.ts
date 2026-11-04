@@ -93,8 +93,14 @@ export function assertClaudeCodeManagedSettings(dir: string): void {
   let dropIns: string[] = []
   try {
     dropIns = readdirSync(join(dir, 'managed-settings.d')).filter((name) => name.endsWith('.json'))
-  } catch {
-    /* no drop-in folder */
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT')
+      throw new Error(
+        `claude-code: cannot read managed settings ${join(dir, 'managed-settings.d')}, so its effect on Caracal's hook is unknown`,
+        {
+          cause: err,
+        },
+      )
   }
   for (const path of [join(dir, 'managed-settings.json'), ...dropIns.map((name) => join(dir, 'managed-settings.d', name))]) {
     const settings = readManagedSettings(path)

@@ -3,11 +3,11 @@
 //
 // Tests for governed agent adapters: launch plans, governance flag guards, and hook formats.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import {
   GATEWAY_INJECTED_KEY,
   HOOK_TIMEOUT_SECONDS,
@@ -130,6 +130,15 @@ describe('claude-code adapter', () => {
     mkdirSync(join(dir, 'managed-settings.d'))
     writeFileSync(join(dir, 'managed-settings.d', '10-org.json'), JSON.stringify({ disableAllHooks: true }))
     expect(() => assertClaudeCodeManagedSettings(dir)).toThrow('10-org.json set disableAllHooks')
+  })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses a managed drop-in folder it cannot read', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'caracal-managed-'))
+    const dropIns = join(dir, 'managed-settings.d')
+    mkdirSync(dropIns)
+    chmodSync(dropIns, 0o000)
+    onTestFinished(() => chmodSync(dropIns, 0o700))
+    expect(() => assertClaudeCodeManagedSettings(dir)).toThrow(/cannot read managed settings/)
   })
 
   it('refuses managed settings it cannot parse rather than assuming they are safe', () => {
