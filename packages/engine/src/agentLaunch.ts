@@ -127,8 +127,13 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
   assertSandboxAvailable(opts.adapter, opts.env)
   const log = (line: string) => opts.onLine?.(`caracal: ${line}`, 'stderr')
   const command = opts.command ?? opts.adapter.command
-  // runExec never uses a shell, which Windows requires for these shims.
-  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command))
+  // runExec never uses a shell, which Windows requires for these shims. A bare name such as
+  // `openclaw` can resolve to one, as an npm install does.
+  const onWindowsPath =
+    process.platform === 'win32'
+      ? findExecutable([command, `${command}.exe`, `${command}.cmd`, `${command}.bat`], opts.env.PATH)
+      : undefined
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(onWindowsPath ?? command))
     throw new Error(
       `${opts.adapter.name}: ${command} is a shell shim, which a governed launch cannot run; pass the agent's executable with --command`,
     )

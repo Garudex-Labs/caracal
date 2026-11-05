@@ -363,6 +363,16 @@ describe('launchAgent', () => {
     expect(sdk.startSession).not.toHaveBeenCalled()
   })
 
+  it('refuses a bare Windows command that resolves to a shell shim', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'caracal-windows-bin-'))
+    writeFileSync(join(bin, 'openclaw.cmd'), '', { mode: 0o755 })
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    onTestFinished(() => Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true }))
+    const adapter = { ...claudeCode, command: 'openclaw', requiredCommands: () => [] }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: bin } })).rejects.toThrow(/shell shim/)
+    expect(sdk.startSession).not.toHaveBeenCalled()
+  })
+
   it('gives the agent the HOME its credential stores were protected under', async () => {
     const out = join(mkdtempSync(join(tmpdir(), 'caracal-home-out-')), 'home')
     const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, process.env.HOME)`
