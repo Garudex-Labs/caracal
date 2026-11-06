@@ -208,7 +208,7 @@ func (d *jwksDB) GetZoneSigningKeySecrets(_ context.Context, _ string) ([]Secret
 	return d.rows, d.err
 }
 
-func sealedSecret(t *testing.T, zek []byte, kid string, plaintext []byte) SecretRow {
+func sealedSecret(t testing.TB, zek []byte, kid string, plaintext []byte) SecretRow {
 	t.Helper()
 	envelope, err := secretstore.Seal(zek, plaintext, secretstore.AADZoneSigningKey)
 	if err != nil {

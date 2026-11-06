@@ -26,7 +26,6 @@ import (
 	coremetrics "github.com/garudex-labs/caracal/packages/core/go/metrics"
 	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/garudex-labs/caracal/packages/core/go/telemetry"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -59,6 +58,8 @@ type Server struct {
 	mintRateOverride   atomic.Int64
 	auditBuffer        *AuditBuffer
 	metrics            *STSMetrics
+	providerHTTPOnce   sync.Once
+	providerHTTPClient *http.Client
 	refreshGroup       singleflight.Group
 	providerTokenMu    sync.RWMutex
 	providerTokenCache map[string]providerServiceTokenCacheEntry
@@ -100,10 +101,23 @@ func New(ctx context.Context) (*Server, error) {
 		return nil, fmt.Errorf("db: %w", err)
 	}
 
+	initialized := false
+	defer func() {
+		if !initialized {
+			db.pool.Close()
+		}
+	}()
+
 	rdb, err := newRedis(cfg.RedisURL)
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
 	}
+
+	defer func() {
+		if !initialized {
+			_ = rdb.c.Close()
+		}
+	}()
 
 	streamKey, err := sharedcrypto.DecodeStreamKey(cfg.StreamsHMACKey)
 	if err != nil {
@@ -154,11 +168,26 @@ func New(ctx context.Context) (*Server, error) {
 		log:            log,
 	}
 	srv.secretVerifier.configure(cfg.SecretVerifyConcurrency)
+	initialized = true
 	return srv, nil
 }
 
 // Run starts the HTTP server and all background workers; blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
+	ctx, cancelWorkers := context.WithCancel(ctx)
+	defer func() {
+		s.providerClient().CloseIdleConnections()
+		if s.subjectKeys != nil && s.subjectKeys.client != nil {
+			s.subjectKeys.client.CloseIdleConnections()
+		}
+		if db, ok := s.db.(*DB); ok {
+			db.pool.Close()
+		}
+		if rdb, ok := s.redis.(*RedisClient); ok {
+			_ = rdb.c.Close()
+		}
+	}()
+	defer cancelWorkers()
 	s.auditBuffer.replayPending(ctx)
 	auditCtx, stopAudit := context.WithCancel(context.Background())
 	defer stopAudit()
@@ -208,6 +237,9 @@ func (s *Server) Run(ctx context.Context) error {
 		shutCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelShutdown()
 		shutErr := srv.Shutdown(shutCtx)
+		if shutErr != nil {
+			_ = srv.Close()
+		}
 		stopAudit()
 		auditFlushCtx, cancelAuditFlush := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelAuditFlush()
@@ -219,6 +251,13 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		return shutErr
 	case err := <-errc:
+		cancelWorkers()
+		stopAudit()
+		flushCtx, cancelFlush := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelFlush()
+		if flushErr := s.auditBuffer.Close(flushCtx); flushErr != nil {
+			s.log.Error().Err(flushErr).Msg("audit buffer flush after listener failure")
+		}
 		return err
 	}
 }
@@ -236,21 +275,17 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "zone signing key not found"))
 		return
 	}
-	entries := make([]JWKSEntry, 0, len(secrets))
+	publicKeys, keyErr := s.keys.publicKeysForSecrets(zoneID, secrets)
+	if keyErr != nil {
+		s.metrics.JWKSInvalidKeys.Add(uint64(len(secrets) - len(publicKeys)))
+		s.log.Warn().Err(keyErr).Str("zone", zoneID).Msg("jwks: skipped invalid signing keys")
+	}
+	entries := make([]JWKSEntry, 0, len(publicKeys))
+	// Preserve database order (active, previous) for a stable JWKS document.
 	for _, secret := range secrets {
-		keyBytes, err := s.keys.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
-		if err != nil {
-			s.metrics.JWKSInvalidKeys.Add(1)
-			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "decrypt").Msg("jwks: skipped invalid signing key")
-			continue
+		if pub := publicKeys[secret.ID]; pub != nil {
+			entries = append(entries, JWKSEntry{Pub: pub, Kid: secret.ID})
 		}
-		priv, err := jwt.ParseECPrivateKeyFromPEM(keyBytes)
-		if err != nil {
-			s.metrics.JWKSInvalidKeys.Add(1)
-			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "parse").Msg("jwks: skipped invalid signing key")
-			continue
-		}
-		entries = append(entries, JWKSEntry{Pub: &priv.PublicKey, Kid: secret.ID})
 	}
 	if len(entries) == 0 {
 		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "signing key decryption failed"))
