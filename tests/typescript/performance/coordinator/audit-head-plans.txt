@@ -1,0 +1,38 @@
+BEGIN
+              set_config              
+--------------------------------------
+ 01a1b098-796c-768a-9c99-c9c1f020b82d
+(1 row)
+
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=194.26..194.27 rows=1 width=40) (actual time=1.733..1.734 rows=1 loops=1)
+   Buffers: shared hit=138
+   ->  Sort  (cost=194.26..199.65 rows=2155 width=40) (actual time=1.731..1.732 rows=1 loops=1)
+         Sort Key: (COALESCE(chain_seq, '0'::bigint)) DESC NULLS LAST
+         Sort Method: top-N heapsort  Memory: 25kB
+         Buffers: shared hit=138
+         ->  Seq Scan on admin_audit_events  (cost=0.00..183.49 rows=2155 width=40) (actual time=0.015..1.434 rows=2117 loops=1)
+               Filter: ((NOT (zone_id IS DISTINCT FROM '01a1b098-796c-768a-9c99-c9c1f020b82d'::text)) AND ((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))))
+               Buffers: shared hit=135
+ Planning:
+   Buffers: shared hit=188
+ Planning Time: 0.865 ms
+ Execution Time: 1.764 ms
+(13 rows)
+
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.28..0.63 rows=1 width=77) (actual time=0.030..0.031 rows=1 loops=1)
+   Buffers: shared hit=3
+   ->  Index Scan using admin_audit_events_chain on admin_audit_events  (cost=0.28..758.80 rows=2155 width=77) (actual time=0.030..0.030 rows=1 loops=1)
+         Index Cond: ((zone_id = '01a1b098-796c-768a-9c99-c9c1f020b82d'::text) AND (chain_seq > 0))
+         Filter: ((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=22
+ Planning Time: 0.143 ms
+ Execution Time: 0.047 ms
+(10 rows)
+
+ROLLBACK

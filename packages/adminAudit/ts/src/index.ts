@@ -117,14 +117,31 @@ export async function insertAdminAuditRecord(tx: Queryable, rec: AdminAuditRecor
 
   await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [chainKey])
 
-  const head = await tx.query(
-    `SELECT COALESCE(content_sha256, '') AS content_sha256, COALESCE(chain_seq, 0) AS chain_seq
+  const zonePredicate = rec.zoneId === null ? 'zone_id IS NULL' : 'zone_id = $1'
+  const zoneParams = rec.zoneId === null ? [] : [rec.zoneId]
+  // ORDER BY the stored column, not the COALESCE output alias: the latter
+  // sorts the entire retained history while holding the per-zone chain lock.
+  // Positive sequence numbers outrank every legacy COALESCE(NULL, 0) row.
+  // Filtering them lets the existing (zone_id, chain_seq DESC) index find the
+  // head directly without changing the legacy ordering on an unstarted chain.
+  let head = await tx.query(
+    `SELECT COALESCE(content_sha256, '') AS content_sha256, chain_seq
      FROM admin_audit_events
-     WHERE zone_id IS NOT DISTINCT FROM $1
-     ORDER BY chain_seq DESC NULLS LAST
+     WHERE ${zonePredicate} AND chain_seq > 0
+     ORDER BY admin_audit_events.zone_id, admin_audit_events.chain_seq DESC
      LIMIT 1`,
-    [rec.zoneId],
+    zoneParams,
   )
+  if (head.rows.length === 0) {
+    head = await tx.query(
+      `SELECT COALESCE(content_sha256, '') AS content_sha256, COALESCE(chain_seq, 0) AS chain_seq
+       FROM admin_audit_events
+       WHERE ${zonePredicate}
+       ORDER BY chain_seq DESC NULLS LAST
+       LIMIT 1`,
+      zoneParams,
+    )
+  }
   const prev = (head.rows[0] as ChainHead | undefined) ?? { content_sha256: '', chain_seq: 0 }
   const prevSha = prev.content_sha256
   const nextSeq = Number(prev.chain_seq) + 1
