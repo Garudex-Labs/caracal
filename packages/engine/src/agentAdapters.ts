@@ -29,6 +29,13 @@ export interface AgentLaunchInput {
   stateDir: string
 }
 
+export interface AgentVersions {
+  // Matches `<command> --version`; its first group is the version.
+  pattern: RegExp
+  minimum: string
+  tested: string
+}
+
 export interface AgentAdapter {
   readonly name: string
   // Executable launched when the caller does not name one.
@@ -45,6 +52,9 @@ export interface AgentAdapter {
   // Executables the agent's tool sandbox and hook need on this platform; undefined when the
   // agent cannot be sandboxed there at all.
   requiredCommands(platform: NodeJS.Platform): string[] | undefined
+  // Versions the launch was verified against. Governance relies on agent behavior such as hook
+  // failure handling, so an older agent is refused and a newer one is only warned about.
+  readonly versions?: AgentVersions
   // Throws when host policy would silently switch off the agent's hook or sandbox.
   assertHostPolicy?(platform: NodeJS.Platform): void
   // argv and environment for one launch; throws when caller args would disable governance.
@@ -129,6 +139,7 @@ export function assertClaudeCodeManagedSettings(dir: string): void {
 const claudeCode: AgentAdapter = {
   name: 'claude-code',
   command: 'claude',
+  versions: { pattern: /^(\d+\.\d+\.\d+) \(Claude Code\)/m, minimum: '2.1.318', tested: '2.1.318' },
   hookPath: '/hooks/claude-code/pre-tool-use',
   toolName(payload) {
     if (!payload || typeof payload !== 'object') return undefined
@@ -250,6 +261,7 @@ const OPENCLAW_GUARD = `export default {
 const openclaw: AgentAdapter = {
   name: 'openclaw',
   command: 'openclaw',
+  versions: { pattern: /^OpenClaw (\d+\.\d+\.\d+)/m, minimum: '2026.10.9', tested: '2026.10.9' },
   hookPath: '/hooks/openclaw/before-tool-call',
   readyPath: '/hooks/openclaw/ready',
   toolName(payload) {

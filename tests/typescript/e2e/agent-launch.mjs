@@ -83,11 +83,11 @@ async function grantTools(scopes, openclawScopes = ['tool:read']) {
 }
 
 // Points the model Resource at a fresh scripted upstream that asks for one `tool` call running `command`.
-async function scriptModel(name, command, tool = 'Bash') {
+async function scriptModel(name, command, tool = 'Bash', next, nextDelayMs = 0) {
   const container = `caracal-agent-e2e-${name}-${process.pid}`
   const run = spawnSync('docker', [
     'run', '-d', '--rm', '--name', container, '--network', network,
-    '-e', 'STUB_HOST=0.0.0.0', '-e', `STUB_EXPECT_KEY=${injectedKey}`, '-e', `STUB_COMMAND=${command}`, '-e', `STUB_TOOL=${tool}`,
+    '-e', 'STUB_HOST=0.0.0.0', '-e', `STUB_EXPECT_KEY=${injectedKey}`, '-e', `STUB_COMMAND=${command}`, '-e', `STUB_TOOL=${tool}`, ...(next ? ['-e', `STUB_NEXT_COMMAND=${next}`, '-e', `STUB_NEXT_DELAY_MS=${nextDelayMs}`] : []),
     '-v', `${join(root, 'tests/shared/mocks')}:/mocks:ro`, '--entrypoint', nodeBin, nodeImage, '/mocks/agentModelUpstream.mjs', '18090',
   ], { encoding: 'utf8' })
   if (run.status !== 0) throw new Error(`model upstream ${name} failed to start: ${run.stderr}`)
@@ -119,7 +119,9 @@ function launch(agentArgs, onSession, agent = { name: 'claude-code', profile: ()
     }
   })
   child.stdout.resume()
-  return new Promise((done) => child.on('exit', (code) => done({ code, stderr, session: / Session (\S+) \(launcher/.exec(stderr)?.[1] })))
+  const exited = new Promise((done) => child.on('exit', (code) => done({ code, stderr, session: / Session (\S+) \(launcher/.exec(stderr)?.[1], launcher: / Session \S+ \(launcher (\S+)\)/.exec(stderr)?.[1] })))
+  exited.pid = child.pid
+  return exited
 }
 
 async function terminate(sessionId) {
@@ -128,6 +130,170 @@ async function terminate(sessionId) {
 }
 
 const runStub = ['-p', 'run the stub task', '--allowedTools', 'Bash', '--output-format', 'json']
+
+async function waitForFile(path, ms = 40_000) {
+  for (let end = Date.now() + ms; Date.now() < end; await sleep(100)) if (existsSync(path)) return true
+  throw new Error(`timed out waiting for ${path}`)
+}
+
+async function sessionStatus(id) {
+  const res = await fetch(`${coordinatorUrl}/zones/${state.zone.id}/agents/${id}`, { headers: { authorization: `Bearer ${operatorToken}` } })
+  return (await res.json()).status
+}
+
+async function revokeToolsDelegation(sessionId) {
+  const headers = { authorization: `Bearer ${operatorToken}`, 'content-type': 'application/json' }
+  const listed = await (await fetch(`${coordinatorUrl}/zones/${state.zone.id}/delegations/inbound/${sessionId}`, { headers })).json()
+  const edge = listed.items.find((item) => item.status === 'active' && item.scopes.some((scope) => scope.startsWith('tool:')))
+  const res = await fetch(`${coordinatorUrl}/zones/${state.zone.id}/delegations/${edge.id}/revoke`, { method: 'PATCH', headers, body: JSON.stringify({ reason: 'agent-launch-e2e' }) })
+  return res.status
+}
+
+// Starts a two-step run whose first tool call waits for a release file, so `change` is in place before
+// the second tool call is attempted. A change can release early to attempt it while something is down.
+async function changeDuringRun(name, change, tool = 'Bash', args = runStub, agent) {
+  const first = join(work, `${name}-first.marker`)
+  const second = join(work, `${name}-second.marker`)
+  const releaseFile = join(work, `${name}-release.marker`)
+  await scriptModel(name, `touch ${first}; i=0; while [ ! -e ${releaseFile} ] && [ $i -lt 450 ]; do sleep 0.2; i=$((i+1)); done`, tool, `touch ${second}`)
+  let session
+  const release = () => writeFileSync(releaseFile, '')
+  const run = launch(args, (id) => (session = id), agent)
+  await waitForFile(first)
+  await change({ session: () => session, release, secondRan: () => existsSync(second) })
+  release()
+  const result = await run
+  return { ...result, secondRan: existsSync(second), stopReason: /stopping \S+: ([^\n]*)/.exec(result.stderr)?.[1] }
+}
+
+function descendantsOf(root) {
+  const parents = new Map()
+  for (const pid of readdirSync('/proc').filter((entry) => /^\d+$/.test(entry))) {
+    try {
+      parents.set(Number(pid), Number(readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1).split(' ')[1]))
+    } catch {
+      /* already gone */
+    }
+  }
+  const found = [root]
+  for (const pid of found) for (const [child, parent] of parents) if (parent === pid) found.push(child)
+  return found.slice(1)
+}
+
+// SIGKILLs the running agent as a crash would, and reports what the launcher left behind.
+async function crashDuringRun(name, tool, args, agent) {
+  const first = join(work, `${name}-first.marker`)
+  const token = `${name.length + 40}.${process.pid}`
+  await scriptModel(name, `touch ${first}; sleep ${token}`, tool)
+  const run = launch(args, undefined, agent)
+  await waitForFile(first)
+  // Only this launch's agent: other launches on the host also have launch directories in their command lines.
+  const ours = new Set(descendantsOf(run.pid).map(String))
+  const launchAgents = hostProcesses('caracal-launch-').filter((pid) => ours.has(pid))
+  const launchDirs = new Set()
+  const commandPid = hostProcesses(`sleep\u0000${token}`)[0]
+  const processInfo = (pid) => spawnSync('ps', ['-o', 'pid=,ppid=,pgid=,sid=', '-p', pid], { encoding: 'utf8' }).stdout.trim()
+  const commandBefore = processInfo(commandPid)
+  const agentBefore = launchAgents.map(processInfo)
+  for (const pid of launchAgents) {
+    try {
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8')
+      launchDirs.add(/caracal-launch-[A-Za-z0-9]+/.exec(cmdline)?.[0])
+      process.kill(Number(pid), 'SIGKILL')
+    } catch {
+      /* already gone */
+    }
+  }
+  const result = await run
+  await sleep(1000)
+  return {
+    code: result.code,
+    sessions: [await sessionStatus(result.session), await sessionStatus(result.launcher)],
+    leftovers: hostProcesses(`sleep\u0000${token}`).length,
+    launchDirsLeft: [...launchDirs].filter((dir) => dir && existsSync(join(tmpdir(), dir))).length,
+    launchDirsFound: launchDirs.size,
+    commandBefore,
+    agentBefore,
+  }
+}
+
+// With CARACAL_E2E_DISRUPT_PROJECT set, stops real containers during a run to test what the agent can still do.
+async function outageChecks(prefix, tool, args, agent) {
+  const project = process.env.CARACAL_E2E_DISRUPT_PROJECT
+  if (!project) return
+  const label = prefix.replace(/-$/, ': ')
+  for (const service of ['sts', 'gateway']) {
+    let ranWhileDown
+    const outage = await changeDuringRun(
+      `${prefix}${service}-down`,
+      async ({ session, release, secondRan }) => {
+        dockerService(project, service, 'stop')
+        try {
+          release()
+          await sleep(30_000)
+          ranWhileDown = secondRan()
+        } finally {
+          dockerService(project, service, 'start')
+          await waitHealthy(project, service)
+        }
+        await terminate(session()).catch(() => undefined)
+      },
+      tool,
+      args,
+      agent,
+    )
+    check(`${label}no tool runs while ${service} is down`, ranWhileDown === false, { exit: outage.code })
+  }
+
+  const blip = await changeDuringRun(
+    `${prefix}coordinator-blip`,
+    async () => {
+      dockerService(project, 'coordinator', 'stop')
+      await sleep(15_000)
+      dockerService(project, 'coordinator', 'start')
+      await waitHealthy(project, 'coordinator')
+    },
+    tool,
+    args,
+    agent,
+  )
+  check(`${label}a brief Coordinator outage does not stop a healthy run`, blip.code === 0 && blip.secondRan, { exit: blip.code })
+
+  // The first tool call ends inside the lease and the model holds its reply, so the second tool
+  // decision comes after the lease has lapsed.
+  const first = join(work, `${prefix}coordinator-lease-first.marker`)
+  const second = join(work, `${prefix}coordinator-lease-second.marker`)
+  await scriptModel(`${prefix}coordinator-lease`, `touch ${first}; sleep 100`, tool, `touch ${second}`, 40_000)
+  let session
+  const run = launch(args, (id) => (session = id), agent)
+  await waitForFile(first)
+  dockerService(project, 'coordinator', 'stop')
+  let ranAfterLease
+  try {
+    await sleep(170_000)
+    ranAfterLease = existsSync(second)
+  } finally {
+    dockerService(project, 'coordinator', 'start')
+    await waitHealthy(project, 'coordinator')
+  }
+  await terminate(session).catch(() => undefined)
+  const lease = await run
+  check(`${label}no tool runs once the Session lease lapses during a Coordinator outage`, ranAfterLease === false, { exit: lease.code })
+}
+
+function dockerService(project, service, action) {
+  const run = spawnSync('docker', [action, ...(action === 'stop' ? ['-t', '2'] : []), `${project}-${service}-1`], { encoding: 'utf8' })
+  if (run.status !== 0) throw new Error(`docker ${action} ${service} failed: ${run.stderr}`)
+}
+
+async function waitHealthy(project, service) {
+  for (let i = 0; i < 90; i++) {
+    const out = spawnSync('docker', ['inspect', '-f', '{{.State.Health.Status}}', `${project}-${service}-1`], { encoding: 'utf8' }).stdout.trim()
+    if (out === 'healthy') return
+    await sleep(1000)
+  }
+  throw new Error(`${service} did not become healthy`)
+}
 
 async function cleanup() {
   for (const container of state.upstreams) spawnSync('docker', ['rm', '-f', container], { stdio: 'ignore' })
@@ -281,6 +447,30 @@ try {
     survivorExit: survivor.code,
   })
 
+  await grantTools(['tool:Read', 'tool:Bash'])
+  const grantRemoved = await changeDuringRun('grant-removed', () => grantTools(['tool:Read']))
+  check('removing a tool grant during a run denies its next call', !grantRemoved.secondRan && grantRemoved.stderr.includes('caracal: denied Bash'), { exit: grantRemoved.code })
+
+  await grantTools(['tool:Read', 'tool:Bash'])
+  let revokeStatus
+  const revoked = await changeDuringRun('delegation-revoked', async ({ session }) => {
+    revokeStatus = await revokeToolsDelegation(session())
+  })
+  // Revoking the delegation ends the agent Session. The agent stops on its own when its next model
+  // call is refused (exit 1), or the heartbeat stops it (exit 143), whichever comes first.
+  check('revoking the tools delegation during a run stops the agent before its next tool call', [200, 204].includes(revokeStatus) && !revoked.secondRan && [1, 143].includes(revoked.code), {
+    revokeStatus,
+    exit: revoked.code,
+    secondRan: revoked.secondRan,
+    modelRefused: /permission_error|API Error: 403|session/i.test(revoked.stderr),
+    stopReason: revoked.stopReason,
+  })
+
+  const crashed = await crashDuringRun('crash', 'Bash', runStub)
+  check('a crashed agent leaves no Session, subprocess, or launch directory behind', crashed.code === 137 && crashed.sessions.every((s) => s === 'terminated') && crashed.leftovers === 0 && crashed.launchDirsFound > 0 && crashed.launchDirsLeft === 0, crashed)
+
+  await outageChecks('', 'Bash', runStub)
+
   const bare = await launch(['--bare', '-p', 'hi'])
   check('flags that disable hooks are refused', bare.code === 1 && bare.stderr.includes('--bare is not allowed'), {})
 
@@ -344,6 +534,48 @@ try {
       { exit: openclawKilled.code, stoppedAfterMs: openclawStoppedAfterMs },
     )
 
+    await grantTools(['tool:Read'], ['tool:read', 'tool:exec'])
+    await scriptModel('openclaw-concurrent', `sh -c 'sleep 8; touch ${work}/openclaw-concurrent-$$.marker'`, 'exec')
+    const [openclawStopped, openclawSurvivor] = await Promise.all([
+      launch(task, (id) => setTimeout(() => void terminate(id).catch((err) => console.warn(`terminate failed: ${err instanceof Error ? err.message : String(err)}`)), 4000), openclaw),
+      launch(task, undefined, openclaw),
+    ])
+    const openclawMarkers = readdirSync(work).filter((name) => name.startsWith('openclaw-concurrent-')).length
+    check(
+      'openclaw: concurrent launches run in separate Sessions and stop independently',
+      [1, 143].includes(openclawStopped.code) && openclawSurvivor.code === 0 && openclawMarkers === 1 && openclawStopped.session !== openclawSurvivor.session,
+      { stoppedExit: openclawStopped.code, survivorExit: openclawSurvivor.code, markers: openclawMarkers },
+    )
+
+    const openclawGrantRemoved = await changeDuringRun('openclaw-grant-removed', () => grantTools(['tool:Read'], ['tool:read']), 'exec', task, openclaw)
+    check('openclaw: removing a tool grant during a run denies its next call', !openclawGrantRemoved.secondRan && openclawGrantRemoved.stderr.includes('caracal: denied exec'), { exit: openclawGrantRemoved.code })
+
+    await grantTools(['tool:Read'], ['tool:read', 'tool:exec'])
+    let openclawRevokeStatus
+    const openclawRevoked = await changeDuringRun(
+      'openclaw-delegation-revoked',
+      async ({ session }) => {
+        openclawRevokeStatus = await revokeToolsDelegation(session())
+      },
+      'exec',
+      task,
+      openclaw,
+    )
+    check('openclaw: revoking the tools delegation during a run stops the agent before its next tool call', [200, 204].includes(openclawRevokeStatus) && !openclawRevoked.secondRan && [1, 143].includes(openclawRevoked.code), {
+      secondRan: openclawRevoked.secondRan,
+      revokeStatus: openclawRevokeStatus,
+      exit: openclawRevoked.code,
+      stopReason: openclawRevoked.stopReason,
+    })
+
+    await grantTools(['tool:Read'], ['tool:read', 'tool:exec'])
+    const openclawCrashed = await crashDuringRun('openclaw-crash', 'exec', task, openclaw)
+    // OpenClaw runs exec commands in their own session, so one still running when OpenClaw is SIGKILLed
+    // cannot be found and outlives it, holding no credential. A stop of a live OpenClaw reaches them.
+    check('openclaw: a crashed agent leaves no Session or launch directory behind', openclawCrashed.code !== 0 && openclawCrashed.sessions.every((s) => s === 'terminated') && openclawCrashed.launchDirsFound > 0 && openclawCrashed.launchDirsLeft === 0, openclawCrashed)
+
+    await outageChecks('openclaw-', 'exec', task, openclaw)
+
     const isolated = await launch(['run the stub task', '--isolated'], undefined, openclaw)
     check('openclaw: flags that replace the pinned config are refused', isolated.code === 1 && isolated.stderr.includes('--isolated is not allowed'), {})
   }
@@ -355,6 +587,8 @@ try {
     allow: toolDecisions.filter((e) => e.decision === 'allow').length,
     deny: toolDecisions.filter((e) => e.decision === 'deny').length,
   })
+} catch (err) {
+  failures.push(`contract stopped early: ${err instanceof Error ? err.message : String(err)}`)
 } finally {
   console.log(JSON.stringify({ ok: failures.length === 0, failures, results }, null, 1))
   await cleanup()

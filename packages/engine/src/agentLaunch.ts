@@ -11,7 +11,7 @@ import type { SessionHandle } from '@caracalai/sdk'
 import type { AgentAdapter, ToolDecision } from './agentAdapters.js'
 import type { AgentProfile } from './agentProfile.js'
 import { startAgentBroker, type AgentBroker } from './agentBroker.js'
-import { findExecutable } from './processTree.js'
+import { findExecutable, spawnSyncTree } from './processTree.js'
 import { runExec, type RunExecHandle, type RunLineSink } from './run.js'
 
 export interface AgentLaunchOptions {
@@ -34,6 +34,7 @@ export interface AgentLaunchOptions {
 
 const HEARTBEAT_INTERVAL_MS = 5_000
 const TTL_SECONDS = 8 * 60 * 60
+const VERSION_TIMEOUT_MS = 15_000
 
 // Credential stores under the user's home that an agent's tool commands must not read: Caracal's
 // own configuration, the agent's login, and the common cloud, VCS, and package registry stores.
@@ -94,12 +95,49 @@ function assertSandboxAvailable(adapter: AgentAdapter, env: NodeJS.ProcessEnv): 
   adapter.assertHostPolicy?.(process.platform)
 }
 
+function compareVersions(a: string, b: string): number {
+  const [left, right] = [a, b].map((version) => version.split('.').map(Number)) as [number[], number[]]
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return left[i]! - right[i]!
+  }
+  return 0
+}
+
+// Refuses an agent whose version cannot be read or is older than the launch was verified against.
+function assertAgentVersion(adapter: AgentAdapter, command: string, env: NodeJS.ProcessEnv, log: (line: string) => void): void {
+  if (!adapter.versions) return
+  const { pattern, minimum, tested } = adapter.versions
+  // Only what a version check needs, so no credential in the launcher's environment reaches it.
+  const result = spawnSyncTree(command, ['--version'], {
+    encoding: 'utf8',
+    timeout: VERSION_TIMEOUT_MS,
+    env: { PATH: env.PATH, HOME: env.HOME },
+  })
+  const version = pattern.exec(String(result.stdout ?? ''))?.[1]
+  if (!version) throw new Error(`${adapter.name}: cannot read the version of ${command}, so a governed launch cannot rely on it`)
+  if (compareVersions(version, minimum) < 0)
+    throw new Error(`${adapter.name}: version ${version} is older than ${minimum}, the oldest verified under a governed launch`)
+  if (compareVersions(version, tested) > 0) log(`${adapter.name} ${version} is newer than ${tested}, the newest verified version`)
+}
+
 // Runs one governed agent to completion and resolves its exit code. The agent holds no Caracal
 // or upstream credential: model calls and tool decisions go through the loopback broker, which
 // acts under a delegated agent Session the launcher keeps alive and tears down.
 export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
   assertSandboxAvailable(opts.adapter, opts.env)
   const log = (line: string) => opts.onLine?.(`caracal: ${line}`, 'stderr')
+  const command = opts.command ?? opts.adapter.command
+  // runExec never uses a shell, which Windows requires for these shims. A bare name such as
+  // `openclaw` can resolve to one, as an npm install does.
+  const onWindowsPath =
+    process.platform === 'win32'
+      ? findExecutable([command, `${command}.exe`, `${command}.cmd`, `${command}.bat`], opts.env.PATH)
+      : undefined
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(onWindowsPath ?? command))
+    throw new Error(
+      `${opts.adapter.name}: ${command} is a shell shim, which a governed launch cannot run; pass the agent's executable with --command`,
+    )
+  assertAgentVersion(opts.adapter, command, opts.env, log)
   const ttlSeconds = opts.ttlSeconds ?? TTL_SECONDS
   const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
   const { model, tools } = opts.profile
@@ -169,7 +207,7 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
 
     const workspace = resolve(opts.cwd ?? '.')
     const plan = opts.adapter.plan({
-      command: opts.command ?? opts.adapter.command,
+      command,
       args: opts.args,
       brokerUrl: broker.url,
       protectedPaths: protectedPaths(opts.env),
@@ -182,8 +220,13 @@ export async function launchAgent(opts: AgentLaunchOptions): Promise<number> {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
       writeFileSync(path, content, { mode: 0o600 })
     }
-    // The agent gets the PATH its sandbox and hook requirements were checked against.
-    const env = opts.env.PATH === undefined ? plan.env : { ...plan.env, PATH: opts.env.PATH }
+    // The agent gets the PATH its requirements were checked against and the HOME its credential
+    // stores were protected under.
+    const env = {
+      ...(opts.env.HOME === undefined ? {} : { HOME: opts.env.HOME }),
+      ...(opts.env.PATH === undefined ? {} : { PATH: opts.env.PATH }),
+      ...plan.env,
+    }
     child = runExec({ argv: plan.argv, env, cwd: plan.cwd ?? workspace })
     if (stopReason) void child.dispose()
     return await child.exitCode
