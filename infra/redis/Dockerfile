@@ -4,7 +4,7 @@
 # Redis 8 image for the Caracal message bus.
 
 # syntax=docker/dockerfile:1.7
-FROM redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+FROM redis:8-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80
 
 # Apply Alpine security updates even when the published base digest lags.
 RUN apk upgrade --no-cache && apk add --no-cache tini

@@ -690,6 +690,8 @@ services:
 
   web:
     <<: [*appService, *appResources]
+    # The BFF drains in-flight requests for up to 25 seconds.
+    stop_grace_period: 30s
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.web

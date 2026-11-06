@@ -583,6 +583,8 @@ services:
 
   web:
     <<: [*appService, *appResources]
+    # The BFF drains in-flight requests for up to 25 seconds.
+    stop_grace_period: 30s
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-web:v${CARACAL_VERSION}
     command: ['/app/auth/dist/server.js']
     depends_on:

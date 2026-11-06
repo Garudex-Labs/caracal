@@ -41,6 +41,19 @@
 **/.env.*
 !**/.env.example
 
+# Operator credentials, runtime assets, backups, and local test executables must
+# never be sent to a builder, even when the final image does not COPY them.
+**/.caracal
+**/caracal.toml
+**/caracal.env
+infra/secrets/files/
+infra/docker/control/
+**/backups
+**/*.test
+**/*.tfstate*
+**/*.tfplan
+**/.terraform
+
 **/.dockerignore
 **/docker-compose*.yml
 **/docker-compose*.yaml
