@@ -7,7 +7,7 @@ export default tseslint.config(
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.ts'],
-    languageOptions: { ecmaVersion: 2023, globals: globals.node },
+    languageOptions: { ecmaVersion: 2023, globals: globals.node, parserOptions: { tsconfigRootDir: import.meta.dirname } },
     rules: { '@typescript-eslint/no-unused-vars': 'off' },
   },
 )

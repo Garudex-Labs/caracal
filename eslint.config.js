@@ -26,7 +26,7 @@ export default tseslint.config(
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.ts', '**/*.mjs'],
-    languageOptions: { ecmaVersion: 2023, globals: globals.node },
+    languageOptions: { ecmaVersion: 2023, globals: globals.node, parserOptions: { tsconfigRootDir: import.meta.dirname } },
     rules: {
       '@typescript-eslint/no-unused-vars': 'off',
       // Control characters are matched deliberately: NUL is stripped before values reach
@@ -42,7 +42,14 @@ export default tseslint.config(
     // Promise-safety needs type information. It is scoped to service and package sources rather
     // than the whole tree because those are the paths where a dropped promise silently skips
     // audit, outbox, or revocation work instead of failing the request.
-    files: ['apps/api/src/**/*.ts', 'apps/coordinator/src/**/*.ts', 'apps/runtime/src/**/*.ts', 'packages/*/src/**/*.ts', 'packages/*/ts/src/**/*.ts', 'packages/*/*/ts/src/**/*.ts'],
+    files: [
+      'apps/api/src/**/*.ts',
+      'apps/coordinator/src/**/*.ts',
+      'apps/runtime/src/**/*.ts',
+      'packages/*/src/**/*.ts',
+      'packages/*/ts/src/**/*.ts',
+      'packages/*/*/ts/src/**/*.ts',
+    ],
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
     rules: {
       '@typescript-eslint/no-floating-promises': 'error',

@@ -28,6 +28,18 @@
         "src/middleware/**/*.mjs",
         "versioning.mjs"
       ]
+    },
+    "apps/coordinator": {
+      "entry": [
+        "src/main.ts",
+        "../../tests/typescript/performance/coordinator/*.mjs"
+      ]
+    },
+    "apps/api": {
+      "entry": [
+        "src/main.ts",
+        "../../tests/typescript/performance/postgres/*.mjs"
+      ]
     }
   },
   "ignoreFiles": [
@@ -37,7 +49,8 @@
     "build",
     "sync-embedded",
     "go",
-    "icacls"
+    "icacls",
+    "taskset"
   ],
   "ignoreDependencies": [
     "tsx",

@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@caracalai/oauth": "1.0.0",
-    "smol-toml": "^1.8.0"
+    "smol-toml": "^1.9.1"
   },
   "scripts": {
     "build": "pnpm --dir ../../oauth/ts build && tsc",
@@ -50,8 +50,8 @@
     "prepublishOnly": "pnpm --dir ../../oauth/ts build && tsc"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^24.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

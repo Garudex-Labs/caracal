@@ -16,6 +16,7 @@ packages:
   - 'packages/adapters/fastmcp/ts'
   - 'packages/backends/redis/ts'
 linkWorkspacePackages: true
+strictPeerDependencies: true
 allowBuilds:
   bun: true
   esbuild: true
@@ -23,17 +24,22 @@ allowBuilds:
 overrides:
   brace-expansion: 5.0.12
   minimatch@3>brace-expansion: 2.1.7
-  fast-uri: 3.1.8
+  fast-uri: 3.1.9
   '@fastify/static': 10.1.2
   devalue: 5.9.3
-  qs: 6.16.0
-  vite: 8.0.16
-  dompurify: 3.4.16
+  qs: 6.16.1
+  vite: 8.3.6
+  dompurify: 3.4.17
   esbuild: 0.28.1
   js-yaml: 4.3.2
   http-cache-semantics: 4.3.0
-  "undici@^7": 7.29.1
-  "undici@^8": 8.10.2
+  "undici@^7": 7.30.1
+  "undici@^8": 8.12.2
   mermaid: ^11.16.1
   read-yaml-file: ^2.1.0
-  '@opentelemetry/core': 2.8.0
+  # Security fixes outside upstream transitive ranges; remove when parents adopt them.
+  katex: 0.18.2
+  'minimatch@>=7 <11': 11.0.5
+  'glob@>=9 <14.0.2': 14.0.2
+  # OTel SDK 2.x requires API <1.10; keep the stable API compatible with it.
+  '@opentelemetry/api': 1.9.1
