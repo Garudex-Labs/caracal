@@ -9,25 +9,9 @@ on:
   push:
     branches:
       - main
+  # Always emit the required status, including documentation-only PRs.
   pull_request:
-    paths:
-      - '.github/workflows/**'
-      - '.prettierrc.json'
-      - 'scripts/**'
-      - 'apps/**'
-      - 'docs/**'
-      - 'infra/**'
-      - 'packages/**'
-      - 'services/**'
-      - 'tests/**'
-      - 'go.work'
-      - 'go.work.sum'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'release.config.json'
-      - 'toolchain.json'
-      - 'CONTRIBUTING.md'
+  merge_group:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
@@ -50,40 +34,6 @@ env:
   CI: true
 
 jobs:
-  smoke:
-    name: Workspace build
-    if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
-
-      - name: TypeScript build (topological)
-        run: pnpm -r build
-
   changes:
     name: Detect changes
     if: github.repository == 'Garudex-Labs/caracal'
@@ -101,7 +51,6 @@ jobs:
       workflows: ${{ steps.paths.outputs.workflows }}
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -114,99 +63,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
-        run: |
-          {
-            if [[ "$EVENT_NAME" != 'pull_request' ]]; then
-              echo 'typescript=true'
-              echo 'go=true'
-              echo 'python=true'
-              echo 'style=true'
-              echo 'docs=true'
-              echo 'postgres=true'
-              echo 'helm=true'
-              echo 'infra=true'
-              echo 'workflows=true'
-              exit 0
-            fi
-
-            git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed.txt
-            typescript=false
-            go=false
-            python=false
-            style=false
-            docs=false
-            postgres=false
-            helm=false
-            infra=false
-            workflows=false
-            # bash case patterns are not pathname-aware: * matches across '/',
-            # so these globs intentionally over-match and err toward running an
-            # extra job rather than skipping a needed one. Detection never
-            # under-triggers; precision is traded for safety.
-            while IFS= read -r path; do
-              case "$path" in
-                .github/workflows/test.yml|.prettierrc.json|scripts/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|release.config.json|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
-                  typescript=true
-                  style=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/test.yml|toolchain.json|CONTRIBUTING.md)
-                  style=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/**|scripts/validateWorkflows.mjs|scripts/lib/releaseSpec.mjs)
-                  workflows=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/test.yml|go.work|go.work.sum|services/**|packages/*/go/**|packages/adapters/*/go/**|packages/backends/*/go/**|tests/go/**|tests/source/go/**)
-                  go=true
-                  style=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/test.yml|scripts/pythonStyleRequirements.in|scripts/pythonStyleRequirements.lock|scripts/setupDev.mjs|packages/*/python/**|packages/adapters/*/python/**|packages/backends/*/python/**|tests/python/**|tests/shared/test-utils/python/**)
-                  python=true
-                  style=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/test.yml|.github/workflows/deploy.yml|.github/workflows/release.yml|scripts/docsVersion.mjs|docs/**|tests/typescript/unit/docs/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml)
-                  docs=true
-                  ;;
-              esac
-              # The PostgreSQL job also runs the boot-level API integration tests, which
-              # exercise apps/api and its TypeScript workspace dependencies, so those
-              # paths must trigger it alongside the migrations themselves.
-              case "$path" in
-                .github/workflows/test.yml|infra/postgres/**|apps/api/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/integration/**|tests/shared/test-utils/typescript/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml)
-                  postgres=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/test.yml|infra/helm/**)
-                  helm=true
-                  ;;
-              esac
-              case "$path" in
-                .github/workflows/test.yml|infra/docker/**|infra/scripts/**|infra/tofu/**|infra/redis/**|infra/secrets/**|infra/healthcheck/**)
-                  infra=true
-                  ;;
-              esac
-            done < changed.txt
-
-            echo "typescript=$typescript"
-            echo "go=$go"
-            echo "python=$python"
-            echo "style=$style"
-            echo "docs=$docs"
-            echo "postgres=$postgres"
-            echo "helm=$helm"
-            echo "infra=$infra"
-            echo "workflows=$workflows"
-          } >> "$GITHUB_OUTPUT"
+        run: node scripts/ciChanges.mjs
 
   workflows:
     name: Workflow invariants
@@ -223,12 +80,12 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -245,7 +102,7 @@ jobs:
     needs: changes
     if: |
       always() && github.repository == 'Garudex-Labs/caracal' &&
-      ((github.event_name == 'pull_request' && needs.changes.outputs.style == 'true') || github.event_name == 'push')
+      ((github.event_name == 'pull_request' && needs.changes.outputs.style == 'true') || github.event_name != 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -256,12 +113,12 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -277,7 +134,7 @@ jobs:
             **/go.mod
 
       - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -316,16 +173,21 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
@@ -333,14 +195,34 @@ jobs:
       - name: Generate runtime embedded assets
         run: pnpm --dir apps/runtime sync-embedded
 
+      - name: Audit all npm dependencies
+        run: |
+          pnpm peers check
+          pnpm audit --audit-level low
+
       - name: Build TypeScript packages
         run: pnpm run build:typescript
+
+      - name: Build and smoke test runtime launcher
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Keep cross-platform compile checks on full runs; PRs exercise the
+          # native launcher without rebuilding every workspace package twice.
+          if [ "$EVENT_NAME" = pull_request ]; then
+            pnpm --dir apps/runtime run stamp
+            pnpm --dir apps/runtime run build:shell:linux-x64
+          else
+            pnpm --dir apps/runtime build
+          fi
+          apps/runtime/dist/caracal-linux-x64 --version
+          apps/runtime/dist/caracal-linux-x64 --help
 
       - name: Verify SDK package exports
         run: node tests/typescript/contract/sdk/package-consumer.mjs
 
       - name: Run lint scripts
-        run: pnpm -r --if-present lint
+        run: pnpm run lint
 
       - name: Check for unused files, dependencies, and unresolved imports
         run: pnpm run knip
@@ -348,24 +230,21 @@ jobs:
       - name: Run type checks
         run: pnpm -r --if-present typecheck
 
-      - name: Run TypeScript tests with coverage
-        run: node scripts/runTsTests.mjs --coverage
-
-      - name: Enforce repository coverage thresholds
-        run: pnpm run test:coverage
+      - name: Run TypeScript tests and enforce coverage thresholds
+        run: pnpm run test:coverage --coverage.reporter=lcov --coverage.reporter=text
 
       - name: List TypeScript coverage outputs
         if: always()
         shell: bash
         run: |
           echo 'Coverage tree:'
-          ls -laR coverage/typescript 2>&1 || echo 'coverage/typescript missing'
+          ls -laR coverage/repository 2>&1 || echo 'coverage/repository missing'
 
       - name: Upload TypeScript coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-typescript
-          path: coverage/typescript/**/lcov.info
+          path: coverage/repository/lcov.info
           if-no-files-found: error
           retention-days: 7
 
@@ -390,6 +269,14 @@ jobs:
             go.work.sum
             **/go.mod
 
+      - name: Verify Go module integrity
+        run: node scripts/runGoAudit.mjs --verify-only
+
+      - name: Scan imported Go code for vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          node scripts/runGoAudit.mjs
+
       - name: Go vet
         run: node scripts/runGoTests.mjs --vet
 
@@ -397,7 +284,7 @@ jobs:
         run: node scripts/runGoTests.mjs --coverage
 
       - name: Upload Go coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-go
           path: coverage/go/coverage.out
@@ -417,7 +304,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -436,6 +323,11 @@ jobs:
         run: |
           python -m pip install --require-hashes --requirement scripts/pythonTestRequirements.lock
 
+      - name: Verify Python dependency constraints and hashes
+        run: |
+          python scripts/checkPythonDependencies.py
+          python -m pip check
+
       - name: Run Python tests with coverage
         run: node scripts/runPythonTests.mjs --coverage -v
 
@@ -445,7 +337,7 @@ jobs:
         run: ls -la coverage/python 2>&1 || echo 'coverage/python missing'
 
       - name: Upload Python coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-python
           path: coverage/python/coverage.xml
@@ -466,12 +358,12 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -537,12 +429,12 @@ jobs:
         run: bash infra/postgres/scripts/validateMigrations.sh
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -590,7 +482,7 @@ jobs:
   helmInstall:
     name: Helm install
     needs: changes
-    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -600,9 +492,11 @@ jobs:
           persist-credentials: false
 
       - name: Create cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          cluster_name: caracal-verify-ci
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # The chart and its dependency stores resolve every image from the chart
       # appVersion, and the tag for a version only reaches the registry when that
@@ -702,6 +596,28 @@ jobs:
           # STS and Gateway carry replay volumes, so they must install as StatefulSets.
           kubectl -n caracal get statefulset caracal-caracal-sts caracal-caracal-gateway
 
+      - name: Setup pnpm for contract clients
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node for contract clients
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Build contract clients
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          pnpm run build:typescript
+
+      - name: Exercise Helm distributed contracts and upgrades
+        env:
+          CARACAL_VERIFY_DISPOSABLE: yes
+        run: bash infra/helm/caracal/scripts/verifyInstall.sh
+
       - name: Dump diagnostics on failure
         if: failure()
         run: |
@@ -763,12 +679,12 @@ jobs:
           docker compose -f infra/docker/runtime-compose.yml config --quiet
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -803,12 +719,12 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -826,61 +742,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Start the stack from source
-        run: pnpm caracal up --quiet-pull
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Wait for stack readiness
-        shell: bash
+      - name: Verify isolated deployments and recovery
         run: |
-          set -euo pipefail
-          for _ in $(seq 1 60); do
-            if pnpm caracal status --ready --json > /dev/null 2>&1; then
-              pnpm caracal status --ready
-              exit 0
-            fi
-            sleep 5
-          done
-          echo '::error::Stack did not become ready in time.'
-          pnpm caracal status --ready || true
-          exit 1
+          pnpm run build:typescript
+          node infra/scripts/verifyDeployment.mjs --go-contracts --image-tag verify-local --report .caracal/deployment-source.json
+          node infra/scripts/verifyDeployment.mjs --mode runtime --skip-build --image-tag verify-local --report .caracal/deployment-runtime.json
 
-      - name: Build SDK contract clients
-        run: pnpm run build:typescript
-
-      - name: Start protected test upstream
-        run: docker run --rm -d --name caracal-protected-e2e-upstream --network caracalDevData nginx:stable-alpine
-
-      - name: Run Go stack contracts
-        working-directory: tests/go
-        env:
-          CARACAL_STS_URL: http://127.0.0.1:8080
-        run: go test -count=1 ./e2e/... ./smoke/...
-
-      - name: Run protected-resource contract
-        env:
-          CARACAL_API_URL: http://127.0.0.1:3000
-          CARACAL_COORDINATOR_URL: http://127.0.0.1:4000
-          CARACAL_STS_URL: http://127.0.0.1:8080
-          CARACAL_GATEWAY_URL: http://127.0.0.1:8081
-          CARACAL_E2E_UPSTREAM_URL: http://caracal-protected-e2e-upstream:80
-          CARACAL_ADMIN_TOKEN_FILE: ${{ github.workspace }}/.caracal/e2e-secrets/caracalAdminToken
-        run: node tests/typescript/e2e/protected-resource.mjs
-
-      - name: Dump service logs on failure
-        if: failure()
-        shell: bash
-        run: |
-          docker ps --all --format '{{.Names}}	{{.Status}}'
-          for name in $(docker ps --all --format '{{.Names}}' | grep caracal || true); do
-            echo "=== ${name} ==="
-            docker logs --tail 150 "$name" 2>&1 || true
-          done
-
-      - name: Stop the stack
+      - name: Upload deployment verification reports
         if: always()
-        run: |
-          docker rm -f caracal-protected-e2e-upstream 2>/dev/null || true
-          pnpm caracal down -v || true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deployment-verification
+          path: .caracal/deployment-*.json
+          if-no-files-found: error
+          retention-days: 7
 
   releaseConfig:
     name: Release config drift
@@ -894,7 +772,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -919,7 +797,7 @@ jobs:
           persist-credentials: false
 
       - name: Download coverage artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
           path: coverage
@@ -952,7 +830,7 @@ jobs:
 
       - name: Upload TypeScript coverage to Codecov
         if: needs.typescript.result == 'success'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           binary: ${{ runner.temp }}/codecov
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -962,7 +840,7 @@ jobs:
 
       - name: Upload Go coverage to Codecov
         if: needs.go.result == 'success'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           binary: ${{ runner.temp }}/codecov
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -973,7 +851,7 @@ jobs:
 
       - name: Upload Python coverage to Codecov
         if: needs.python.result == 'success'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           binary: ${{ runner.temp }}/codecov
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -985,7 +863,6 @@ jobs:
   status:
     name: Test status
     needs:
-      - smoke
       - changes
       - style
       - typescript
@@ -994,6 +871,8 @@ jobs:
       - docs
       - postgres
       - helm
+      - helmInstall
+      - workflows
       - infra
       - e2e
       - releaseConfig
@@ -1006,9 +885,9 @@ jobs:
         shell: bash
         env:
           JOB_RESULTS: >-
-            ${{ needs.smoke.result }} ${{ needs.changes.result }} ${{ needs.style.result }}
+            ${{ needs.changes.result }} ${{ needs.style.result }}
             ${{ needs.typescript.result }} ${{ needs.go.result }} ${{ needs.python.result }}
-            ${{ needs.docs.result }} ${{ needs.postgres.result }} ${{ needs.helm.result }}
+            ${{ needs.docs.result }} ${{ needs.postgres.result }} ${{ needs.helm.result }} ${{ needs.helmInstall.result }} ${{ needs.workflows.result }}
             ${{ needs.infra.result }} ${{ needs.e2e.result }} ${{ needs.releaseConfig.result }}
             ${{ needs.coverage.result }}
         run: |
