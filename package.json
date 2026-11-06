@@ -27,6 +27,8 @@
     "test:go": "pnpm run check:toolchain && node scripts/runGoTests.mjs",
     "test:python": "pnpm run check:toolchain && node scripts/runPythonTests.mjs",
     "test:typescript": "pnpm run check:toolchain && vitest run tests/typescript/unit/release && node scripts/runTsTests.mjs",
+    "test:gateway:week1:tools": "vitest run tests/typescript/unit/gateway-week-one/statistics.test.mjs",
+    "test:gateway:week1": "node tests/typescript/e2e/gateway-week-one.mjs",
     "docs:version:verify": "node scripts/docsVersion.mjs verify",
     "docs:version": "node scripts/docsVersion.mjs snapshot",
     "test:coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reportsDirectory=coverage/repository tests/typescript",
