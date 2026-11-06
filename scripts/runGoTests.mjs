@@ -148,21 +148,40 @@ function mergeCoverageProfiles(paths) {
 }
 
 const mode = process.argv[2] ?? ''
+// Go's result cache cannot observe PostgreSQL state behind an unchanged DSN.
+// A live database run must actually execute its recovery/invariant assertions.
+const liveTestArgs = process.env.CARACAL_TEST_DATABASE_URL ? ['-count=1'] : []
 
 if (mode === '--vet') {
   runWithStagedSourceTests(['vet', ...GO_PKGS])
 } else if (mode === '--coverage') {
   const race = raceArgs()
   mkdirSync(join(root, 'coverage', 'go'), { recursive: true })
-  runWithStagedSourceTests(['test', ...race, '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
-  run('go', ['test', ...race, '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/tests.out', ...TEST_DIRS])
+  runWithStagedSourceTests([
+    'test',
+    ...race,
+    ...liveTestArgs,
+    '-covermode=atomic',
+    `-coverpkg=${COVERPKG}`,
+    '-coverprofile=coverage/go/coverage.out',
+    ...GO_PKGS,
+  ])
+  run('go', [
+    'test',
+    ...race,
+    ...liveTestArgs,
+    '-covermode=atomic',
+    `-coverpkg=${COVERPKG}`,
+    '-coverprofile=coverage/go/tests.out',
+    ...TEST_DIRS,
+  ])
   const output = join(root, 'coverage', 'go', 'coverage.out')
   writeFileSync(output, mergeCoverageProfiles([output, join(root, 'coverage', 'go', 'tests.out')]))
   run('go', ['tool', 'cover', '-func=coverage/go/coverage.out'])
 } else if (mode === '') {
   const race = raceArgs()
-  runWithStagedSourceTests(['test', ...race, ...GO_PKGS])
-  run('go', ['test', ...race, ...TEST_DIRS])
+  runWithStagedSourceTests(['test', ...race, ...liveTestArgs, ...GO_PKGS])
+  run('go', ['test', ...race, ...liveTestArgs, ...TEST_DIRS])
 } else {
   process.stderr.write('usage: node scripts/runGoTests.mjs [--coverage|--vet]\n')
   process.exit(2)
