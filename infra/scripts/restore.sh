@@ -14,6 +14,7 @@
 #   POSTGRES_USER            Postgres superuser (default: caracal)
 
 set -eu
+umask 077
 
 bundle="${1:-}"
 project="${CARACAL_COMPOSE_PROJECT:-caracal}"
@@ -47,7 +48,11 @@ postgresCtr="$(requireContainer postgres)"
 redisCtr="$(requireContainer redis)"
 # The redis image ships a shell and is guaranteed present on the node, so it
 # doubles as the helper for volume permission fixes on shell-less containers.
-helperImage="$(docker inspect -f '{{.Config.Image}}' "${redisCtr}")"
+# The tag may have moved or been removed since this container started. Use the
+# actual local image ID and never pull a different helper during recovery.
+redisVolume="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "${redisCtr}")"
+[ -n "${redisVolume}" ] || { echo "error: Redis /data must be a named volume" >&2; exit 1; }
+helperImage="$(docker inspect -f '{{.Image}}' "${redisCtr}")"
 
 workDir="$(mktemp -d)"
 trap 'rm -rf "${workDir}"' EXIT
@@ -69,26 +74,34 @@ for svc in web coordinator audit gateway api sts; do
 done
 
 echo "==> Postgres: restoring roles"
-docker exec -i "${postgresCtr}" psql -U "${pgUser}" -d postgres -q -f - <"${bundleDir}/postgres/globals.sql" >/dev/null 2>&1 || true
+# Existing-role CREATE errors are expected on a restore into an initialized
+# store; psql continues to the ALTERs. Connection or client failures must abort.
+docker exec -i "${postgresCtr}" psql -U "${pgUser}" -d postgres -q -f - <"${bundleDir}/postgres/globals.sql" >"${workDir}/roles.log" 2>&1 || {
+    echo "error: could not restore PostgreSQL roles" >&2
+    exit 1
+}
 
 echo "==> Postgres: recreating databases"
 for dumpFile in "${bundleDir}"/postgres/*.dump; do
     [ -f "${dumpFile}" ] || continue
     db="$(basename "${dumpFile}" .dump)"
+    quotedDb="$(printf '%s' "${db}" | sed 's/"/""/g')"
     echo "    restore ${db}"
     docker exec "${postgresCtr}" psql -U "${pgUser}" -d postgres -v ON_ERROR_STOP=1 \
-        -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" >/dev/null
+        -c "DROP DATABASE IF EXISTS \"${quotedDb}\" WITH (FORCE)" >/dev/null
     docker exec "${postgresCtr}" psql -U "${pgUser}" -d postgres -v ON_ERROR_STOP=1 \
-        -c "CREATE DATABASE \"${db}\" OWNER \"${pgUser}\"" >/dev/null
+        -c "CREATE DATABASE \"${quotedDb}\"" >/dev/null
     docker exec -i "${postgresCtr}" pg_restore -U "${pgUser}" --exit-on-error -d "${db}" <"${dumpFile}"
 done
 
 echo "==> Redis: replacing dataset"
 docker stop "${redisCtr}" >/dev/null
-docker run --rm --user 0:0 --volumes-from "${redisCtr}" --entrypoint /bin/sh "${helperImage}" \
+docker run --rm --pull never --user 0:0 --network none --read-only --security-opt no-new-privileges:true \
+    --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --mount "type=volume,source=${redisVolume},target=/data" --entrypoint /bin/sh "${helperImage}" \
     -c 'rm -rf /data/appendonlydir /data/dump.rdb'
 docker cp -q "${bundleDir}/redis/appendonlydir" "${redisCtr}:/data/appendonlydir"
-docker run --rm --user 0:0 --volumes-from "${redisCtr}" --entrypoint /bin/sh "${helperImage}" \
+docker run --rm --pull never --user 0:0 --network none --read-only --security-opt no-new-privileges:true \
+    --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --mount "type=volume,source=${redisVolume},target=/data" --entrypoint /bin/sh "${helperImage}" \
     -c 'chown -R redis:redis /data/appendonlydir'
 docker start "${redisCtr}" >/dev/null
 
@@ -98,7 +111,10 @@ restoreReplay() {
     if [ -d "${bundleDir}/replay/${svc}" ] && [ -n "${ctr}" ]; then
         echo "==> Replay state: ${svc}"
         docker cp -q "${bundleDir}/replay/${svc}/." "${ctr}:/var/lib/caracal/"
-        docker run --rm --user 0:0 --volumes-from "${ctr}" --entrypoint /bin/sh "${helperImage}" \
+        replayVolume="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/caracal"}}{{.Name}}{{end}}{{end}}' "${ctr}")"
+        [ -n "${replayVolume}" ] || { echo "error: ${svc} replay state must be a named volume" >&2; exit 1; }
+        docker run --rm --pull never --user 0:0 --network none --read-only --security-opt no-new-privileges:true \
+            --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --mount "type=volume,source=${replayVolume},target=/var/lib/caracal" --entrypoint /bin/sh "${helperImage}" \
             -c 'chown -R 65532:65532 /var/lib/caracal'
     fi
 }
