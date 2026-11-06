@@ -4,6 +4,8 @@
 // Single OS boundary for spawning and terminating killable process trees across every supported platform.
 
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncReturns } from 'node:child_process'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
+import { delimiter, resolve } from 'node:path'
 import { isatty } from 'node:tty'
 
 const isWindows = process.platform === 'win32'
@@ -15,6 +17,25 @@ const STOP_KILL_SETTLE_MS = 1_000
 // directly. This is the only place the distinction is made.
 function shellFor(command: string): boolean {
   return isWindows && /\.(cmd|bat)$/i.test(command)
+}
+
+// First executable file named one of `names` in a PATH-style directory list, found without a shell.
+export function findExecutable(names: string[], searchPath: string | undefined): string | undefined {
+  for (const dir of (searchPath ?? '').split(delimiter)) {
+    if (!dir) continue
+    for (const name of names) {
+      const candidate = resolve(dir, name)
+      try {
+        if (existsSync(candidate) && statSync(candidate).isFile()) {
+          accessSync(candidate, constants.X_OK)
+          return candidate
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return undefined
 }
 
 // Whether a POSIX child should lead its own process group so killTree reaches every

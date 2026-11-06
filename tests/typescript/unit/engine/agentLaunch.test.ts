@@ -3,6 +3,9 @@
 //
 // Tests for governed agent launch: Session and delegation shape, tool decisions, and supervision.
 
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentAdapter } from '../../../../packages/engine/src/agentAdapters.js'
 import { agentAdapter } from '../../../../packages/engine/src/agentAdapters.js'
@@ -59,7 +62,11 @@ vi.mock('@caracalai/sdk', () => ({
   },
 }))
 
-const { launchAgent } = await import('../../../../packages/engine/src/agentLaunch.js')
+const { launchAgent, protectedPaths } = await import('../../../../packages/engine/src/agentLaunch.js')
+
+// Stand-ins for the sandbox and hook executables the launcher checks for on PATH.
+const sandboxBin = mkdtempSync(join(tmpdir(), 'caracal-sandbox-bin-'))
+for (const name of ['bwrap', 'socat', 'sh', 'curl', 'ps', 'sandbox-exec']) writeFileSync(join(sandboxBin, name), '', { mode: 0o755 })
 
 const profile = {
   model: { resource: 'resource://pipernet-models', scopes: ['models:invoke'] },
@@ -67,12 +74,13 @@ const profile = {
 }
 
 // A stand-in agent: a Node process that runs `script`, launched through the real adapter plan.
-function fakeAgent(script: string, seen: { brokerUrl?: string } = {}): AgentAdapter {
+function fakeAgent(script: string, seen: { brokerUrl?: string; protectedPaths?: string[] } = {}): AgentAdapter {
   const base = agentAdapter('claude-code')
   return {
     ...base,
-    plan: (_command, _args, brokerUrl) => {
+    plan: ({ brokerUrl, protectedPaths }) => {
       seen.brokerUrl = brokerUrl
+      seen.protectedPaths = protectedPaths
       return { argv: [process.execPath, '-e', script], env: {} }
     },
   }
@@ -94,13 +102,41 @@ beforeEach(() => {
   sdk.mintMandate.mockResolvedValue({ token: 'mandate' })
 })
 
+describe('protectedPaths', () => {
+  it('covers home credential stores and Caracal locations named in the environment', () => {
+    const paths = protectedPaths({
+      HOME: '/home/richard',
+      CARACAL_APP_CLIENT_SECRET_FILE: '/run/secrets/anton-client-secret',
+      CARACAL_SECRETS_DIR: '/srv/caracal/secrets',
+    })
+    for (const path of [
+      '/home/richard/.config/caracal',
+      '/home/richard/.local/share/caracal',
+      '/home/richard/.claude/.credentials.json',
+      '/home/richard/.ssh',
+      '/home/richard/.aws',
+      '/home/richard/.config/gh',
+      '/run/secrets/anton-client-secret',
+      '/srv/caracal/secrets',
+    ]) {
+      expect(paths).toContain(path)
+    }
+    expect(new Set(paths).size).toBe(paths.length)
+  })
+
+  it('skips home stores when no absolute home directory is known', () => {
+    expect(protectedPaths({ HOME: 'relative/home' })).toEqual([])
+    expect(protectedPaths({})).toEqual([])
+  })
+})
+
 describe('launchAgent', () => {
   it('runs the agent under a delegated Session and resolves its exit code', async () => {
     const code = await launchAgent({
       adapter: fakeAgent('process.exit(3)'),
       profile,
       args: [],
-      env: { CARACAL_APP_RESOURCES: 'resource://hoolibox' },
+      env: { PATH: sandboxBin, CARACAL_APP_RESOURCES: 'resource://hoolibox' },
     })
 
     expect(code).toBe(3)
@@ -120,8 +156,45 @@ describe('launchAgent', () => {
     expect(sdk.close).toHaveBeenCalledOnce()
   })
 
+  it('hands the adapter the credential stores to protect', async () => {
+    const seen: { protectedPaths?: string[] } = {}
+    await launchAgent({ adapter: fakeAgent('process.exit(0)', seen), profile, args: [], env: { PATH: sandboxBin, HOME: '/home/richard' } })
+    expect(seen.protectedPaths).toContain('/home/richard/.ssh')
+  })
+
+  it('writes plan files owner-only and removes the launch directory afterwards', async () => {
+    const { existsSync } = await import('node:fs')
+    const report = join(mkdtempSync(join(tmpdir(), 'caracal-plan-report-')), 'report.json')
+    let dir = ''
+    const adapter: AgentAdapter = {
+      ...agentAdapter('claude-code'),
+      plan: ({ stateDir }) => {
+        dir = stateDir
+        const script = `const fs = require('node:fs'); const f = ${JSON.stringify(join(stateDir, 'nested/c.json'))}; fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ mode: fs.statSync(f).mode & 0o777, dirMode: fs.statSync(${JSON.stringify(stateDir)}).mode & 0o777, content: fs.readFileSync(f, 'utf8') }))`
+        return { argv: [process.execPath, '-e', script], env: {}, files: { 'nested/c.json': '{"pinned":true}' } }
+      },
+    }
+    expect(await launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).toBe(0)
+    expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ mode: 0o600, dirMode: 0o700, content: '{"pinned":true}' })
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  it('refuses a plan file outside the launch directory', async () => {
+    const adapter: AgentAdapter = {
+      ...agentAdapter('claude-code'),
+      plan: () => ({ argv: [process.execPath, '-e', 'process.exit(0)'], env: {}, files: { '../outside.json': '{}' } }),
+    }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/outside the launch directory/)
+    expect(sdk.closed).toEqual(['session-agent', 'session-launcher'])
+  })
+
   it('uses profile labels for grant matching when given', async () => {
-    await launchAgent({ adapter: fakeAgent('process.exit(0)'), profile: { ...profile, labels: ['payout-review'] }, args: [], env: {} })
+    await launchAgent({
+      adapter: fakeAgent('process.exit(0)'),
+      profile: { ...profile, labels: ['payout-review'] },
+      args: [],
+      env: { PATH: sandboxBin },
+    })
     expect(sdk.sessions.map((s) => s.opts.labels)).toEqual([['payout-review'], ['payout-review']])
   })
 
@@ -131,7 +204,7 @@ describe('launchAgent', () => {
       adapter: fakeAgent('setInterval(() => {}, 1e6)', seen),
       profile,
       args: [],
-      env: {},
+      env: { PATH: sandboxBin },
       onLine: () => {},
     })
     await vi.waitFor(() => expect(seen.brokerUrl).toBeDefined())
@@ -154,7 +227,7 @@ describe('launchAgent', () => {
       adapter: fakeAgent('setInterval(() => {}, 1e6)', seen),
       profile,
       args: [],
-      env: {},
+      env: { PATH: sandboxBin },
       onLine: (l) => lines.push(l),
     })
     await vi.waitFor(() => expect(seen.brokerUrl).toBeDefined())
@@ -171,7 +244,7 @@ describe('launchAgent', () => {
   it('forwards model calls as the agent Session with only the model scopes', async () => {
     sdk.fetch.mockImplementation(async () => new Response('{"ok":true}'))
     const seen: { brokerUrl?: string } = {}
-    const run = launchAgent({ adapter: fakeAgent('setInterval(() => {}, 1e6)', seen), profile, args: [], env: {} })
+    const run = launchAgent({ adapter: fakeAgent('setInterval(() => {}, 1e6)', seen), profile, args: [], env: { PATH: sandboxBin } })
     await vi.waitFor(() => expect(seen.brokerUrl).toBeDefined())
     const res = await fetch(`${seen.brokerUrl}/model/v1/messages?beta=true`, { method: 'POST', body: '{}' })
     expect(res.status).toBe(200)
@@ -192,13 +265,49 @@ describe('launchAgent', () => {
       adapter: fakeAgent('setInterval(() => {}, 1e6)'),
       profile,
       args: [],
-      env: {},
+      env: { PATH: sandboxBin },
       ttlSeconds: 0.3,
       onLine: (l) => lines.push(l),
     })
     expect(code).toBe(143)
     expect(lines).toContain('caracal: stopping claude-code: delegated authority expired')
     expect(sdk.closed).toEqual(['session-agent', 'session-launcher'])
+  })
+
+  it('refuses to start when host policy would switch off governance', async () => {
+    const adapter = {
+      ...agentAdapter('claude-code'),
+      requiredCommands: () => [],
+      assertHostPolicy: () => {
+        throw new Error('claude-code: managed settings set disableAllHooks')
+      },
+    }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/disableAllHooks/)
+    expect(sdk.startSession).not.toHaveBeenCalled()
+  })
+
+  it('runs the agent with the PATH its requirements were checked against', async () => {
+    const out = join(mkdtempSync(join(tmpdir(), 'caracal-path-out-')), 'path')
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(out)}, process.env.PATH)`
+    await launchAgent({ adapter: fakeAgent(script), profile, args: [], env: { PATH: sandboxBin } })
+    expect(readFileSync(out, 'utf8')).toBe(sandboxBin)
+  })
+
+  it('refuses to start without the sandbox and hook executables', async () => {
+    const partial = mkdtempSync(join(tmpdir(), 'caracal-partial-bin-'))
+    writeFileSync(join(partial, 'curl'), '', { mode: 0o755 })
+    writeFileSync(join(partial, 'sh'), '', { mode: 0o755 })
+    const adapter = { ...agentAdapter('claude-code'), requiredCommands: () => ['bwrap', 'socat', 'sh', 'curl'] }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: partial } })).rejects.toThrow(
+      'claude-code: bwrap, socat not found on PATH',
+    )
+    expect(sdk.startSession).not.toHaveBeenCalled()
+  })
+
+  it('refuses platforms where the agent cannot be sandboxed', async () => {
+    const adapter = { ...agentAdapter('claude-code'), requiredCommands: () => undefined }
+    await expect(launchAgent({ adapter, profile, args: [], env: { PATH: sandboxBin } })).rejects.toThrow(/not supported on/)
+    expect(sdk.startSession).not.toHaveBeenCalled()
   })
 
   it('retires the launcher Session when the agent Session cannot start', async () => {
@@ -214,7 +323,9 @@ describe('launchAgent', () => {
     })
     sdk.startSession.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'access_denied' }))
     const plan = vi.fn()
-    await expect(launchAgent({ adapter: { ...agentAdapter('claude-code'), plan }, profile, args: [], env: {} })).rejects.toThrow('denied')
+    await expect(
+      launchAgent({ adapter: { ...agentAdapter('claude-code'), plan }, profile, args: [], env: { PATH: sandboxBin } }),
+    ).rejects.toThrow('denied')
     expect(plan).not.toHaveBeenCalled()
     expect(sdk.closed).toEqual(['session-launcher'])
     expect(sdk.close).toHaveBeenCalledOnce()

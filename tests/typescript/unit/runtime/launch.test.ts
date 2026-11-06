@@ -3,7 +3,9 @@
 //
 // Runtime launch command unit tests for argument parsing, profile resolution, and exit codes.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isAbsolute } from 'node:path'
+
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const engine = vi.hoisted(() => ({
   launchAgent: vi.fn(),
@@ -87,7 +89,7 @@ describe('launchCommand', () => {
         profile,
         args: ['-p', 'fix the failing test', '--', 'x'],
         command: '/opt/claude/bin/claude',
-        env: process.env,
+        env: expect.objectContaining({ HOME: expect.stringMatching(/^[/\\]|^[A-Za-z]:/) }),
       }),
     )
   })
@@ -96,6 +98,17 @@ describe('launchCommand', () => {
     process.env.CARACAL_AGENT_PROFILE = '/home/richard/pied-piper/anton.json'
     await expect(launchCommand(['claude-code'])).rejects.toThrow('exit:0')
     expect(engine.readAgentProfile).toHaveBeenCalledWith('/home/richard/pied-piper/anton.json')
+  })
+
+  it('gives the launch an absolute home even when HOME is relative', async () => {
+    const original = process.env.HOME
+    process.env.HOME = 'relative/home'
+    onTestFinished(() => {
+      process.env.HOME = original
+    })
+    await expect(launchCommand(['claude-code', '--profile', 'anton.json'])).rejects.toThrow('exit:0')
+    const env = (engine.launchAgent.mock.lastCall![0] as { env: NodeJS.ProcessEnv }).env
+    expect(isAbsolute(env.HOME!)).toBe(true)
   })
 
   it('fails before launching on missing inputs or unknown options', async () => {
