@@ -27,7 +27,8 @@ module "caracal" {
   evaluation      = true
   runtimeSecrets  = var.runtimeSecrets
 
-  values = [
+  values = concat([
     file("${path.module}/../../../helm/caracal/values.dev.yaml"),
-  ]
+  ], var.values)
+  setValues = var.setValues
 }

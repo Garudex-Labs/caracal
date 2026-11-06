@@ -28,3 +28,15 @@ variable "runtimeSecrets" {
   default     = {}
   sensitive   = true
 }
+
+variable "values" {
+  description = "Additional Helm values documents applied after the dev profile, for disposable cluster-specific settings."
+  type        = list(string)
+  default     = []
+}
+
+variable "setValues" {
+  description = "Final chart overrides, including locally loaded image registry and tag for source verification."
+  type        = map(string)
+  default     = {}
+}

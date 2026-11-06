@@ -64,10 +64,16 @@ resource "helm_release" "caracal" {
   wait_for_jobs    = true
   timeout          = var.timeoutSeconds
 
-  values = concat([yamlencode(local.baseValues)], var.values)
+  # Profile/Secret identity belongs to the module inputs, not an overlay that
+  # can accidentally weaken stable mode or point away from the managed Secret.
+  values = concat(var.values, [yamlencode(local.baseValues)])
 
   set = [
-    for name, value in var.setValues : {
+    for name, value in merge(var.setValues, {
+      "global.mode"               = var.mode
+      "global.evaluation"         = tostring(var.evaluation)
+      "secrets.runtimeSecretName" = var.runtimeSecretName
+      }) : {
       name  = name
       value = value
     }
