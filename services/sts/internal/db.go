@@ -526,21 +526,18 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 	if err != nil || len(proof.Lineage) == 0 {
 		return ErrDelegationChanged
 	}
-	tx, err := d.pool.Begin(ctx)
+	tx, err := d.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "delegation:"+s.ZoneID); err != nil {
+	// Issuers read graph state; only Coordinator/revocation writers need the
+	// exclusive lock. Shared holders retain the guard through record commit
+	// without serializing unrelated token issuances within a zone.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared(hashtext($1))`, "delegation:"+s.ZoneID); err != nil {
 		return err
 	}
-	var currentEpoch int64
-	if err := tx.QueryRow(ctx, `SELECT epoch FROM delegation_graph_epochs WHERE zone_id = $1`, s.ZoneID).Scan(&currentEpoch); err != nil || currentEpoch != proof.GraphEpoch {
-		return ErrDelegationChanged
-	}
-	var live bool
-	err = tx.QueryRow(ctx,
-		`WITH expected AS (
+	const guardSQL = `WITH expected AS (
 		   SELECT id, parent_edge_id, edge_version, source_session_id, target_session_id,
 		          issuer_application_id, receiver_application_id, expires_at
 		   FROM jsonb_to_recordset($1::jsonb) AS x(
@@ -558,7 +555,7 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 		     AND e.issuer_application_id = x.issuer_application_id
 		     AND e.receiver_application_id = x.receiver_application_id
 		     AND e.expires_at = x.expires_at
-		     AND e.status = 'active' AND e.revoked_at IS NULL AND e.expires_at > now()
+		     AND e.status = 'active' AND e.revoked_at IS NULL AND e.expires_at > statement_timestamp()
 		 ), expected_sessions AS (
 		   SELECT source_session_id AS id, issuer_application_id AS application_id FROM expected
 		   UNION
@@ -570,12 +567,13 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 		   JOIN authority_records authority ON authority.id = session.subject_authority_record_id AND authority.zone_id = session.zone_id
 		   WHERE session.zone_id = $2
 		     AND session.status = 'active'
-		     AND authority.status = 'active' AND authority.expires_at > now()
-		     AND ((session.lifecycle = 'service' AND session.heartbeat_deadline_at > now())
+		     AND authority.status = 'active' AND authority.expires_at > statement_timestamp()
+		     AND ((session.lifecycle = 'service' AND session.heartbeat_deadline_at > statement_timestamp())
 		       OR (session.lifecycle = 'task' AND session.ttl_seconds > 0
-		         AND session.started_at + (session.ttl_seconds * interval '1 second') > now()))
+		         AND session.started_at + (session.ttl_seconds * interval '1 second') > statement_timestamp()))
 		 )
-		 SELECT (SELECT COUNT(*) FROM expected) = $8
+		 SELECT (SELECT epoch FROM delegation_graph_epochs WHERE zone_id = $2) = $9
+		    AND (SELECT COUNT(*) FROM expected) = $8
 		    AND (SELECT COUNT(*) FROM matched) = $8
 		    AND (SELECT COUNT(*) FROM matched_sessions) = (SELECT COUNT(*) FROM expected_sessions)
 		    AND EXISTS (
@@ -586,22 +584,40 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 		    AND EXISTS (
 		      SELECT 1 FROM sessions source
 		      WHERE source.id = $3 AND source.zone_id = $2 AND source.application_id = $5
-		    )`,
-		lineage, s.ZoneID, proof.SourceSessionID, proof.TargetSessionID,
-		proof.SourceApplicationID, proof.TargetApplicationID, proof.TargetAuthorityRecord, len(proof.Lineage),
-	).Scan(&live)
-	if err != nil || !live {
+		    )`
+	guardArgs := []any{lineage, s.ZoneID, proof.SourceSessionID, proof.TargetSessionID,
+		proof.SourceApplicationID, proof.TargetApplicationID, proof.TargetAuthorityRecord, len(proof.Lineage), proof.GraphEpoch}
+	if approval == nil {
+		// The shared graph lock is already acquired. This NEXT statement has a
+		// fresh snapshot/time and inserts only if that snapshot passes the whole
+		// guard. Combining validation + insert saves a round trip and shortens
+		// the transaction's pool lease without moving the check before the lock.
+		args := append(guardArgs, s.ID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt, claims)
+		tag, err := tx.Exec(ctx, `WITH authorized(live) AS (`+guardSQL+`)
+		 INSERT INTO authority_records (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at, claims_json)
+		 SELECT $10, $2, $11, $12, $13, 'active', $14, $15, $16
+		 FROM authorized WHERE live`, args...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrDelegationChanged
+		}
+		return tx.Commit(ctx)
+	}
+	var live bool
+	if err := tx.QueryRow(ctx, guardSQL, guardArgs...).Scan(&live); err != nil || !live {
 		return ErrDelegationChanged
 	}
 	if approval != nil {
 		var consumed bool
 		err = tx.QueryRow(ctx,
-			`UPDATE step_up_challenges c SET consumed_at = now()
+			`UPDATE step_up_challenges c SET consumed_at = now(), consumed_authority_record_id = $5
 			 WHERE c.id = $1 AND c.zone_id = $2 AND c.principal_id = $3 AND c.resource_set_hash = $4
 			   AND c.challenge_type = 'human_approval' AND c.satisfied_at IS NOT NULL
 			   AND c.rejected_at IS NULL AND c.approver_subject_id IS NOT NULL
-			   AND c.consumed_at IS NULL AND c.expires_at > now()
-			 RETURNING true`, approval.ID, approval.ZoneID, approval.PrincipalID, approval.ResourceSetHash,
+			   AND c.consumed_at IS NULL AND c.expires_at > statement_timestamp()
+			 RETURNING true`, approval.ID, approval.ZoneID, approval.PrincipalID, approval.ResourceSetHash, s.ID,
 		).Scan(&consumed)
 		if errors.Is(err, pgx.ErrNoRows) || !consumed {
 			return ErrApprovalInvalid
@@ -625,7 +641,7 @@ func (d *DB) RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason stri
 	if reason == "" {
 		reason = "session_revoked"
 	}
-	tx, err := d.pool.Begin(ctx)
+	tx, err := d.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
