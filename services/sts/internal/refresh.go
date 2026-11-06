@@ -602,7 +602,7 @@ func nat64Embedded(ip net.IP) net.IP {
 	return net.IPv4(ip16[12], ip16[13], ip16[14], ip16[15])
 }
 
-// safeHTTPClient builds a one-shot HTTP client with redirects disabled and a dialer
+// safeHTTPClient builds a reusable HTTP client with redirects disabled and a dialer
 // that re-validates the resolved address right before the TCP connect.
 func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Client {
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: timeout}
@@ -616,6 +616,9 @@ func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Clien
 			if err != nil {
 				return nil, err
 			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("no addresses for %s", host)
+			}
 			privateAllowed := len(privateHosts) > 0 && hostAllowed(host, privateHosts[0])
 			for _, ip := range ips {
 				if isUnsafeIP(ip, privateAllowed) {
@@ -624,7 +627,11 @@ func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Clien
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 		},
-		TLSHandshakeTimeout: timeout,
+		TLSHandshakeTimeout:   timeout,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: timeout,
 	}
 	if pool := extraCARoots(); pool != nil {
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
@@ -659,9 +666,6 @@ func loadExtraCARoots(path string) *x509.CertPool {
 	}
 	bundle, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(bundle) {
@@ -679,6 +683,15 @@ func hostAllowed(host string, allowed []string) bool {
 	return false
 }
 
+// providerClient publishes one immutable, reusable transport for this server.
+// sync.Once also synchronizes shutdown with a first in-flight provider request.
+func (s *Server) providerClient() *http.Client {
+	s.providerHTTPOnce.Do(func() {
+		s.providerHTTPClient = safeHTTPClient(providerRefreshTimeout, s.cfg.PrivateEgressHosts)
+	})
+	return s.providerHTTPClient
+}
+
 func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey, certificate string) ([]byte, error) {
 	method := normalizeOAuthClientAuthMethod(clientAuthMethod)
 	if clientID == "" {
@@ -690,7 +703,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	if method != "none" && method != "private_key_jwt" && clientSecret == "" {
 		return nil, errors.New("provider oauth client_secret missing")
 	}
-	client := safeHTTPClient(providerRefreshTimeout, s.cfg.PrivateEgressHosts)
+	client := s.providerClient()
 	var lastErr error
 	for attempt := 0; attempt < providerRefreshAttempts; attempt++ {
 		if attempt > 0 {
@@ -709,8 +722,12 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 			lastErr = err
 			continue
 		}
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, providerMaxBodyBytes))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, providerMaxBodyBytes+1))
 		_ = resp.Body.Close()
+		if len(body) > providerMaxBodyBytes {
+			lastErr = errors.New("provider token response too large")
+			continue
+		}
 		if readErr != nil {
 			lastErr = readErr
 			continue

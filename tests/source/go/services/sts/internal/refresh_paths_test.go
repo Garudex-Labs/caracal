@@ -221,7 +221,7 @@ func TestApplyOAuthTokenParamsGuardsReservedNames(t *testing.T) {
 	}
 }
 
-func ecKeyPEM(t *testing.T, curve elliptic.Curve) string {
+func ecKeyPEM(t testing.TB, curve elliptic.Curve) string {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(curve, rand.Reader)
 	if err != nil {
