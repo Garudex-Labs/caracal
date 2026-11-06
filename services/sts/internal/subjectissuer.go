@@ -86,6 +86,7 @@ type subjectKeyCache struct {
 	mu           sync.Mutex
 	byID         map[string]subjectKeySet
 	privateHosts []string
+	client       *http.Client
 	fetch        func(ctx context.Context, jwksURL string) ([]byte, error)
 }
 
@@ -94,8 +95,9 @@ func newSubjectKeyCache(privateHosts ...[]string) *subjectKeyCache {
 	if len(privateHosts) > 0 {
 		cache.privateHosts = privateHosts[0]
 	}
+	cache.client = subjectJWKSClient(subjectJWKSTimeout, cache.privateHosts)
 	cache.fetch = func(ctx context.Context, jwksURL string) ([]byte, error) {
-		return fetchSubjectJWKS(ctx, jwksURL, cache.privateHosts)
+		return fetchSubjectJWKSWithClient(ctx, jwksURL, cache.client)
 	}
 	return cache
 }
@@ -108,11 +110,17 @@ var subjectJWKSClient = safeHTTPClient
 // HTTPS only, private and loopback address classes blocked at resolve and at
 // connect, redirects disabled, and the response size capped.
 func fetchSubjectJWKS(ctx context.Context, jwksURL string, privateHosts ...[]string) ([]byte, error) {
+	client := subjectJWKSClient(subjectJWKSTimeout, privateHosts...)
+	defer client.CloseIdleConnections()
+	return fetchSubjectJWKSWithClient(ctx, jwksURL, client)
+}
+
+func fetchSubjectJWKSWithClient(ctx context.Context, jwksURL string, client *http.Client) ([]byte, error) {
 	u, err := url.Parse(jwksURL)
 	if err != nil {
 		return nil, err
 	}
-	if u.Scheme != "https" || u.Hostname() == "" {
+	if u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 		return nil, errors.New("subject issuer jwks_url must be https")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -120,7 +128,7 @@ func fetchSubjectJWKS(ctx context.Context, jwksURL string, privateHosts ...[]str
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := subjectJWKSClient(subjectJWKSTimeout, privateHosts...).Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -220,11 +228,15 @@ func rsaPublicKeyFromJWK(k subjectJWK) (*rsa.PublicKey, error) {
 	if len(nBytes) == 0 || len(eBytes) == 0 {
 		return nil, errors.New("empty rsa jwk component")
 	}
+	n := new(big.Int).SetBytes(nBytes)
+	if n.BitLen() < 2048 || n.Bit(0) == 0 {
+		return nil, errors.New("rsa jwk must have an odd modulus of at least 2048 bits")
+	}
 	e := new(big.Int).SetBytes(eBytes)
-	if !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 {
+	if !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 || e.Bit(0) == 0 {
 		return nil, errors.New("rsa jwk exponent out of range")
 	}
-	return &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(e.Int64())}, nil
+	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
 
 func ecPublicKeyFromJWK(k subjectJWK) (*ecdsa.PublicKey, error) {

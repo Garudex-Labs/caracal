@@ -47,9 +47,9 @@ func TestLoadExtraCARootsUnsetKeepsSystemTrust(t *testing.T) {
 	}
 }
 
-func TestLoadExtraCARootsMissingFileKeepsSystemTrust(t *testing.T) {
-	if pool := loadExtraCARoots(filepath.Join(t.TempDir(), "absent.pem")); pool != nil {
-		t.Fatal("a missing bundle file must leave the default system pool in place")
+func TestLoadExtraCARootsMissingConfiguredFileFailsClosed(t *testing.T) {
+	if pool := loadExtraCARoots(filepath.Join(t.TempDir(), "absent.pem")); pool == nil || len(pool.Subjects()) != 0 {
+		t.Fatal("a missing configured bundle must produce an empty trust pool")
 	}
 }
 
