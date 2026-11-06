@@ -5,11 +5,10 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { releaseInventory } from './releaseInventory.mjs'
+import { releaseInventory, repoRoot } from './releaseInventory.mjs'
 import { pypiFromNpm } from './lib/stamp.mjs'
 import { commitPattern, imageDigestPattern, releaseTagPattern } from './lib/releaseSpec.mjs'
 
-const repoRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
 const inventory = releaseInventory()
 const args = process.argv.slice(2)
 const files = []

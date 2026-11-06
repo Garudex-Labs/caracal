@@ -4,12 +4,12 @@
 // Tests release manifest source binding and registry collision detection.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import { findPublished } from '../../../../scripts/checkReleaseVersions.mjs'
 import { finalizeManifest } from '../../../../scripts/finalizeReleaseManifest.mjs'
 import { fetchPublicGitHubRelease, validateGitHubRelease } from '../../../../scripts/verifyGitHubRelease.mjs'
@@ -85,6 +85,37 @@ afterEach(async () => {
 })
 
 describe('release manifest finalization', () => {
+  it('finds the default manifest from a checkout path containing spaces and URL-special characters', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'caracal release # λ '))
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
+    mkdirSync(join(dir, 'scripts', 'lib'), { recursive: true })
+    for (const file of ['validateReleaseManifest.mjs', 'releaseInventory.mjs', 'lib/stamp.mjs', 'lib/releaseSpec.mjs']) {
+      copyFileSync(join(root, 'scripts', file), join(dir, 'scripts', file))
+    }
+    const config = {
+      ...inventory.config,
+      product: { ...inventory.config.product, version: manifest.version },
+      packages: { npm: [], pypi: [], go: [] },
+    }
+    writeFileSync(join(dir, 'release.config.json'), JSON.stringify(config))
+    mkdirSync(join(dir, 'releases', manifest.release), { recursive: true })
+    writeFileSync(
+      join(dir, 'releases', manifest.release, 'manifest.json'),
+      JSON.stringify(
+        finalizeManifest(
+          {
+            ...manifest,
+            npm: {},
+            pypi: {},
+            packages: { published: { npm: {}, pypi: {}, go: {} }, unchanged: { npm: {}, pypi: {}, go: {} } },
+          },
+          sha,
+        ),
+      ),
+    )
+    const result = spawnSync(process.execPath, [join(dir, 'scripts', 'validateReleaseManifest.mjs')], { cwd: dir, encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe(0)
+  })
   it('replaces preparation metadata with the exact clean source commit', () => {
     const finalized = finalizeManifest({ ...manifest, sha: 'stale', source: { gitSha: 'stale', dirty: true } }, sha)
 
