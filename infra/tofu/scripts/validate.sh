@@ -16,7 +16,7 @@ tofu fmt -check -recursive "${ROOT}"
 
 for dir in "${ROOT}"/envs/*/ "${ROOT}"/modules/*/ "${ROOT}"/providers/*/*/; do
     echo "==> Validating ${dir}"
-    tofu -chdir="${dir}" init -backend=false -input=false >/dev/null
+    tofu -chdir="${dir}" init -backend=false -input=false -lockfile=readonly >/dev/null
     tofu -chdir="${dir}" validate
 done
 
@@ -96,6 +96,8 @@ for (const line of [
 const script = files['/usr/local/lib/caracalBootstrap.sh']
 if (!script) throw new Error('bootstrap script missing')
 if (!script.startsWith('#!/bin/sh\nset -eu')) throw new Error('bootstrap script must run under strict mode')
+if (!script.includes('/v0.2.1/install.sh')) throw new Error('installer must resolve from the selected release, not main')
+if (script.includes('| sh')) throw new Error('download failure must not be hidden by a shell pipeline')
 const positions = [
   ['install.sh', script.indexOf('CARACAL_INSTALL_DIR=/usr/local/bin')],
   ['allowlist seeding', script.indexOf(\`allowlist add 'richard.hendricks@piedpiper.example'\`)],

@@ -22,9 +22,14 @@ variable "caracalHome" {
 }
 
 variable "installScriptUrl" {
-  description = "URL of the Caracal installer script. Point at an internal mirror for air-gapped or egress-restricted networks."
+  description = "Optional HTTPS installer mirror. Null resolves the installer from the selected immutable release tag, never main."
   type        = string
-  default     = "https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh"
+  default     = null
+
+  validation {
+    condition     = var.installScriptUrl == null || can(regex("^https://", var.installScriptUrl))
+    error_message = "installScriptUrl must be null or an HTTPS URL."
+  }
 }
 
 variable "requireProvenance" {

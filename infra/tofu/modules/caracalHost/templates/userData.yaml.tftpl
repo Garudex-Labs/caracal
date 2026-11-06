@@ -31,13 +31,21 @@ write_files:
     content: |
       #!/bin/sh
       set -eu
-      command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
+      # Download separately so a failed curl cannot look like an empty shell
+      # succeeding. Hardened images should preinstall Docker.
+      installers="$(mktemp -d)"
+      trap 'rm -rf "$installers"' EXIT
+      if ! command -v docker >/dev/null 2>&1; then
+        curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://get.docker.com -o "$installers/docker.sh"
+        sh "$installers/docker.sh"
+      fi
       systemctl enable --now docker
       id caracal >/dev/null 2>&1 || useradd --system --home-dir ${caracalHome} --shell /usr/sbin/nologin caracal
       usermod -aG docker caracal
       mkdir -p ${caracalHome}
       chown -R caracal:caracal ${caracalHome}
-      curl -fsSL ${installScriptUrl} | CARACAL_INSTALL_DIR=/usr/local/bin CARACAL_REQUIRE_PROVENANCE=${requireProvenance ? 1 : 0} sh -s -- --version ${caracalVersion}
+      curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' '${installScriptUrl}' -o "$installers/caracal.sh"
+      CARACAL_INSTALL_DIR=/usr/local/bin CARACAL_REQUIRE_PROVENANCE=${requireProvenance ? 1 : 0} sh "$installers/caracal.sh" --version ${caracalVersion}
 %{ for email in operatorEmails ~}
       runuser -u caracal -- env HOME=${caracalHome} CARACAL_HOME=${caracalHome} /usr/local/bin/caracal allowlist add '${email}'
 %{ endfor ~}

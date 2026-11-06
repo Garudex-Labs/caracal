@@ -108,8 +108,9 @@ resource "google_compute_instance" "caracal" {
   }
 
   metadata = {
-    user-data = var.userData
-    ssh-keys  = "${var.adminUsername}:${var.adminPublicKey}"
+    user-data              = var.userData
+    ssh-keys               = "${var.adminUsername}:${var.adminPublicKey}"
+    block-project-ssh-keys = "true"
   }
 
   service_account {

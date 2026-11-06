@@ -50,7 +50,7 @@ locals {
   userData = templatefile("${path.module}/templates/userData.yaml.tftpl", {
     caracalVersion    = var.caracalVersion
     caracalHome       = var.caracalHome
-    installScriptUrl  = var.installScriptUrl
+    installScriptUrl  = coalesce(var.installScriptUrl, "https://raw.githubusercontent.com/Garudex-Labs/caracal/${var.caracalVersion}/install.sh")
     requireProvenance = var.requireProvenance
     envLines          = local.envLines
     operatorEmails    = var.operatorEmails
