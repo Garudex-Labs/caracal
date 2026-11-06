@@ -3,7 +3,7 @@
 //
 // Runtime style tests cover color flags, semantic writers, and token scrubbing.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   colorOn,
   printError,
@@ -16,10 +16,18 @@ import {
 } from '../../../../apps/runtime/src/style.ts'
 
 const ansi = /\u001b\[[0-9;]*m/g
+const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
+
+beforeEach(() => {
+  // Exercise each precedence case independently of the invoking terminal/CI.
+  for (const key of ['NO_COLOR', 'CARACAL_NO_COLOR', 'CARACAL_COLOR', 'FORCE_COLOR']) vi.stubEnv(key, undefined)
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
+  if (stdoutTTY) Object.defineProperty(process.stdout, 'isTTY', stdoutTTY)
+  else Reflect.deleteProperty(process.stdout, 'isTTY')
 })
 
 function setTTY(stream: NodeJS.WriteStream, value: boolean): void {
@@ -32,12 +40,12 @@ describe('runtime style helpers', () => {
     vi.stubEnv('NO_COLOR', '1')
     expect(colorOn()).toBe(false)
 
-    vi.unstubAllEnvs()
+    vi.stubEnv('NO_COLOR', undefined)
     setTTY(process.stdout, false)
     vi.stubEnv('CARACAL_COLOR', '1')
     expect(colorOn()).toBe(true)
 
-    vi.unstubAllEnvs()
+    vi.stubEnv('CARACAL_COLOR', undefined)
     vi.stubEnv('FORCE_COLOR', '1')
     expect(style.selected('chosen')).toMatch(ansi)
     vi.stubEnv('CARACAL_NO_COLOR', 'true')

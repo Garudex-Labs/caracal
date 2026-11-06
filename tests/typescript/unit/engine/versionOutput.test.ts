@@ -3,8 +3,12 @@
 //
 // Version output tests cover structured rendering and color environment flags.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatVersionOutput } from '../../../../packages/engine/src/versionOutput.js'
+
+beforeEach(() => {
+  for (const key of ['NO_COLOR', 'CARACAL_NO_COLOR', 'CARACAL_COLOR', 'FORCE_COLOR']) vi.stubEnv(key, undefined)
+})
 
 afterEach(() => {
   vi.unstubAllEnvs()
