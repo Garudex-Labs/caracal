@@ -27,7 +27,7 @@ function NotFoundComponent() {
   return <ErrorState code={404} />;
 }
 
-function ErrorComponent({ error }: { error: Error }) {
+function ErrorComponent({ error }: { error: unknown }) {
   console.error(error);
   const code = errorToStatus(error);
 
