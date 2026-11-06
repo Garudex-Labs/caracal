@@ -124,8 +124,8 @@ func TestKeyCacheServesAndInvalidatesZoneKeys(t *testing.T) {
 	}
 
 	db.secretsErr = errors.New("pg down")
-	if _, kid, err := keys.getKeyAndKid(context.Background(), "zone-1"); err != nil || kid != "kid-active" {
-		t.Fatalf("cached key must survive db outage: kid=%q err=%v", kid, err)
+	if _, kid, err := keys.getKeyAndKid(context.Background(), "zone-1"); err == nil {
+		t.Fatalf("cached key must fail closed on db outage: kid=%q err=%v", kid, err)
 	}
 
 	keys.Invalidate("zone-1")
@@ -169,8 +169,8 @@ func TestGetPublicKeysByZoneAccumulatesFailures(t *testing.T) {
 			t.Fatalf("expected both rotation keys: %v err=%v", result, err)
 		}
 		db.secretsErr = errors.New("pg down")
-		if _, err := keys.getPublicKeysByZone(context.Background(), "zone-1"); err != nil {
-			t.Fatalf("cached keys must survive db outage: %v", err)
+		if _, err := keys.getPublicKeysByZone(context.Background(), "zone-1"); err == nil {
+			t.Fatal("cached keys must fail closed on db outage")
 		}
 	})
 }

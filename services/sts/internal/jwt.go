@@ -8,6 +8,8 @@ package internal
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -25,20 +27,27 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const dekCacheTTL = 15 * time.Minute
+const (
+	dekCacheTTL      = 15 * time.Minute
+	keyCacheMaxZones = 8192
+)
 
 type zoneCacheEntry struct {
-	key       *ecdsa.PrivateKey
-	kid       string
-	expiresAt time.Time
+	key         *ecdsa.PrivateKey
+	kid         string
+	fingerprint [sha256.Size]byte
+	expiresAt   time.Time
 }
 
 type publicKeysCacheEntry struct {
-	keys      map[string]*ecdsa.PublicKey
-	expiresAt time.Time
+	keys         map[string]*ecdsa.PublicKey
+	fingerprints map[string][sha256.Size]byte
+	expiresAt    time.Time
 }
 
-// KeyCache holds decrypted zone signing keys in memory with a 15-minute TTL.
+// KeyCache caches parsed key material, not authorization to use it. Every
+// caller loads the authoritative active/grace key rows before reusing material;
+// missed invalidation events and storage outages must never extend key trust.
 type KeyCache struct {
 	mu           sync.RWMutex
 	entries      map[string]*zoneCacheEntry
@@ -57,39 +66,50 @@ func newKeyCache(db DBQuerier, keyring *secretstore.Keyring) *KeyCache {
 }
 
 func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PrivateKey, string, error) {
-	k.mu.RLock()
-	cached, cachedOK := k.entries[zoneID]
-	k.mu.RUnlock()
 	secret, err := k.db.GetZoneSigningKeySecret(ctx, zoneID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			secret, err = k.generateZoneSigningKey(ctx, zoneID)
-		}
-		if err != nil {
-			if cachedOK && time.Now().Before(cached.expiresAt) {
-				return cached.key, cached.kid, nil
-			}
-			return nil, "", fmt.Errorf("load signing key for zone %s: %w", zoneID, err)
-		}
+	if errors.Is(err, pgx.ErrNoRows) {
+		secret, err = k.generateZoneSigningKey(ctx, zoneID)
 	}
-	if cachedOK && cached.kid == secret.ID && time.Now().Before(cached.expiresAt) {
+	if err != nil {
+		return nil, "", fmt.Errorf("load signing key for zone %s: %w", zoneID, err)
+	}
+	fingerprint := sha256.Sum256(secret.Envelope)
+	k.mu.RLock()
+	cached := k.entries[zoneID]
+	k.mu.RUnlock()
+	if cached != nil && cached.kid == secret.ID && cached.fingerprint == fingerprint && time.Now().Before(cached.expiresAt) {
 		return cached.key, cached.kid, nil
 	}
-
-	keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
+	priv, err := k.parseSigningKey(*secret)
 	if err != nil {
-		return nil, "", fmt.Errorf("decrypt signing key: %w", err)
+		return nil, "", err
 	}
-
-	priv, err := jwt.ParseECPrivateKeyFromPEM(keyBytes)
-	if err != nil {
-		return nil, "", fmt.Errorf("parse signing key: %w", err)
-	}
-
 	k.mu.Lock()
-	k.entries[zoneID] = &zoneCacheEntry{key: priv, kid: secret.ID, expiresAt: time.Now().Add(dekCacheTTL)}
+	if _, exists := k.entries[zoneID]; !exists && len(k.entries) >= keyCacheMaxZones {
+		for zone := range k.entries {
+			delete(k.entries, zone)
+			break
+		}
+	}
+	k.entries[zoneID] = &zoneCacheEntry{key: priv, kid: secret.ID, fingerprint: fingerprint, expiresAt: time.Now().Add(dekCacheTTL)}
 	k.mu.Unlock()
 	return priv, secret.ID, nil
+}
+
+func (k *KeyCache) parseSigningKey(secret SecretRow) (*ecdsa.PrivateKey, error) {
+	keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt signing key %s: %w", secret.ID, err)
+	}
+	defer clear(keyBytes)
+	priv, err := jwt.ParseECPrivateKeyFromPEM(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse signing key %s: %w", secret.ID, err)
+	}
+	if priv.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("signing key %s must use P-256", secret.ID)
+	}
+	return priv, nil
 }
 
 func (k *KeyCache) generateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
@@ -125,10 +145,12 @@ func (k *KeyCache) sealZoneSigningKey() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal signing key: %w", err)
 	}
+	defer clear(der)
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	if len(keyBytes) == 0 {
 		return nil, fmt.Errorf("encode signing key")
 	}
+	defer clear(keyBytes)
 	envelope, err := k.keyring.Seal(keyBytes, secretstore.AADZoneSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("seal signing key: %w", err)
@@ -148,13 +170,6 @@ func (k *KeyCache) getPublicKeyAndKid(ctx context.Context, zoneID string) (*ecds
 // keyed by kid. Used by validateSubjectToken to verify tokens signed by any key
 // in the current rotation window (active + previous key during 24h grace period).
 func (k *KeyCache) getPublicKeysByZone(ctx context.Context, zoneID string) (map[string]*ecdsa.PublicKey, error) {
-	k.mu.RLock()
-	e, ok := k.pubKeysCache[zoneID]
-	k.mu.RUnlock()
-	if ok && time.Now().Before(e.expiresAt) {
-		return e.keys, nil
-	}
-
 	secrets, err := k.db.GetZoneSigningKeySecrets(ctx, zoneID)
 	if err != nil {
 		return nil, fmt.Errorf("load zone signing keys for %s: %w", zoneID, err)
@@ -162,36 +177,70 @@ func (k *KeyCache) getPublicKeysByZone(ctx context.Context, zoneID string) (map[
 	if len(secrets) == 0 {
 		return nil, fmt.Errorf("no signing keys for zone %s", zoneID)
 	}
+	return k.publicKeysForSecrets(zoneID, secrets)
+}
+
+// publicKeysForSecrets reuses only material matching these exact authoritative
+// rows. The returned map never includes removed/grace-expired keys. Partial
+// results are used only by JWKS publication; verification rejects any error.
+func (k *KeyCache) publicKeysForSecrets(zoneID string, secrets []SecretRow) (map[string]*ecdsa.PublicKey, error) {
+	k.mu.RLock()
+	cached := k.pubKeysCache[zoneID]
+	active := k.entries[zoneID]
+	k.mu.RUnlock()
+	now := time.Now()
+	if cached != nil && now.Before(cached.expiresAt) && len(cached.keys) == len(secrets) {
+		matches := true
+		for _, secret := range secrets {
+			if cached.keys[secret.ID] == nil || cached.fingerprints[secret.ID] != sha256.Sum256(secret.Envelope) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return cached.keys, nil
+		}
+	}
 	keys := make(map[string]*ecdsa.PublicKey, len(secrets))
-	var decryptFailedKids []string
-	var parseFailedKids []string
+	fingerprints := make(map[string][sha256.Size]byte, len(secrets))
+	var failures []error
 	for _, secret := range secrets {
-		keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
-		if err != nil {
-			decryptFailedKids = append(decryptFailedKids, secret.ID)
-			continue
+		fingerprint := sha256.Sum256(secret.Envelope)
+		if cached != nil && now.Before(cached.expiresAt) && cached.fingerprints[secret.ID] == fingerprint && cached.keys[secret.ID] != nil {
+			keys[secret.ID] = cached.keys[secret.ID]
+		} else if active != nil && active.kid == secret.ID && active.fingerprint == fingerprint && now.Before(active.expiresAt) {
+			pub := active.key.PublicKey
+			keys[secret.ID] = &pub
+		} else {
+			priv, err := k.parseSigningKey(secret)
+			if err != nil {
+				failures = append(failures, err)
+				continue
+			}
+			// Copy out the public fields so this cache does not keep an
+			// interior pointer into the temporary private-key allocation.
+			pub := priv.PublicKey
+			keys[secret.ID] = &pub
 		}
-		priv, err := jwt.ParseECPrivateKeyFromPEM(keyBytes)
-		if err != nil {
-			parseFailedKids = append(parseFailedKids, secret.ID)
-			continue
-		}
-		keys[secret.ID] = &priv.PublicKey
+		fingerprints[secret.ID] = fingerprint
 	}
-
-	if len(decryptFailedKids) > 0 || len(parseFailedKids) > 0 {
-		return nil, fmt.Errorf(
-			"load signing keys for zone %s: decryption failed for kids %v; PEM parsing failed for kids %v",
-			zoneID,
-			decryptFailedKids,
-			parseFailedKids,
-		)
+	if len(failures) > 0 {
+		return keys, fmt.Errorf("load signing keys for zone %s: %w", zoneID, errors.Join(failures...))
 	}
-
+	// Preserve the original material TTL: cache hits must not extend it forever.
+	expiresAt := now.Add(dekCacheTTL)
+	if cached != nil && now.Before(cached.expiresAt) {
+		expiresAt = cached.expiresAt
+	}
 	k.mu.Lock()
-	k.pubKeysCache[zoneID] = &publicKeysCacheEntry{keys: keys, expiresAt: time.Now().Add(dekCacheTTL)}
+	if _, exists := k.pubKeysCache[zoneID]; !exists && len(k.pubKeysCache) >= keyCacheMaxZones {
+		for zone := range k.pubKeysCache {
+			delete(k.pubKeysCache, zone)
+			break
+		}
+	}
+	k.pubKeysCache[zoneID] = &publicKeysCacheEntry{keys: keys, fingerprints: fingerprints, expiresAt: expiresAt}
 	k.mu.Unlock()
-
 	return keys, nil
 }
 
