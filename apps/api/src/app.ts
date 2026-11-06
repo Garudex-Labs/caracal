@@ -196,7 +196,6 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       return value && /^[A-Za-z0-9_.\-:]{1,128}$/.test(value) ? value : randomUUID()
     },
     requestIdHeader: 'x-request-id',
-    disableRequestLogging: false,
     trustProxy: cfg.trustProxy,
   })
 

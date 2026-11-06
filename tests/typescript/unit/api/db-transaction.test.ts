@@ -15,6 +15,17 @@ function makeDb(query: ReturnType<typeof vi.fn>) {
 }
 
 describe('withTransaction', () => {
+  it('discards a read-timed-out session without queuing rollback or replaying the transaction', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] })
+    const { db, release } = makeDb(query)
+    const fn = vi.fn(async () => {
+      throw new Error('Query read timeout')
+    })
+    await expect(withTransaction(db, fn)).rejects.toThrow('Query read timeout')
+    expect(query.mock.calls.map((c) => c[0])).toEqual(['BEGIN'])
+    expect(release).toHaveBeenCalledWith(true)
+    expect(fn).toHaveBeenCalledOnce()
+  })
   it('commits and returns the callback value on success', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] })
     const { db, release } = makeDb(query)
@@ -59,7 +70,7 @@ describe('withTransaction', () => {
     expect(fn).toHaveBeenCalledTimes(2)
     const calls = query.mock.calls.map((c) => c[0])
     expect(calls).toEqual(['BEGIN', 'ROLLBACK', 'BEGIN', 'COMMIT'])
-    expect(release).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledTimes(2)
   })
 
   it('retries on a deadlock then exhausts attempts and rethrows', async () => {
@@ -72,7 +83,7 @@ describe('withTransaction', () => {
     await expect(withTransaction(db, fn, { maxAttempts: 2, baseDelayMs: 1 })).rejects.toMatchObject({ code: '40P01' })
 
     expect(fn).toHaveBeenCalledTimes(2)
-    expect(release).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledTimes(2)
   })
 
   it('does not retry a non-retryable error', async () => {
@@ -101,5 +112,6 @@ describe('withTransaction', () => {
     await expect(withTransaction(db, async () => 'never')).rejects.toMatchObject({ code: '23505' })
 
     expect(release).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledWith(true)
   })
 })

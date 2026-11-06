@@ -51,13 +51,25 @@ export function newDB(options: DBOptions): pg.Pool {
     idleTimeoutMillis: options.idleTimeoutMs ?? 30_000,
     application_name: options.applicationName ?? 'caracal-api',
     options: `-c statement_timeout=${stmt} -c idle_in_transaction_session_timeout=${idleTx}`,
-  })
-  pool.on('connect', (client) => {
-    client.query("SELECT set_config('caracal.zone_id', '*', false)").catch((err: unknown) => {
-      if (options.onZoneGUCError) {
-        options.onZoneGUCError(err)
+    // Server timeouts do not bound a lost TCP response. Allow the server a small
+    // grace period to report SQLSTATE 57014 before the client abandons the socket.
+    query_timeout: stmt > 0 ? stmt + 1_000 : undefined,
+    keepAlive: true,
+    // Unlike the connect event, onConnect is awaited before a client is lent out.
+    // A failed initialization must discard the session, not serve queries with an unset GUC.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- pg-pool awaits this hook; @types/pg still declares void.
+    onConnect: async (client) => {
+      // pg emits socket failures on checked-out clients too, when the pool's idle
+      // listener is detached. Queries reject normally; don't let EventEmitter crash
+      // the process during a transaction or between its queries.
+      client.on('error', () => {})
+      try {
+        await client.query("SELECT set_config('caracal.zone_id', '*', false)")
+      } catch (err) {
+        options.onZoneGUCError?.(err)
+        throw err
       }
-    })
+    },
   })
   // An idle pooled connection can be dropped by Postgres or the network at any time; pg surfaces
   // that as an 'error' event on the pool, which Node treats as fatal and crashes the process
@@ -83,19 +95,14 @@ export function scopedDB(pool: pg.Pool): DB {
         const result = await pool.query(text, params as unknown[])
         return { rows: result.rows as T[], rowCount: result.rowCount }
       }
-      const client = await pool.connect()
-      try {
-        await client.query('BEGIN')
-        await client.query(ZONE_GUC_SQL, [scope])
-        const result = await client.query(text, params as unknown[])
-        await client.query('COMMIT')
-        return { rows: result.rows as T[], rowCount: result.rowCount }
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => {})
-        throw err
-      } finally {
-        client.release()
-      }
+      return withTransaction(
+        { connect: () => pool.connect() },
+        async (client) => {
+          const result = await client.query(text, params as unknown[])
+          return { rows: result.rows as T[], rowCount: result.rowCount }
+        },
+        { maxAttempts: 1 },
+      )
     },
     connect() {
       return pool.connect()
@@ -125,34 +132,47 @@ export interface TxOptions {
   baseDelayMs?: number
 }
 
-export async function withTransaction<T>(db: DB, fn: (client: TxClient) => Promise<T>, options: TxOptions = {}): Promise<T> {
+export async function withTransaction<T>(
+  db: Pick<DB, 'connect'>,
+  fn: (client: TxClient) => Promise<T>,
+  options: TxOptions = {},
+): Promise<T> {
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3)
   const baseDelayMs = Math.max(1, options.baseDelayMs ?? 10)
-  const client = await db.connect()
-  try {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await client.query('BEGIN')
-        const scope = currentZoneScope()
-        if (scope !== GLOBAL_ZONE_SCOPE) {
-          await client.query(ZONE_GUC_SQL, [scope])
-        }
-        const value = await fn(client)
-        await client.query('COMMIT')
-        return value
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => {})
-        if (err instanceof TxAbort) return err.value as T
-        if (attempt < maxAttempts && isRetryableTxError(err)) {
-          const backoff = baseDelayMs * 2 ** (attempt - 1)
-          const delay = backoff + Math.floor(Math.random() * baseDelayMs)
-          await new Promise((resolve) => setTimeout(resolve, delay))
-          continue
-        }
-        throw err
+  for (let attempt = 1; ; attempt++) {
+    const client = await db.connect()
+    let discard = false
+    try {
+      await client.query('BEGIN')
+      const scope = currentZoneScope()
+      if (scope !== GLOBAL_ZONE_SCOPE) {
+        await client.query(ZONE_GUC_SQL, [scope])
       }
+      const value = await fn(client)
+      await client.query('COMMIT')
+      return value
+    } catch (err) {
+      // pg's client-side read timeout does not cancel an already-sent statement.
+      // ROLLBACK would queue behind that statement on the same unresponsive
+      // socket. Disconnect instead; its transaction outcome must not be retried.
+      discard = typeof err === 'object' && err !== null && 'message' in err && err.message === 'Query read timeout'
+      if (!discard) {
+        try {
+          await client.query('ROLLBACK')
+        } catch {
+          // A failed rollback can leave transaction-local RLS state and locks alive.
+          discard = true
+        }
+      }
+      if (err instanceof TxAbort) return err.value as T
+      if (discard || attempt >= maxAttempts || !isRetryableTxError(err)) throw err
+    } finally {
+      if (discard) client.release(true)
+      else client.release()
     }
-  } finally {
-    client.release()
+    // Acquire a fresh checkout for each attempt and release BEFORE sleeping;
+    // otherwise contention retries themselves can exhaust the pool.
+    const backoff = baseDelayMs * 2 ** (attempt - 1)
+    await new Promise((resolve) => setTimeout(resolve, backoff + Math.floor(Math.random() * baseDelayMs)))
   }
 }
