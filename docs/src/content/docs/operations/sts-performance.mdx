@@ -1,0 +1,299 @@
+---
+title: STS Performance and Security Verification
+description: Reproduce the STS benchmarks, understand cache and rotation boundaries, and interpret measured optimization results.
+pageType: reference
+---
+
+## Changes and Trust Boundaries
+
+The November 6, 2026 investigation keeps ES256 issuance, fresh Gateway exchanges,
+OPA decisions, scope narrowing, one-shot Gateway mandates, and existing endpoints.
+It adds no dependency, runtime worker, token cache, or authorization-result cache.
+
+- **Signing-key material, not key authority, is cached.** Every signing operation
+  reads the active database row. Every verification/JWKS operation reads the
+  active/grace rows. Parsed material is reused only for the same zone, key ID, and
+  encrypted-envelope SHA-256 digest. Removed keys and expired rotation grace are
+  rejected even when another STS consumed the invalidation event. Database failure
+  no longer permits cached-key fallback. Material expires after 15 minutes; each
+  private/public zone cache is bounded to 8,192 entries. Temporary decrypted
+  PEM/DER buffers are cleared; public-only caches copy public fields out of the
+  temporary private-key object.
+- **Cold client-proof bursts recheck the cache after acquiring an Argon2 slot.**
+  At most the configured slot budget repeats a successful cold derivation.
+  Rotation still changes the authoritative stored-hash cache key; incorrect
+  secrets still undergo Argon2. Parameters remain 3 iterations, 64 MiB, 2 lanes,
+  and a 32-byte result. Malformed/truncated stored hashes cannot weaken that
+  result; cancelled requests fail closed.
+- **Provider and federation HTTP connections are reused.** Transports retain
+  redirect denial, TLS verification, response limits, and dial-time address
+  checks. Idle connections are bounded and expire; shutdown closes them.
+  Configuring a nonexistent extra-CA file fails egress closed rather than silently
+  falling back to system roots. Federation rejects RSA moduli below 2,048 bits
+  and invalid even moduli/exponents.
+- **Delegated issuance uses the existing transactional graph guard.** Issuers hold
+  a shared transaction advisory lock; Coordinator/revocation mutations retain
+  their exclusive lock. Transactions explicitly use Read Committed so post-lock reads cannot reuse a
+  stale snapshot under a different server default. The guard rechecks the epoch, captured edge versions and
+  links, live Sessions, and authority records before insertion. Expiry uses the
+  statement time after lock acquisition, not a transaction-start time that could
+  precede a long wait. For the ordinary delegated path, validation and insertion share one guarded SQL
+  statement after lock acquisition, reducing a round trip and the pool lease.
+  Approval consumption records the issued authority ID in
+  the same transaction. Multi-hop attribution checks application and Session
+  continuity and compares the immediate issuer with the penultimate hop, not the
+  root. Gateway mandates without a replay identifier are rejected.
+- **Bootstrap avoids a redundant trusted-time query when there are no references
+  to validate.** Other authority reads and policy evaluations remain in place.
+- **Authority-parent lookups gain a partial `(parent_id, zone_id)` index.** It
+  supports recursive revocation/lineage and unscoped parent foreign-key checks.
+  The addition belongs to the existing open migration pair, not a rewritten
+  released migration. It adds an index-write cost for child authority records.
+- **Lifecycle cleanup is explicit.** Initialization failures close created pools;
+  listener failures cancel workers and flush audit evidence; shutdown drains HTTP
+  requests before closing transports and pools, forcing connection closure if
+  graceful shutdown exceeds its existing deadline.
+
+See `services/sts/internal/{jwt,secrets,exchange,db,refresh,subjectissuer,server}.go`.
+
+## Lifecycle Investigated
+
+Application/workload authentication reads the current stored credential before
+consulting the verified-secret cache. Federation additionally reads the active
+zone trust declaration and verifies the external identity token. Bootstrap issues
+an issuer-audience session mandate; a governed Session and narrowed Delegation
+mint a one-shot Gateway mandate. Gateway verifies the signature, expiry preflight,
+replay marker, and revocation snapshot, then performs an HMAC/nonce-authenticated
+STS exchange for **every** proxied request. STS rechecks authority, graph, resource,
+operation scope, and OPA policy before issuing a resource-audience token and
+resolving any provider directive. The upstream verifies that resource token.
+
+PostgreSQL owns credentials, signing-key membership, authority/graph state and
+policy manifests. Redis owns replay/nonces, rate limits and invalidation/audit
+streams. Provider refresh retains its in-process sharing, distributed lease,
+optimistic token-version update and circuit breaker. Audit remains buffered with
+its durable replay fallback. These boundaries were not replaced by local caches.
+
+## Reproduce
+
+Use a **disposable**, fully migrated PostgreSQL database and a **dedicated** Redis.
+The live harness creates and cleans mutable zone-scoped fixtures; immutable policy
+versions/audit evidence remain until the disposable stores are discarded. Do not
+point it at production or at somebody else's development stores.
+
+```sh
+# Uses a Go overlay: centralized tests are not copied into source directories.
+node scripts/testSTS.mjs -count=1
+
+export CARACAL_STS_TEST_DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:PGPORT/caracal_sts_test?sslmode=disable'
+export CARACAL_STS_TEST_REDIS_URL='redis://127.0.0.1:REDISPORT'
+node scripts/testSTS.mjs --live -v
+
+# Warm issuance, verification and JWKS: real HTTP/PG/Redis, 1/8/32 clients.
+node scripts/testSTS.mjs --bench \
+  -bench='BenchmarkSTS(Exchange|Validate|JWKS|Dependencies)Live' \
+  -benchtime=2s -count=3 -cpu=8
+
+# Full HTTP issuance immediately after clearing only the client-proof cache.
+node scripts/testSTS.mjs --bench \
+  -bench=BenchmarkSTSColdExchangeLive -benchtime=1x -count=3 -cpu=8
+
+# Components exclude external dependency latency; burst ns/op is per batch.
+node scripts/testSTS.mjs --bench \
+  -bench='BenchmarkSTS(Issue|Validate|JWKS)$' -benchtime=2s -count=3 -cpu=1,8
+node scripts/testSTS.mjs --bench \
+  -bench=BenchmarkSTSSecretBurst -benchtime=1x -count=3 -cpu=8
+
+# Original implementation with the SAME current dependencies and test harness.
+# Alternate baseline/optimized runs rather than measuring separate busy periods.
+node scripts/testSTS.mjs --bench --baseline b365fa5d85e43e5eacab1ab0cc42b272b770c9b4 \
+  -bench='BenchmarkSTS(Issue|Validate|JWKS)$' -benchtime=2s -count=3 -cpu=1,8
+
+# Profiling is separate from uninstrumented timing samples. Keep outputs outside
+# the repository; -o avoids leaving a generated test binary at the project root.
+node scripts/testSTS.mjs --bench -bench='BenchmarkSTSJWKS$' -benchtime=3s -cpu=8 \
+  -o /tmp/sts-profile.test -cpuprofile=/tmp/sts.cpu -memprofile=/tmp/sts.mem \
+  -mutexprofile=/tmp/sts.mutex
+go tool pprof -top -cum /tmp/sts.cpu
+go tool pprof -alloc_space /tmp/sts.mem
+
+# Longer sustained sample; issuer fixtures have a high test-only rate ceiling.
+node scripts/testSTS.mjs --bench \
+  -bench='BenchmarkSTSExchangeLive/(bootstrap|delegated)/8$' \
+  -benchtime=15s -cpu=8
+```
+
+The test-only Gateway executable runs `New` and `Run` with real dependencies.
+STS peers run independent listeners, pools and caches. Test listeners use ephemeral
+ports to avoid disturbing the normal `8080`/`8081` deployment; production ports and
+configuration validation are unchanged. The guarded TLS transport test uses a
+local RFC1918 interface (or explicitly skips when none exists), because STS never
+permits loopback egress even through its private-host allowlist.
+
+## Measurements
+
+The executed host was Linux/amd64, Intel Core i9-13900H, Go **1.27.2**, PostgreSQL
+**18.6**, and Redis **7.2.4**. The module's Go 1.26 requirement was not changed;
+Go 1.26 runtime measurements were not made. Paired samples use identical module
+versions, precompiled test binaries, the same database/Redis, and three alternating
+baseline/optimized runs. Component samples used 1/8 Go CPUs; live samples used
+8 Go CPUs with 1/8/32 explicit clients. The parent index was present for **both**
+variants of the final issuance/validation comparisons; its query-plan check was
+separate.
+
+CPU percentage, heap and peak RSS in live results cover **STS plus its in-process
+load generator**, not PostgreSQL/Redis. Peak RSS is cumulative within each test
+process, not per-endpoint steady memory. Allocation counts include the HTTP
+client/server harness. Percentiles use all requests in each sample (the lower empirical order statistic
+`floor((N-1)q)`); small cold bursts have limited tail resolution. Batch
+benchmarks report batch allocations/time, not per-token allocations/time.
+
+This was a shared workspace: concurrent builds/deployments materially affected
+scheduling and network tails. Earlier dependency changes prompted equivalent-
+dependency reruns. An earlier disposable-store run encountered a local temporary-
+filesystem quota, returned issuance failures, and was excluded; PostgreSQL was
+moved to disk-backed storage before the final successful comparisons. No failed
+run is included as a performance success. The raw repeated measurements live at
+`tests/shared/test-data/sts-performance/2026-11-06.csv`.
+
+### Primary Improvements (Three-Run Medians)
+
+| Workload | Before | After | Interpretation |
+| --- | ---: | ---: | --- |
+| Full HTTP cold issuance, 32 requests: p99 | 1,419 ms | 149 ms | 89.5% lower; 96 requests per variant |
+| Same cold batch: allocated bytes | 2,053 MiB | 133 MiB | 93.5% fewer total allocated bytes, not a 2 GiB live-memory claim |
+| Same process: measured peak RSS | 385 MiB | 216 MiB | Includes server and load generator; not a universal container bound |
+| JWKS component, 8 CPUs: ns/op | 6,501 | 2,115 | 67.5% less processing time |
+| JWKS component: allocations/op | 63 | 31 | 50.8% fewer allocations |
+| JWKS component: bytes/op | 4,338 | 2,645 | 39.0% fewer bytes |
+
+A single cold request remains about 87 ms: the memory-hard verification was not
+weakened. CPU pinned to logical core 2, single-thread issuance was 55.835 →
+55.983 µs, and validation 107.235 → 108.638 µs (about 0.3% and 1.3% overhead;
+allocations unchanged). That rerun resolved the large unpinned single-core
+scheduling anomaly rather than attributing it to the optimization.
+
+### Live Warm Workloads: Before → After
+
+Values below are medians of three samples. All measured error rates were **0%**.
+They are observed workstation results, not production capacity estimates.
+
+| Path / clients | p50 ms | p95 ms | p99 ms | requests/s |
+| --- | ---: | ---: | ---: | ---: |
+| Bootstrap / 1 | 6.4 → 6.3 | 9.86 → 7.74 | 12.9 → 11.1 | 145 → 157 |
+| Bootstrap / 8 | 9.36 → 8.97 | 12.3 → 13 | 14.8 → 17 | 853 → 888 |
+| Bootstrap / 32 | 17.1 → 18.1 | 29.9 → 28.2 | 60 → 36.3 | 1.56e+03 → 1.68e+03 |
+| Delegated / 1 | 6.58 → 7.02 | 8.2 → 8.51 | 9.38 → 8.96 | 151 → 130 |
+| Delegated / 8 | 9.4 → 9.13 | 14 → 12.7 | 18.1 → 15.2 | 739 → 848 |
+| Delegated / 32 | 16.6 → 16.7 | 23.7 → 24.9 | 26.2 → 31.7 | 1.87e+03 → 1.83e+03 |
+| JWKS / 1 | 0.476 → 0.456 | 0.616 → 0.637 | 0.732 → 1.06 | 2.21e+03 → 2.16e+03 |
+| JWKS / 8 | 0.351 → 0.348 | 0.659 → 0.79 | 0.984 → 1.31 | 2.09e+04 → 1.98e+04 |
+| JWKS / 32 | 1.04 → 1.01 | 2.55 → 2.93 | 3.61 → 4.63 | 2.66e+04 → 2.54e+04 |
+| Validation / 1 | 0.115 → 0.22 | 0.219 → 0.49 | 0.249 → 0.56 | 8.03e+03 → 3.55e+03 |
+| Validation / 8 | 0.137 → 0.344 | 0.262 → 0.625 | 0.557 → 0.967 | 4.53e+04 → 2.14e+04 |
+| Validation / 32 | 0.178 → 0.888 | 0.78 → 1.98 | 15.3 → 3.05 | 4.16e+04 → 3.11e+04 |
+
+### Resource Counters (Representative Samples)
+
+The retained CSV includes these counters at **every** tested concurrency.
+Here, CPU percentages are process CPU/wall time; bytes and allocations are per
+warm request or per cold batch. Heap is a post-sample observation, not a maximum.
+
+| Workload | CPU % | Heap MiB | Peak RSS MiB | Bytes/op | Allocations/op |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Bootstrap / 8 | 144 → 135 | 10.6 → 7.61 | 164 → 165 | 9.81e+04 → 9.69e+04 | 1.58e+03 → 1.57e+03 |
+| Delegated / 8 | 162 → 192 | 9.95 → 8.84 | 155 → 165 | 1.47e+05 → 1.51e+05 | 2.43e+03 → 2.47e+03 |
+| JWKS / 8 | 546 → 471 | 7.96 → 8.69 | 186 → 189 | 1.72e+04 → 1.58e+04 | 198 → 168 |
+| Validation / 8 | 779 → 528 | 7.39 → 7.46 | 186 → 189 | 1.13e+04 → 1.22e+04 | 139 → 148 |
+| Cold HTTP / 32 (batch) | 367 → 318 | 263 → 75 | 385 → 216 | 2.15e+09 → 1.4e+08 | 5.82e+04 → 5.74e+04 |
+
+### Profiles and Regression Investigation
+
+The baseline JWKS CPU profile attributed **71.1%** of samples cumulatively to
+`ParseECPrivateKeyFromPEM`. After reuse, the warm profile moved to serialization:
+`BuildJWKS` accounted for about **42.1%**. Native signature operations were not
+removed. The delegated-exchange profile still shows substantial Rego work and
+HTTP/storage waiting; block-profile totals include idle workers/client loops and
+must not be treated as CPU time or a lock-contention percentage.
+
+Dependency-only samples at eight clients observed PostgreSQL time-query
+p50/p95/p99 of **0.057/0.107/0.174 ms**, key-set reads of
+**0.093/0.186/0.283 ms**, and Redis ping of **0.062/0.140/0.177 ms**.
+These separate socket/dependency measurements from the component benchmarks;
+they are not subtracted from unrelated latency samples.
+
+Warm standalone verification now pays an authoritative key-set read. Its latency
+increase is an intentional security cost, not a hidden regression. The graph guard
+also adds round trips relative to the previously unguarded insertion. Combining
+validation/insertion shortened the transaction lease while preserving the post-lock
+snapshot check; prior guarded-stage samples are retained separately in the CSV.
+Live JWKS throughput fluctuated slightly despite lower processing/allocations:
+the dependency-only results and standard Go HTTP load-generator transport explain
+why component CPU gains are not an end-to-end QPS promise.
+
+The additional 15-second-per-path samples at eight clients observed bootstrap
+**417.7 → 651.9 requests/s** and guarded delegated issuance
+**754 → 796 requests/s**, with no errors. Scheduling variation is large enough that these are reported as observations, not general throughput claims.
+
+A separate 5,001-record recursive-lineage query-plan check observed
+**10.053 → 7.241 ms** after the parent index. This was one `EXPLAIN ANALYZE`
+sample, not a repeated revocation-operation benchmark. The planner used the new
+parent index; no broader revocation throughput claim is made.
+
+
+## Executed Verification and Limits
+
+The scoped STS/Gateway suite and live integration suite ran with the Go race
+detector. New regressions cover current-key membership/envelope replacement,
+missed invalidation, actual SQL rotation-grace expiry, wrong curve, storage
+failure, cancellation, cache bounds, malformed Argon2 records, weak RSA keys,
+signature/issuer/audience/expiry/use guards, missing replay IDs, TLS connection
+reuse with credential rotation, oversized provider responses, multi-hop Session
+continuity, and concurrent cache invalidation. A live guard regression also sets the
+connection default to Repeatable Read, waits behind a writer, and verifies that
+the explicitly Read Committed guard rejects the stale graph proof.
+
+Live workflows used PostgreSQL, Redis, two independently running STS instances,
+Gateway, and an HTTP upstream verifying ES256/issuer/resource audience. They
+exercised valid delegated access, rejected replay/forgery, operation/scope/Session
+escalation, key and client-credential rotation across peers, STS restart, revoked
+and expired authority, shared nonce rejection, real refused sockets/cancelled
+storage calls, and revocation committed while active issuances waited at the
+Coordinator-compatible graph lock. Readiness and graceful shutdown are part of
+every live fixture. The security fixtures do not bypass runtime authorization;
+only initial control-plane data provisioning uses SQL.
+
+**Not verified:** a production cloud deployment, external IdP/Vault/provider
+accounts, network partitions between real hosts, all Helm topologies, or long-
+duration soak/rolling-deployment behavior. The upstream/identity/provider fixtures
+are not production integrations. No remaining-capacity or production QPS claim is
+inferred from this workstation.
+
+### Operational Considerations and Remaining Bottlenecks
+
+- Key-store outages now deny signing/verification even with cached material.
+  This is intentional: keeping an old key alive during an unknown rotation is
+  not a safe availability optimization. Size the existing PostgreSQL pool and
+  monitor dependency latency. The observed standalone validation cost is reported
+  explicitly rather than hidden by a signature-result cache.
+- Redis consumer groups distribute, rather than broadcast, invalidations. Native
+  key trust no longer relies on every instance seeing them. Existing OPA safety
+  polling remains the policy refresh fallback; this change does not claim
+  instantaneous policy propagation. External JWKS (10 minutes), external sealed
+  secret (60 seconds), and downstream verifier caches keep their existing bounds.
+- Warm issuance remains dominated by policy/graph/storage work. The additional
+  transactional delegation checks cost SQL round trips and allocations. Shared
+  issuance locks avoid serializing readers, but exclusive revocation/mutation
+  still waits for in-flight readers; decisions linearize around that lock, not by
+  retroactively cancelling already-completed requests.
+- After key parsing is removed, JWKS CPU is mostly serialization/allocation; live
+  JWKS remains database/network limited. Serialized-response or signature caches
+  were not added simply to improve a repeated-token benchmark.
+- The new parent index is built transactionally under the open migration's lock
+  timeout. Schedule large-table index builds appropriately; the test does not
+  establish lock/build duration for a production-sized table. Released migrations
+  and append-only policy/audit guarantees remain untouched.
+- Argon2 is still non-cancellable during an individual derivation. Slot waiting
+  and post-derivation checks honour cancellation; the configured concurrency
+  budget still bounds peak derivation memory. Wrong-secret bursts deliberately
+  receive no positive-cache acceleration.
