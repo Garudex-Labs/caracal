@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
@@ -29,6 +30,7 @@ func (r *auditFakeRows) Close()                                       {}
 func (r *auditFakeRows) Err() error                                   { return r.err }
 func (r *auditFakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *auditFakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *auditFakeRows) TypeMap() *pgtype.Map                         { return pgtype.NewMap() }
 func (r *auditFakeRows) Values() ([]any, error)                       { return nil, nil }
 func (r *auditFakeRows) RawValues() [][]byte                          { return nil }
 func (r *auditFakeRows) Conn() *pgx.Conn                              { return nil }
@@ -94,6 +96,7 @@ func (b rehashBatchResults) Exec() (pgconn.CommandTag, error) { return pgconn.Co
 func (b rehashBatchResults) Query() (pgx.Rows, error)         { return nil, b.err }
 func (b rehashBatchResults) QueryRow() pgx.Row                { return markerRow{err: b.err} }
 func (b rehashBatchResults) Close() error                     { return b.err }
+func (b rehashBatchResults) Tx() pgx.Tx                       { return nil }
 
 // rehashTx is a scripted pgx.Tx capturing batches and commit state.
 type rehashTx struct {

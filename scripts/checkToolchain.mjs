@@ -17,10 +17,7 @@ const metadataErrors = []
 if (packageManifest.packageManager !== `pnpm@${contract.pnpm}`) {
   metadataErrors.push(`package.json must pin pnpm@${contract.pnpm}`)
 }
-if (
-  packageManifest.engines?.node !== `>=${contract.node}` ||
-  packageManifest.engines?.pnpm !== `>=${contract.pnpm}`
-) {
+if (packageManifest.engines?.node !== `>=${contract.node}` || packageManifest.engines?.pnpm !== `>=${contract.pnpm}`) {
   metadataErrors.push('package.json engines do not match toolchain.json')
 }
 
@@ -90,24 +87,17 @@ function atLeast(actual, required) {
   const got = versionParts(actual)
   const want = versionParts(required)
   if (!got || !want) return false
-  return (
-    got[0] > want[0] ||
-    (got[0] === want[0] && (got[1] > want[1] || (got[1] === want[1] && got[2] >= want[2])))
-  )
+  return got[0] > want[0] || (got[0] === want[0] && (got[1] > want[1] || (got[1] === want[1] && got[2] >= want[2])))
 }
 
 const versions = {
   node: process.versions.node,
   pnpm: runVersion('pnpm', ['--version']),
   go: runVersion('go', ['version']),
-  python:
-    runVersion(process.env.PYTHON || 'python3', ['--version']) ||
-    runVersion('python', ['--version']),
+  python: runVersion(process.env.PYTHON || 'python3', ['--version']) || runVersion('python', ['--version']),
 }
 
-console.log(
-  `Required toolchain: Node.js ${contract.node}+, pnpm ${contract.pnpm}, Go ${contract.go}+, Python ${contract.python}+`,
-)
+console.log(`Required toolchain: Node.js ${contract.node}+, pnpm ${contract.pnpm}, Go ${contract.go}+, Python ${contract.python}+`)
 console.log(
   `Detected toolchain: Node.js ${versions.node}, pnpm ${versions.pnpm ?? 'missing'}, Go ${versions.go ?? 'missing'}, Python ${versions.python ?? 'missing'}`,
 )

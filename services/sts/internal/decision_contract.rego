@@ -201,8 +201,8 @@ risk_rules := data.caracal.authz.risk
 
 scope_tier(scope) := tier if {
 	some rule in risk_rules
-	rule.scope == scope
-	tier := rule.tier
+	object.get(rule, "scope", null) == scope
+	tier := object.get(rule, "tier", null)
 }
 
 default approval_declarations := []
@@ -223,10 +223,12 @@ requested_risk := [{"scope": scope, "tier": scope_tier(scope)} |
 # data is repaired.
 valid_risk_rule(rule) if {
 	is_object(rule)
-	is_string(rule.scope)
-	rule.scope != ""
-	is_string(rule.tier)
-	rule.tier != ""
+	scope := object.get(rule, "scope", null)
+	is_string(scope)
+	scope != ""
+	tier := object.get(rule, "tier", null)
+	is_string(tier)
+	tier != ""
 }
 
 malformed_risk_rules if {
@@ -241,8 +243,9 @@ malformed_risk_rules if {
 
 valid_approval_declaration(decl) if {
 	is_object(decl)
-	is_string(decl.tier)
-	decl.tier != ""
+	tier := object.get(decl, "tier", null)
+	is_string(tier)
+	tier != ""
 	approver := object.get(decl, "approver", "operator")
 	approver in {"operator", "subject", "any"}
 	privacy := object.get(decl, "privacy", "identified")
@@ -266,7 +269,7 @@ malformed_approval_declarations if {
 matched_declarations := sort({decl |
 	some decl in approval_declarations
 	some scope in input.context.requested_scopes
-	scope_tier(scope) == decl.tier
+	scope_tier(scope) == object.get(decl, "tier", null)
 })
 
 approval_required if count(matched_declarations) > 0
