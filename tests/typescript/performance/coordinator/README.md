@@ -75,59 +75,62 @@ rate-limit denial paths are not represented by warmed throughput numbers.
 
 Two alternating before/after repetitions; each case has 128 warm-up operations,
 256 measured operations, 2,000 historical audit records, real dependencies, and
-identical CPU affinity/configuration. Values below are **means of per-run metrics,
+identical CPU affinity/configuration. Surrounding code/dependency manifests match;
+only the two optimized modules differ. Values are **means of per-run metrics,
 not pooled percentiles**. All 60 cases / 24,576 measured HTTP requests are retained.
 
 | Workload | Workers | Requests/s before → after | p50 ms before → after | p95 ms before → after | p99 ms before → after |
 |---|---:|---:|---:|---:|---:|
-| read | 1 | 203.3 → 217.9 | 4.6 → 4.3 | 7.5 → 7.4 | 10.8 → 10.5 |
-| read | 8 | 470.8 → 462.7 | 15.3 → 15.3 | 28.3 → 28.0 | 32.1 → 32.2 |
-| read | 32 | 595.3 → 592.7 | 50.7 → 51.4 | 64.7 → 66.8 | 68.6 → 73.1 |
-| replay | 1 | 47.9 → 49.7 | 20.0 → 18.9 | 24.2 → 23.7 | 35.3 → 59.3 |
-| replay | 8 | 90.0 → 120.7 | 75.1 → 62.7 | 178.4 → 85.0 | 333.8 → 135.5 |
-| replay | 32 | 88.1 → 115.9 | 335.3 → 241.6 | 499.0 → 453.1 | 597.9 → 508.0 |
-| session | 1 | 33.8 → 42.9 | 27.1 → 22.6 | 39.2 → 28.4 | 99.0 → 37.8 |
-| session | 8 | 76.2 → 80.7 | 100.2 → 90.1 | 140.8 → 128.5 | 193.2 → 452.7 |
-| session | 32 | 81.8 → 87.7 | 369.5 → 352.2 | 478.9 → 417.3 | 542.9 → 478.3 |
-| invocation | 1 | 40.0 → 46.6 | 22.3 → 20.6 | 35.5 → 28.0 | 78.0 → 38.9 |
-| invocation | 8 | 90.8 → 113.7 | 81.4 → 61.6 | 127.8 → 92.5 | 205.8 → 500.1 |
-| invocation | 32 | 80.0 → 114.7 | 379.5 → 269.3 | 577.7 → 351.1 | 695.0 → 417.9 |
-| delegation | 1 | 25.5 → 37.0 | 34.8 → 26.3 | 58.9 → 31.6 | 139.8 → 41.8 |
-| delegation | 8 | 63.9 → 74.7 | 114.9 → 103.8 | 180.4 → 120.2 | 271.1 → 176.8 |
-| delegation | 32 | 69.8 → 74.0 | 431.6 → 393.6 | 525.8 → 541.9 | 555.2 → 566.9 |
+| read | 1 | 215.0 → 238.5 | 4.3 → 3.9 | 7.0 → 6.3 | 10.3 → 10.6 |
+| read | 8 | 476.3 → 476.3 | 15.0 → 14.8 | 27.5 → 26.5 | 30.6 → 33.8 |
+| read | 32 | 595.8 → 603.5 | 51.7 → 50.7 | 66.7 → 67.4 | 78.5 → 76.1 |
+| replay | 1 | 44.6 → 58.2 | 22.0 → 16.6 | 26.2 → 20.2 | 33.8 → 35.0 |
+| replay | 8 | 102.5 → 110.3 | 75.2 → 69.2 | 92.4 → 93.8 | 139.2 → 117.8 |
+| replay | 32 | 106.9 → 103.9 | 278.8 → 292.9 | 489.1 → 372.2 | 534.3 → 432.2 |
+| session | 1 | 39.8 → 46.9 | 24.5 → 20.3 | 29.8 → 25.6 | 35.2 → 37.7 |
+| session | 8 | 78.7 → 89.0 | 99.1 → 87.2 | 129.3 → 106.6 | 171.3 → 152.7 |
+| session | 32 | 86.3 → 89.8 | 362.4 → 324.5 | 428.2 → 681.2 | 464.2 → 752.1 |
+| invocation | 1 | 46.1 → 52.2 | 20.7 → 18.6 | 27.1 → 24.3 | 32.0 → 28.5 |
+| invocation | 8 | 107.5 → 119.3 | 69.9 → 63.9 | 87.3 → 83.9 | 327.2 → 159.6 |
+| invocation | 32 | 103.7 → 128.3 | 300.4 → 241.5 | 363.5 → 303.7 | 386.5 → 332.1 |
+| delegation | 1 | 34.8 → 37.2 | 28.0 → 23.7 | 33.9 → 29.1 | 42.3 → 46.7 |
+| delegation | 8 | 66.7 → 75.4 | 108.3 → 100.4 | 155.3 → 133.7 | 453.1 → 184.7 |
+| delegation | 32 | 76.5 → 75.1 | 408.3 → 394.8 | 459.3 → 506.7 | 486.3 → 554.9 |
 
 | Workload | Workers | CPU ms/request before → after | Sampled allocated KiB/request before → after | Peak RSS MiB before → after |
 |---|---:|---:|---:|---:|
-| read | 1 | 2.71 → 2.61 | 109.8 → 107.2 | 148.4 → 152.5 |
-| read | 8 | 1.98 → 2.02 | 98.2 → 94.2 | 150.9 → 154.3 |
-| read | 32 | 1.58 → 1.59 | 94.5 → 90.6 | 161.2 → 164.2 |
-| replay | 1 | 6.25 → 6.20 | 227.8 → 222.9 | 175.4 → 178.9 |
-| replay | 8 | 5.27 → 5.02 | 210.8 → 212.6 | 178.8 → 181.7 |
-| replay | 32 | 5.36 → 4.63 | 214.2 → 200.7 | 214.2 → 214.4 |
-| session | 1 | 7.89 → 6.55 | 297.3 → 285.4 | 233.0 → 236.2 |
-| session | 8 | 5.74 → 5.44 | 276.5 → 271.0 | 236.3 → 239.3 |
-| session | 32 | 5.25 → 4.88 | 269.8 → 265.6 | 237.5 → 244.2 |
-| invocation | 1 | 5.56 → 5.78 | 240.0 → 236.6 | 242.2 → 245.2 |
-| invocation | 8 | 4.97 → 4.51 | 236.7 → 227.8 | 244.3 → 247.0 |
-| invocation | 32 | 4.77 → 4.33 | 224.3 → 223.3 | 244.9 → 247.7 |
-| delegation | 1 | 8.53 → 7.39 | 353.2 → 337.7 | 246.4 → 249.1 |
-| delegation | 8 | 6.47 → 6.23 | 328.4 → 316.2 | 246.3 → 249.4 |
-| delegation | 32 | 6.40 → 6.26 | 321.9 → 319.8 | 246.5 → 249.6 |
+| read | 1 | 2.57 → 2.46 | 105.2 → 104.0 | 145.4 → 150.5 |
+| read | 8 | 1.98 → 1.98 | 93.8 → 92.7 | 154.5 → 153.1 |
+| read | 32 | 1.58 → 1.56 | 89.0 → 91.5 | 167.2 → 163.4 |
+| replay | 1 | 6.15 → 5.46 | 229.5 → 220.3 | 181.1 → 178.3 |
+| replay | 8 | 4.91 → 4.63 | 211.5 → 207.0 | 184.2 → 181.0 |
+| replay | 32 | 4.55 → 4.35 | 214.9 → 198.4 | 218.2 → 214.1 |
+| session | 1 | 6.57 → 6.00 | 292.1 → 279.8 | 237.4 → 234.9 |
+| session | 8 | 5.41 → 5.05 | 277.3 → 266.3 | 241.1 → 238.5 |
+| session | 32 | 4.90 → 4.79 | 265.9 → 257.0 | 246.7 → 247.6 |
+| invocation | 1 | 5.21 → 4.98 | 240.7 → 235.2 | 248.1 → 249.0 |
+| invocation | 8 | 4.46 → 4.41 | 230.0 → 225.0 | 249.3 → 250.5 |
+| invocation | 32 | 4.31 → 4.08 | 227.0 → 225.9 | 249.9 → 251.3 |
+| delegation | 1 | 7.20 → 6.86 | 350.1 → 336.4 | 251.9 → 253.0 |
+| delegation | 8 | 6.36 → 6.09 | 341.0 → 336.2 | 251.7 → 252.8 |
+| delegation | 32 | 5.86 → 6.07 | 328.8 → 328.8 | 251.8 → 253.1 |
 
-The unchanged 8/32-worker read controls are approximately flat in throughput.
-Mutation throughput improves in this matrix, and the common-path expired DELETE
-count falls from one per idempotent operation to **zero**. Allocation and CPU
-results are mostly lower; **RSS does not improve**, and no blanket memory claim is made.
-p99 does not improve uniformly: replay/1, session/8 and invocation/8 have worse
-tails, and delegation/32 p95 is slightly higher. The dependency profiles retain
-large commit/lock/scheduling outliers; earlier candidate sensitivity runs without
-CPU/heap sampling also showed tail variability. These are not erased or represented
-as a universal p99 improvement. Dedicated-host sustained tail-latency validation
-remains necessary before capacity/SLO conclusions.
+The unchanged 8/32-worker read throughput controls are approximately flat.
+Common-path expired DELETE count falls from one per idempotent operation to **zero**.
+For invocation/32, throughput is 103.7 → 128.3 requests/s (+23.7%),
+p95 is 363.5 → 303.7 ms (−16.4%), and CPU/request is 5.3% lower.
+Session/8 throughput improves 13.1%, p95 improves 17.6%, CPU/request is 6.7%
+lower, and sampled allocation/request is 4.0% lower. These are observed
+measurements under the recorded conditions, not production guarantees.
 
-For example, invocation/32 throughput is 80.0 → 114.7 requests/s (+43.4%),
-p95 is 577.7 → 351.1 ms (−39.2%), and CPU/request is 9.4% lower.
-These are observed measurements under the recorded conditions, not production guarantees.
+**Regressions are retained:** replay/32 throughput is 2.8% lower and delegation/32
+throughput is 1.9% lower. Session/32 p95/p99 increase substantially; its two after
+runs contain 341–445 ms COMMIT outliers versus 21–35 ms before. Those delays propagate
+through the required serialized locks and pool queue. Delegation/32 p95 is 10.3%
+higher. No uniform tail-latency or RSS improvement is claimed. Earlier candidate
+sensitivity runs without CPU/heap sampling also showed tail variability. Altering
+durable commits or lifecycle/audit locks to conceal these outliers was rejected.
+A quiet dedicated-host sustained run remains necessary before capacity/SLO conclusions.
 
 ### Choices deliberately not made
 

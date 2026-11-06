@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto'
 
 const dir = resolve(process.argv[2])
 const out = resolve(process.argv[3] ?? 'tests/typescript/performance/coordinator/measurements.json')
+let environment = { measuredOn: 'not recorded', node: 'not recorded', processor: 'not recorded', postgres: 'not recorded', redis: 'not recorded' }
+try { environment = JSON.parse(await readFile(join(dir, 'environment.json'), 'utf8')) } catch (err) { if (err.code !== 'ENOENT') throw err }
 const runs = []
 for (const name of (await readdir(dir)).filter((s) => /^(before|after)-warm-[12]\.json$/.test(s)).sort()) {
   const data = JSON.parse(await readFile(join(dir, name), 'utf8'))
@@ -54,8 +56,7 @@ for (const kind of ['read', 'replay', 'session', 'invocation', 'delegation']) fo
   comparison.push(row)
 }
 await writeFile(out, JSON.stringify({
-  measuredOn: '2026-11-06', node: process.version, processor: 'Intel Core i9-13900H',
-  postgres: '17.11 (Docker, synchronous_commit=on)', redis: '7.4.11 (Docker)',
+  ...environment,
   conditions: { coordinatorCpu: 14, clientCpu: 15, historyRows: 2000, warmupOperations: 128, measuredOperations: 256, repeats: 2, requestLimits: 'raised identically, not disabled', outboxIntervalMs: 50, dbPoolMax: 20, defaultStatementTimeoutMs: 10000, logLevel: 'warn' },
   notes: ['Comparison values are arithmetic means of two per-run metrics, NOT pooled latency percentiles.', 'Profiler overhead is present equally in both variants.', 'Host is shared with unrelated workloads; unchanged read control and all regressions are retained.', 'Allocation bytes are V8 sampling estimates, not exact allocation counts.'],
   comparison, runs,
