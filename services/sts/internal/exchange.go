@@ -483,6 +483,23 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	}
 	delegation, session, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil, subjectClaims != nil && claimString(subjectClaims, "use") == UseSession)
 	if refErr != nil {
+		// Requests against a terminated Session, a revoked edge, or scopes outside the
+		// delegation are denials in their own right; recording them keeps a revoked
+		// agent's continued attempts visible in the audit stream. Session timelines key on
+		// agent_session_id alone, so an ID the caller does not own goes under its own key
+		// and the denial stays out of the owner's timeline.
+		sessionKey := "requested_session_id"
+		if owned, err := s.db.GetSession(ctx, req.SessionID); err == nil && owned.ZoneID == zoneID && owned.ApplicationID == app.ID {
+			sessionKey = "agent_session_id"
+		}
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "session_reference_invalid", &OPAResult{},
+			mergeAuditMeta(appMeta, map[string]any{
+				"reason":             refErr.Description,
+				sessionKey:           req.SessionID,
+				"delegation_edge_id": req.DelegationEdgeID,
+			})); auditErr != nil {
+			return nil, nil, http.StatusInternalServerError, auditErr
+		}
 		return nil, nil, http.StatusForbidden, refErr
 	}
 

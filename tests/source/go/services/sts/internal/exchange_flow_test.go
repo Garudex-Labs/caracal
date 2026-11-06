@@ -753,3 +753,80 @@ func TestExchangeSessionOwnership(t *testing.T) {
 		t.Fatalf("revoked Session must deny, code=%d err=%#v", code, apiErr)
 	}
 }
+
+// A rejected Session or delegation reference must leave a deny event, so a revoked agent's
+// continued attempts and out-of-delegation requests are visible in the audit stream.
+func TestExchangeAuditsRejectedSessionReferences(t *testing.T) {
+	now := time.Now()
+	session := func(id, status string) *Session {
+		return &Session{ID: id, ZoneID: "zone1", ApplicationID: "app1", Lifecycle: "task", Status: status, StartedAt: now.Add(-time.Minute), TTLSeconds: 600}
+	}
+	edge := &DelegationEdge{
+		ID:              "edge-1",
+		ZoneID:          "zone1",
+		SourceSessionID: "launcher-1",
+		TargetSessionID: "agent-1",
+		IssuerAppID:     "app1",
+		ReceiverAppID:   "app1",
+		Scopes:          []string{"pipernet:read"},
+		Status:          "active",
+		ExpiresAt:       now.Add(time.Minute),
+	}
+	expiredEdge := *edge
+	expiredEdge.ExpiresAt = now.Add(-time.Minute)
+	peer := func(status string) *Session {
+		owned := session("agent-1", status)
+		owned.ApplicationID = "app2"
+		return owned
+	}
+	// stubDB serves Sessions in call order, so each list ends with the Session the audit
+	// ownership lookup reads after validation has consumed its own.
+	cases := []struct {
+		name     string
+		sessions []*Session
+		edge     *DelegationEdge
+		scope    string
+		reason   string
+		key      string
+	}{
+		{"terminated session", []*Session{session("agent-1", "terminated"), session("agent-1", "terminated")}, nil, "pipernet:read", "inactive", "agent_session_id"},
+		{"scope outside delegation", []*Session{session("launcher-1", "active"), session("agent-1", "active"), session("agent-1", "active")}, edge, "pipernet:write", "requested scopes exceed delegation scopes", "agent_session_id"},
+		{"expired delegation edge", []*Session{session("agent-1", "active")}, &expiredEdge, "pipernet:read", "delegation edge inactive or expired", "agent_session_id"},
+		{"peer session", []*Session{peer("active"), peer("active")}, nil, "pipernet:read", "not owned by caller", "requested_session_id"},
+		{"terminated peer session", []*Session{peer("terminated"), peer("terminated")}, nil, "pipernet:read", "inactive", "requested_session_id"},
+		{"peer delegation target", []*Session{session("launcher-1", "active"), peer("active"), peer("active")}, edge, "pipernet:read", "delegation target inactive or unauthorized", "requested_session_id"},
+		{"unknown session", nil, nil, "pipernet:read", "inactive", "requested_session_id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := exchangeFlowDB(t)
+			db.sessions = tc.sessions
+			db.edge = tc.edge
+			srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+			req := baseExchangeRequest()
+			req.Scope = tc.scope
+			req.SessionID = "agent-1"
+			if tc.edge != nil {
+				req.DelegationEdgeID = tc.edge.ID
+			}
+			_, _, code, apiErr := srv.exchange(context.Background(), req, "req-ref")
+			if code != http.StatusForbidden || apiErr == nil || !strings.Contains(apiErr.Description, tc.reason) {
+				t.Fatalf("expected 403 %q, got code=%d err=%#v", tc.reason, code, apiErr)
+			}
+			// The audit ownership lookup runs last on the denial path.
+			if last := db.lookupIDs[len(db.lookupIDs)-1]; last != req.SessionID {
+				t.Fatalf("audit ownership lookup must read the requested Session: %q", last)
+			}
+			meta := auditMetaFor(t, srv, "deny", "session_reference_invalid")
+			if meta["reason"] != apiErr.Description || meta[tc.key] != "agent-1" || meta["application_id"] != "app1" {
+				t.Fatalf("deny event must name the reason, Session, and application: %v", meta)
+			}
+			if _, inTimeline := meta["agent_session_id"]; inTimeline && tc.key != "agent_session_id" {
+				t.Fatalf("a Session the caller does not own must stay out of the timeline key: %v", meta)
+			}
+			if tc.edge != nil && meta["delegation_edge_id"] != tc.edge.ID {
+				t.Fatalf("deny event must name the delegation edge: %v", meta)
+			}
+		})
+	}
+}

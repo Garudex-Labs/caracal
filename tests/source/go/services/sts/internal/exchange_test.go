@@ -326,6 +326,7 @@ type stubDB struct {
 	sessionErr               error
 	sessions                 []*Session
 	agentIndex               int
+	lookupIDs                []string
 	agentErr                 error
 	edge                     *DelegationEdge
 	edgeErr                  error
@@ -427,7 +428,8 @@ func (s *stubDB) GetDelegationEdge(_ context.Context, id string) (*DelegationEdg
 func (s *stubDB) GetAuthorityRecord(_ context.Context, _ string) (*AuthorityRecord, error) {
 	return s.session, s.sessionErr
 }
-func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
+func (s *stubDB) GetSession(_ context.Context, id string) (*Session, error) {
+	s.lookupIDs = append(s.lookupIDs, id)
 	if s.agentErr != nil {
 		return nil, s.agentErr
 	}

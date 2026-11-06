@@ -206,6 +206,7 @@ const AUDIT_METADATA_FIELDS = [
   'resource',
   'requested_scopes',
   'agent_session_id',
+  'requested_session_id',
   'agent_lifecycle',
   'agent_labels',
   'delegation_edge_id',
