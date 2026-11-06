@@ -121,10 +121,13 @@ function secureDir(path: string): void {
   }
   const user = userInfo().username
   const principal = process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user
-  spawnSync('icacls', [path, '/inheritance:r', '/grant:r', `${principal}:(OI)(CI)F`], {
+  const result = spawnSync('icacls', [path, '/inheritance:r', '/grant:r', `${principal}:(OI)(CI)F`], {
     stdio: 'ignore',
     windowsHide: true,
   })
+  if (result.error || result.status !== 0) {
+    throw new Error('could not secure the Windows secrets directory with icacls', { cause: result.error })
+  }
 }
 
 function readOrCreateSecretFile(path: string, bytes: number): { value: string; created: boolean } {
