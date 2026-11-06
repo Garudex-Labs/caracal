@@ -111,6 +111,7 @@ export async function startAgentBroker(opts: AgentBrokerOptions): Promise<AgentB
   const base = `/${randomBytes(16).toString('hex')}`
   const timeoutMs = opts.decisionTimeoutMs ?? DECISION_TIMEOUT_MS
   const maxModelBodyBytes = opts.maxModelBodyBytes ?? MAX_MODEL_BODY_BYTES
+  let guardReady = opts.adapter.readyPath === undefined
 
   async function hook(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let tool: string | undefined
@@ -170,7 +171,13 @@ export async function startAgentBroker(opts: AgentBrokerOptions): Promise<AgentB
     const path = url.slice(base.length)
     let handled: Promise<void>
     if (req.method === 'POST' && path === opts.adapter.hookPath) handled = hook(req, res)
-    else if (path === '/model' || path.startsWith('/model/') || path.startsWith('/model?'))
+    else if (req.method === 'POST' && path === opts.adapter.readyPath) {
+      guardReady = true
+      res.writeHead(204).end()
+      return
+    } else if (!guardReady && (path === '/model' || path.startsWith('/model/') || path.startsWith('/model?'))) {
+      return json(res, 403, { type: 'error', error: { type: 'permission_error', message: 'caracal: agent guard not loaded' } })
+    } else if (path === '/model' || path.startsWith('/model/') || path.startsWith('/model?'))
       handled = model(req, res, path.slice('/model'.length) || '/')
     else return json(res, 404, { error: 'not_found' })
     handled.catch(() => {
