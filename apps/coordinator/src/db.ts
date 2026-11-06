@@ -22,6 +22,11 @@ export function buildDB(config: Cfg = cfg): pg.Pool {
     // the per-request zone scoping in the control plane.
     options: `-c statement_timeout=${config.dbStatementTimeoutMs} -c caracal.zone_id=*`,
   })
+  // Checked-out clients lose the pool's idle error listener. A dropped backend
+  // must reject their queries, not crash the process between transaction steps.
+  pool.on('connect', (client) => {
+    client.on('error', () => {})
+  })
   // An idle pooled connection can be dropped by Postgres or the network at any time; pg surfaces
   // that as an 'error' event on the pool, which Node treats as fatal and crashes the process
   // unless it is handled. The pool evicts the broken connection and opens a fresh one on the next

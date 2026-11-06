@@ -40,6 +40,7 @@ async function ensureDatabaseExists(url: string, ssl: PostgresSsl): Promise<void
   maintenance.pathname = '/postgres'
   for (let attempt = 0; ; attempt++) {
     const client = new pg.Client({ connectionString: maintenance.toString(), ssl: sslOption(ssl) })
+    client.on('error', () => {}) // Connection errors also reject queries inside the provisioning try/catch.
     let connected = false
     try {
       await client.connect()
@@ -89,6 +90,11 @@ const pool = new pg.Pool({
   idleTimeoutMillis: idleTimeoutMs,
   application_name: 'caracal-auth',
   options: `-c statement_timeout=${statementTimeoutMs} -c idle_in_transaction_session_timeout=${idleInTxTimeoutMs}`,
+})
+// pg emits errors on leased clients as well as the pool; session queries still
+// reject, but a disconnect between queries must not become an uncaught exception.
+pool.on('connect', (client) => {
+  client.on('error', () => {})
 })
 
 // An idle pooled connection can be dropped by Postgres or the network at any time; pg surfaces
