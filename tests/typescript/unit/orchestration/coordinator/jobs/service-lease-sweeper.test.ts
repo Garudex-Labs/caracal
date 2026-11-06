@@ -64,6 +64,9 @@ describe('runServiceLeaseSweep', () => {
       if (/WITH RECURSIVE tree[\s\S]*FROM suspended/.test(sql)) {
         return { rows: suspended }
       }
+      if (/SELECT DISTINCT subject_authority_record_id FROM sessions/.test(sql)) {
+        return { rows: [{ subject_authority_record_id: 'sid-1' }] }
+      }
       return { rows: [] }
     }) as never
 
@@ -80,8 +83,10 @@ describe('runServiceLeaseSweep', () => {
       expect.arrayContaining([`suspend:agent-1:${occurrence}`, `suspend:agent-2:${occurrence}`, `agent_suspend:agent-1:${occurrence}`]),
     )
     const suspension = allDedupes.find(
-      (value): value is Record<string, unknown> => typeof value === 'object' && value !== null && value.agent_session_id === 'agent-1',
+      (value): value is Record<string, unknown> =>
+        typeof value === 'object' && value !== null && value.agent_session_id === 'agent-1' && value.suspended_at === occurrence,
     )
+    expect(suspension).toMatchObject({ agent_session_id: 'agent-1', suspended_at: occurrence })
     expect(suspension).not.toHaveProperty('session_id')
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })

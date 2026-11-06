@@ -55,6 +55,7 @@ type revocationStore struct {
 	mu               sync.RWMutex
 	authorityRecords map[string]time.Time
 	governedSessions map[string]time.Time
+	suspendedAt      map[string]time.Time
 	edges            map[string]time.Time
 	snapshotUnix     atomic.Int64
 	streamGeneration atomic.Uint64
@@ -62,7 +63,7 @@ type revocationStore struct {
 }
 
 func newRevocationStore(log zerolog.Logger) *revocationStore {
-	return &revocationStore{authorityRecords: map[string]time.Time{}, governedSessions: map[string]time.Time{}, edges: map[string]time.Time{}, log: log}
+	return &revocationStore{authorityRecords: map[string]time.Time{}, governedSessions: map[string]time.Time{}, suspendedAt: map[string]time.Time{}, edges: map[string]time.Time{}, log: log}
 }
 
 // IsRevoked reports whether an authority-record anchor remains revoked.
@@ -94,6 +95,29 @@ func (s *revocationStore) IsDelegationRevoked(delegationEdgeID string) bool {
 	expiresAt, ok := s.edges[delegationEdgeID]
 	s.mu.RUnlock()
 	return ok && time.Now().Before(expiresAt)
+}
+
+// A suspension cuts off a request whose STS exchange observed an earlier
+// active Session row. A newly authorized, resumed Session has a newer row.
+func (s *revocationStore) WasSessionSuspended(sessionID string, observedAt time.Time) bool {
+	if sessionID == "" || observedAt.IsZero() {
+		return false
+	}
+	s.mu.RLock()
+	suspendedAt := s.suspendedAt[sessionID]
+	s.mu.RUnlock()
+	return suspendedAt.After(observedAt)
+}
+
+func (s *revocationStore) recordSuspension(sessionID string, at time.Time) {
+	if at.Before(time.Now().Add(-revocationTTL)) {
+		return
+	}
+	s.mu.Lock()
+	if at.After(s.suspendedAt[sessionID]) {
+		s.suspendedAt[sessionID] = at
+	}
+	s.mu.Unlock()
 }
 
 func (s *revocationStore) markAuthorityRecord(anchorID string) {
@@ -196,6 +220,11 @@ func (s *revocationStore) prune() {
 			delete(s.governedSessions, sessionID)
 		}
 	}
+	for sessionID, suspendedAt := range s.suspendedAt {
+		if !cutoff.Before(suspendedAt.Add(revocationTTL)) {
+			delete(s.suspendedAt, sessionID)
+		}
+	}
 	for delegationEdgeID, expiresAt := range s.edges {
 		if !cutoff.Before(expiresAt) {
 			delete(s.edges, delegationEdgeID)
@@ -262,6 +291,23 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 		int(revocationTTL.Seconds()),
 	)
 	if err != nil {
+		return err
+	}
+	suspended, err := pool.Query(ctx, `SELECT id, updated_at FROM sessions WHERE status = 'suspended'
+		AND updated_at > now() - ($1::int * interval '1 second')`, int(revocationTTL.Seconds()))
+	if err != nil {
+		return err
+	}
+	defer suspended.Close()
+	for suspended.Next() {
+		var id string
+		var at time.Time
+		if err := suspended.Scan(&id, &at); err != nil {
+			return err
+		}
+		store.recordSuspension(id, at)
+	}
+	if err := suspended.Err(); err != nil {
 		return err
 	}
 	applyRevocationSnapshot(store, authorityRecords, governedSessions, edges, generation)
@@ -388,10 +434,22 @@ func processRevocationMessage(ctx context.Context, redis revocationRedis, store 
 		trackRevocationFailure(ctx, redis, group, msg, fmt.Errorf("missing session_id, agent_session_id, or delegation_edge_id"), metrics, log)
 		return
 	}
+	suspendedAt, _ := msg.Values["suspended_at"].(string)
+	var suspension time.Time
+	if suspendedAt != "" {
+		var err error
+		suspension, err = time.Parse(time.RFC3339Nano, suspendedAt)
+		if err != nil || sessionID == "" {
+			trackRevocationFailure(ctx, redis, group, msg, fmt.Errorf("invalid Session suspension"), metrics, log)
+			return
+		}
+	}
 	if authorityRecordID != "" {
 		store.markAuthorityRecord(authorityRecordID)
 	}
-	if sessionID != "" {
+	if !suspension.IsZero() {
+		store.recordSuspension(sessionID, suspension)
+	} else if sessionID != "" {
 		store.markGovernedSession(sessionID)
 	}
 	if delegationEdgeID != "" {

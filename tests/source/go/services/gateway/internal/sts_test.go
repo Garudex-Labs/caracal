@@ -15,9 +15,9 @@ import (
 	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
 )
 
-func TestSTSClientHealthAcceptsHealthySTS(t *testing.T) {
+func TestSTSClientReadyAcceptsReadySTS(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
+		if r.URL.Path != "/ready" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -25,19 +25,23 @@ func TestSTSClientHealthAcceptsHealthySTS(t *testing.T) {
 	defer srv.Close()
 
 	client := newSTSClient(srv.URL, time.Second, nil)
-	if err := client.Health(context.Background()); err != nil {
+	if err := client.Ready(context.Background()); err != nil {
 		t.Fatalf("expected healthy STS, got %v", err)
 	}
 }
 
-func TestSTSClientHealthRejectsUnhealthySTS(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+func TestSTSClientReadyRejectsLiveButUnreadySTS(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
 	client := newSTSClient(srv.URL, time.Second, nil)
-	if err := client.Health(context.Background()); err == nil {
+	if err := client.Ready(context.Background()); err == nil {
 		t.Fatal("expected unhealthy STS to fail readiness")
 	}
 }

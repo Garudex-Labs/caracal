@@ -69,6 +69,7 @@ type replayTracker interface {
 type revocationChecker interface {
 	IsRevoked(anchorID string) bool
 	IsSessionRevoked(sessionID string) bool
+	WasSessionSuspended(sessionID string, observedAt time.Time) bool
 	IsDelegationRevoked(delegationEdgeID string) bool
 	SnapshotFresh(now time.Time) bool
 }
@@ -78,6 +79,15 @@ type tokenRevocationAnchors struct {
 	RootAuthorityRecordID string
 	SessionID             string
 	DelegationEdgeID      string
+	SessionObservedAt     time.Time
+}
+
+func (ids tokenRevocationAnchors) revoked(revocations revocationChecker) bool {
+	return revocations.IsRevoked(ids.AuthorityRecordID) ||
+		revocations.IsRevoked(ids.RootAuthorityRecordID) ||
+		revocations.IsSessionRevoked(ids.SessionID) ||
+		revocations.IsDelegationRevoked(ids.DelegationEdgeID) ||
+		revocations.WasSessionSuspended(ids.SessionID, ids.SessionObservedAt)
 }
 
 func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, tracker replayTracker, revocations revocationChecker, metrics *GatewayMetrics, audit auditEmitter) *proxy {
@@ -233,10 +243,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		SessionID:             jwtSessionID(bearer),
 		DelegationEdgeID:      jwtDelegationEdgeID(bearer),
 	}
-	if p.revocations.IsRevoked(revocationAnchors.AuthorityRecordID) ||
-		p.revocations.IsRevoked(revocationAnchors.RootAuthorityRecordID) ||
-		p.revocations.IsSessionRevoked(revocationAnchors.SessionID) ||
-		p.revocations.IsDelegationRevoked(revocationAnchors.DelegationEdgeID) {
+	if revocationAnchors.revoked(p.revocations) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session revoked")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsRevoked.Add(1)
@@ -258,6 +265,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Warn().Int("status", http.StatusServiceUnavailable).Msg("sts circuit open")
 		return
 	}
+	exchangeStartedAt := time.Now()
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	out := p.sts.Exchange(stsCtx, bearer, zoneID, clientID, resource, r.Method, r.URL.Path, requestID)
 	cancel()
@@ -276,6 +284,18 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p.recordSTSSuccess()
 	res := out.Result
+	// Compare transitions against the row STS actually authorized, rather than
+	// the Gateway clock. Fall back to exchange start for older STS deployments.
+	revocationAnchors.SessionObservedAt = exchangeStartedAt
+	if res.SessionUpdatedAt != nil {
+		revocationAnchors.SessionObservedAt = *res.SessionUpdatedAt
+	}
+	if p.revocations.WasSessionSuspended(revocationAnchors.SessionID, revocationAnchors.SessionObservedAt) {
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsRevoked.Add(1)
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session suspended during exchange")
+		return
+	}
 
 	upstreamURL, err := p.guard.Check(res.Upstream.URL)
 	if err != nil {
@@ -400,7 +420,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if exp.After(time.Now()) {
 		w.Header().Set("X-Caracal-Token-Expires-In", strconv.FormatInt(int64(time.Until(exp).Seconds()), 10))
 	}
-	copyResult := copyResponseWithTimeout(w, resp, p.revocations, revocationAnchors, p.writeTimeout, p.streamIdle)
+	copyResult := copyResponseWithTimeout(w, resp, p.revocations, revocationAnchors, p.writeTimeout, p.streamIdle, cancelUpstream)
 	p.metrics.RequestsAllowed.Add(1)
 	evaluationStatus := "executed"
 	errorKind := ""
@@ -719,10 +739,10 @@ func (r *idleReadCloser) Read(p []byte) (int, error) {
 }
 
 func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationAnchors) responseCopyResult {
-	return copyResponseWithTimeout(w, resp, revocations, ids, defaultWriteTimeout, defaultWriteTimeout)
+	return copyResponseWithTimeout(w, resp, revocations, ids, defaultWriteTimeout, defaultWriteTimeout, nil)
 }
 
-func copyResponseWithTimeout(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationAnchors, writeTimeout, streamIdle time.Duration) responseCopyResult {
+func copyResponseWithTimeout(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationAnchors, writeTimeout, streamIdle time.Duration, cancelUpstream context.CancelFunc) responseCopyResult {
 	// X-Caracal-Identity is the gateway-side mirror of the Caracal JWT for
 	// provider-native auth modes. Echoing it back to clients would surface a
 	// short-TTL but still usable bearer; strip it before fan-out.
@@ -755,6 +775,27 @@ func copyResponseWithTimeout(w http.ResponseWriter, resp *http.Response, revocat
 	}
 	w.WriteHeader(resp.StatusCode)
 	flusher.Flush()
+	// A quiet stream can block in Read and never reach the chunk boundary.
+	// Cancel its upstream context if any anchor is revoked while it waits.
+	if streaming && cancelUpstream != nil {
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					if ids.revoked(revocations) {
+						cancelUpstream()
+						return
+					}
+				}
+			}
+		}()
+	}
 	n, revoked, err := streamCopyWithDeadline(w, resp.Body, flusher, revocations, ids, controller, streaming, streamIdle)
 	if revoked {
 		w.Header().Set("X-Caracal-Revoked", "true")
@@ -775,14 +816,15 @@ func streamCopyWithDeadline(w io.Writer, src io.ReadCloser, flusher http.Flusher
 	buf := make([]byte, 4*1024)
 	var total int64
 	for {
-		if revocations.IsRevoked(ids.AuthorityRecordID) ||
-			revocations.IsRevoked(ids.RootAuthorityRecordID) ||
-			revocations.IsSessionRevoked(ids.SessionID) ||
-			revocations.IsDelegationRevoked(ids.DelegationEdgeID) {
+		if ids.revoked(revocations) {
 			_ = src.Close()
 			return total, true, nil
 		}
 		n, rerr := src.Read(buf)
+		if streaming && ids.revoked(revocations) {
+			_ = src.Close()
+			return total, true, nil
+		}
 		if n > 0 {
 			if streaming && controller != nil {
 				_ = controller.SetWriteDeadline(time.Now().Add(streamIdle))

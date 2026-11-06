@@ -944,7 +944,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 	}
 
-	return &TokenResponse{
+	response := &TokenResponse{
 		AccessToken:     token,
 		TokenType:       "Bearer",
 		ExpiresIn:       int(ttl.Seconds()),
@@ -952,7 +952,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		IssuedTokenType: "urn:ietf:params:oauth:token-type:access_token",
 		TargetResources: grantedResources,
 		Upstreams:       grantedDirectives,
-	}, nil, http.StatusOK, nil
+	}
+	if req.GatewayAuthenticated && session != nil && !session.UpdatedAt.IsZero() {
+		response.SessionUpdatedAt = &session.UpdatedAt
+	}
+	return response, nil, http.StatusOK, nil
 }
 
 func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subjectClaims map[string]any, resource *Resource, providerCredentialAccess bool, runtimeCredentialInjection bool) (UpstreamDirective, error) {

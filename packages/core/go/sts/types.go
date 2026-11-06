@@ -5,6 +5,8 @@
 
 package sts
 
+import "time"
+
 // UpstreamDirective tells the gateway which URL to dial and which credential
 // shape the upstream expects. ProviderToken is populated only on authenticated
 // Gateway exchanges or explicit runtime credential injection exchanges; for
@@ -33,4 +35,6 @@ type TokenResponse struct {
 	IssuedTokenType string                       `json:"issued_token_type"`
 	TargetResources []string                     `json:"target_resources,omitempty"`
 	Upstreams       map[string]UpstreamDirective `json:"upstreams,omitempty"`
+	// SessionUpdatedAt is the active Session row observed by an authenticated Gateway exchange.
+	SessionUpdatedAt *time.Time `json:"session_updated_at,omitempty"`
 }

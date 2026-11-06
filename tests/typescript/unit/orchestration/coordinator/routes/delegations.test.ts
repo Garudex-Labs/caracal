@@ -1062,7 +1062,7 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
     expect(res.json()).toEqual({ error: 'issuer_ownership_required' })
   })
 
-  it('revokes downstream edges, terminates affected agents, and deduplicates subject revocations', async () => {
+  it('revokes downstream edges without revoking a shared authority still used by another Session', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
@@ -1089,7 +1089,7 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
           ],
         })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ subject_authority_record_id: 'sid-shared' }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ epoch: '5' }] })
         .mockResolvedValueOnce({ rows: [] })
@@ -1110,5 +1110,13 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
     expect(outboxCalls.length).toBe(3)
+    const payloads = outboxCalls.flatMap(([, params]) => (params ?? []).filter((value: unknown) => typeof value === 'object'))
+    expect(payloads.every((payload: Record<string, unknown>) => !('session_id' in payload))).toBe(true)
+    expect(payloads).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ agent_session_id: 'agent-2', delegation_edge_id: 'edge-1' }),
+        expect.objectContaining({ agent_session_id: 'agent-3', delegation_edge_id: 'edge-2' }),
+      ]),
+    )
   })
 })

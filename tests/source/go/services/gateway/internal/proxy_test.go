@@ -51,6 +51,10 @@ func (allowRevocations) IsSessionRevoked(string) bool {
 	return false
 }
 
+func (allowRevocations) WasSessionSuspended(string, time.Time) bool {
+	return false
+}
+
 func (allowRevocations) IsDelegationRevoked(string) bool {
 	return false
 }

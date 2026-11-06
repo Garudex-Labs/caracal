@@ -33,9 +33,10 @@ type stsClient struct {
 
 // stsResult holds the successful token and upstream directive from a single Exchange call.
 type stsResult struct {
-	AccessToken string
-	Upstream    corests.UpstreamDirective
-	Latency     time.Duration
+	AccessToken      string
+	Upstream         corests.UpstreamDirective
+	Latency          time.Duration
+	SessionUpdatedAt *time.Time
 }
 
 // exchangeOutcome bundles every field an Exchange call can return so callers
@@ -65,9 +66,9 @@ func newSTSClient(stsURL string, timeout time.Duration, exchangeHMACKey []byte) 
 	}
 }
 
-// Health checks whether STS is reachable enough for the gateway to exchange tokens.
-func (c *stsClient) Health(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/health", nil)
+// Ready checks whether STS and its dependencies can serve token exchanges.
+func (c *stsClient) Ready(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/ready", nil)
 	if err != nil {
 		return err
 	}
@@ -77,7 +78,7 @@ func (c *stsClient) Health(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("sts health status: %d", resp.StatusCode)
+		return fmt.Errorf("sts readiness status: %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -167,7 +168,7 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken, zoneID, applicat
 			ClientErr:   sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
 			InternalErr: fmt.Errorf("resource %q not in upstreams", resource)}
 	}
-	return exchangeOutcome{Result: &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency}, Status: http.StatusOK, Latency: latency}
+	return exchangeOutcome{Result: &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency, SessionUpdatedAt: tr.SessionUpdatedAt}, Status: http.StatusOK, Latency: latency}
 }
 
 func isJSONResponse(contentType string) bool {
