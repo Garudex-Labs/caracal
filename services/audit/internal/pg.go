@@ -122,12 +122,21 @@ func (w *PGWriter) Insert(ctx context.Context, ev AuditEvent, ingestSig string) 
 
 	var prevHash string
 	var prevSeq int64
+	// The existing (zone_id, chain_seq DESC) index puts NULLs first. Use
+	// an ordered range scan for numbered events and only look for a legacy
+	// unnumbered head when the zone has no numbered events.
 	err = tx.QueryRow(ctx,
-		`SELECT COALESCE(content_sha256,''), COALESCE(chain_seq,0)
-		 FROM audit_events
-		 WHERE zone_id = $1
-		 ORDER BY chain_seq DESC NULLS LAST
-		 LIMIT 1`, ev.ZoneID).Scan(&prevHash, &prevSeq)
+		`WITH numbered_head AS MATERIALIZED (
+		   SELECT COALESCE(content_sha256,'') AS content_sha256, chain_seq
+		   FROM audit_events WHERE zone_id = $1 AND chain_seq IS NOT NULL
+		   ORDER BY chain_seq DESC LIMIT 1
+		 )
+		 SELECT content_sha256, chain_seq FROM numbered_head
+		 UNION ALL
+		 (SELECT COALESCE(content_sha256,''), 0::bigint
+		  FROM audit_events WHERE zone_id = $1 AND chain_seq IS NULL
+		    AND NOT EXISTS (SELECT 1 FROM numbered_head)
+		  LIMIT 1)`, ev.ZoneID).Scan(&prevHash, &prevSeq)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return InsertResult{}, err
 	}
