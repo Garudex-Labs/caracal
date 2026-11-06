@@ -3,7 +3,7 @@
 //
 // Tests for run verb bodies: credential env building and safe spawning.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const fetchRunCredentialMock = vi.hoisted(() => vi.fn())
 const fetchRunManifestMock = vi.hoisted(() => vi.fn())
@@ -22,6 +22,7 @@ vi.mock('../../../../packages/engine/src/runClient.js', () => ({
   fetchRunManifest: fetchRunManifestMock,
 }))
 
+import { killTree } from '../../../../packages/engine/src/processTree.js'
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { ApprovalRequiredError } from '@caracalai/oauth'
@@ -212,5 +213,56 @@ describe('runExec', () => {
     const code = await handle.exitCode
     expect(code).toBe(127)
     expect(lines.some((l) => l.includes('failed to start'))).toBe(true)
+  })
+
+  // A workload's descendants (shells, tool subprocesses) must not outlive it.
+  function spawnWithGrandchild(grandchild: string, killGraceMs?: number, forwardSignals = false) {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      `const c = spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'ignore' })`,
+      "process.stdout.write(c.pid + '\\n')",
+      'setInterval(() => {}, 1e6)',
+    ].join(';')
+    const pids: number[] = []
+    const handle = runExec({
+      argv: [process.execPath, '-e', parent],
+      onLine: (l, stream) => stream === 'stdout' && pids.push(Number(l)),
+      forwardSignals,
+      killGraceMs,
+    })
+    // Dispose's escalation timer is unref'd and can die with the worker, so a failed test
+    // force-kills the tree itself to leave nothing running.
+    onTestFinished(() => killTree(handle.child, 'SIGKILL'))
+    return { handle, pids }
+  }
+
+  it.skipIf(process.platform === 'win32')('terminates descendants on dispose', async () => {
+    const { handle, pids } = spawnWithGrandchild('setInterval(() => {}, 1e6)')
+    await vi.waitFor(() => expect(pids).toHaveLength(1))
+    handle.dispose()
+    await handle.exitCode
+    await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow())
+  })
+
+  it.skipIf(process.platform === 'win32')('force-kills descendants that ignore SIGTERM', async () => {
+    const { handle, pids } = spawnWithGrandchild("process.on('SIGTERM', () => {}); setInterval(() => {}, 1e6)", 500)
+    await vi.waitFor(() => expect(pids).toHaveLength(1))
+    // Give the grandchild time to install its SIGTERM handler before dispose.
+    await new Promise((r) => setTimeout(r, 200))
+    handle.dispose()
+    await handle.exitCode
+    expect(() => process.kill(pids[0]!, 0)).not.toThrow()
+    await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow(), { timeout: 2000 })
+  })
+
+  it.skipIf(process.platform === 'win32')('forwards signals to descendants', async () => {
+    const listeners = process.listenerCount('SIGHUP')
+    const { handle, pids } = spawnWithGrandchild('setInterval(() => {}, 1e6)', undefined, true)
+    await vi.waitFor(() => expect(pids).toHaveLength(1))
+    // An unhandled SIGHUP would kill this worker before the test could report a failure.
+    expect(process.listenerCount('SIGHUP')).toBe(listeners + 1)
+    process.kill(process.pid, 'SIGHUP')
+    expect(await handle.exitCode).toBe(129)
+    await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow())
   })
 })

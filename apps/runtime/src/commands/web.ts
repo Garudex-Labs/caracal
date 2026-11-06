@@ -6,11 +6,12 @@
 import { type ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { killTree, spawnSyncTree, spawnTree } from '@caracalai/engine'
 import { scrubTokens } from '@caracalai/engine/crash'
 import { printError, printInfo, printWarn, style } from '../style.ts'
 import { CARACAL_VERSION } from '../runtime/version.gen.ts'
 import { devAllowlistFile, devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
-import { killTree, resolvePnpm, spawnSyncTree, spawnTree } from '../processTree.ts'
+import { resolvePnpm } from '../pnpm.ts'
 
 // The development launcher serves the console on the same host port as the packaged stack
 // (3001), taking the role over from `caracal up`'s packaged web container while it runs (it stops
@@ -382,7 +383,7 @@ export async function webCommand(argv: string[]): Promise<void> {
     web: { label: 'web UI', tag: 'web', args: webArgs, env: { VITE_CARACAL_AUTH_URL: authUrl } },
   }
 
-  // Each child is spawned as a killable process tree (see processTree.ts): on POSIX it
+  // Each child is spawned as a killable process tree (see @caracalai/engine processTree): on POSIX it
   // leads its own process group so a single Ctrl+C reaches only the launcher and the whole
   // tree can be torn down together; on Windows the tree is reaped with taskkill. Either way
   // a plain child.kill() would orphan the real vite/tsx/node servers, so killTree is used.
