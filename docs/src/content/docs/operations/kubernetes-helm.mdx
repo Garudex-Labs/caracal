@@ -38,6 +38,8 @@ STS and Gateway render as StatefulSets when replay persistence is enabled. PDBs,
 
 Check migration Jobs, pods, services, and rollout status. Confirm `/ready`, run a canary token exchange and Gateway call, and locate audit evidence. Verify the scraper authenticates with `METRICS_BEARER`.
 
+For a disposable kind installation, [Verify Deployment and Recovery](/operations/deployment-verification/) provides a reusable distributed contract, workload restart, and same-version upgrade check. The test upstream requires an explicit egress rule; a successful token exchange does not prove Gateway-to-upstream connectivity.
+
 ## Rollback and Recovery
 
 ```bash

@@ -26,7 +26,9 @@ Development builds `infra/docker/docker-compose.yml`; installed `rc` and `stable
 
 ## Verify
 
-`caracal status` checks `/health`; `caracal status --ready` checks dependencies. From a checkout, `bash infra/scripts/smokeTest.sh` probes the five core services on loopback. Open `http://localhost:3001` only after readiness passes.
+`caracal status` checks `/health`; `caracal status --ready` checks dependencies. From a checkout, `bash infra/scripts/smokeTest.sh` probes all six services, including web readiness and the SPA, on loopback. Open `http://localhost:3001` only after readiness passes. The web container healthcheck also probes `/ready`, so a failed session database no longer appears healthy.
+
+Use [Verify Deployment and Recovery](/operations/deployment-verification/) to reproduce protected requests, dependency failures, restarts, same-version upgrades, and an actual backup/restore in isolated projects without occupying the normal stack ports.
 
 ## Stop and Recover
 

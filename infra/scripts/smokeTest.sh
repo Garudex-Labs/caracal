@@ -29,5 +29,7 @@ probe "gateway"     "http://${host}:8081/ready"
 probe "sts"         "http://${host}:8080/ready"
 probe "audit"       "http://${host}:9090/ready"
 probe "coordinator" "http://${host}:4000/ready"
+probe "web-ready"   "http://${host}:${CARACAL_WEB_PORT:-3001}/ready"
+probe "web-spa"     "http://${host}:${CARACAL_WEB_PORT:-3001}/"
 
 echo "smoke ok"

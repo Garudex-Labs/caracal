@@ -1,0 +1,74 @@
+---
+title: Verify Deployment and Recovery
+description: Reproduce deployment contracts, dependency failures, upgrades, and recovery without touching an operator stack.
+pageType: workflow
+---
+
+Container creation and a green liveness probe are not deployment acceptance. Verify a protected request across SDK, Coordinator, STS, Gateway, upstream, and Audit, then repeat it after recovery.
+
+## Disposable Compose Verification
+
+From a reviewed checkout with the repository toolchain and a **local** Docker daemon:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run build:typescript
+node infra/scripts/verifyDeployment.mjs --go-contracts --image-tag verify-local --report .caracal/deployment-source.json
+node infra/scripts/verifyDeployment.mjs --mode runtime --skip-build --image-tag verify-local --report .caracal/deployment-runtime.json
+```
+
+The first command builds each shared image once in `dev` mode. The second exercises the released Compose topology in `stable` mode with those exact local images: it does **not** verify GHCR publication, release signatures, public TLS termination, or a different CPU architecture. `--profile dev|rc|stable` explicitly selects another profile. Both use fresh secrets, project-scoped volumes, a dedicated network, and dynamically allocated loopback ports. Existing operator projects and cloud credential settings are not used. Temporary containers, volumes, and credentials are removed on completion; built images and the JSON reports remain.
+
+The harness checks:
+
+- Missing secret files and passwordless Redis fail closed.
+- All six services become ready; the SPA is served and anonymous administration is rejected.
+- A managed application, resource, policy activation, nested SDK session, protected request, and correlated allow events in Audit work together.
+- Stopping Postgres makes web readiness and container health fail while web liveness stays green. Restoring Postgres recovers every service.
+- Stopping Redis fails STS readiness; restarting it and every application recovers the distributed workflow.
+- Re-running migrations and recreating the same-version stack retain a sentinel application object.
+- A private backup restores a deliberately deleted object, followed by another protected request.
+- Application shutdown does not require SIGKILL or trigger OOM termination.
+
+Reports include image byte sizes/users, startup/shutdown durations, a resource snapshot, checks, and redacted failure diagnostics. Do not infer an SLO or production sizing from a single verification run.
+
+## Disposable Helm Verification
+
+Install the chart into a disposable `kind-caracal-*` context first. Use locally loaded images, `values.dev.yaml`, generated credentials, and the dependency fixtures in `infra/helm/caracal/scripts/clusterDependencies.yaml`. The `Helm install` CI job contains the complete bootstrap; its stores are disposable stand-ins, not an HA installation.
+
+```bash
+# Point KUBECONFIG at the disposable cluster, not your usual production file.
+export KUBECONFIG=/path/to/disposable-kubeconfig
+CARACAL_VERIFY_DISPOSABLE=yes bash infra/helm/caracal/scripts/verifyInstall.sh
+```
+
+The script requires the default release name/chart name (`caracal`). It creates a non-root test upstream, explicitly allows only that upstream's port in the chart's test egress rules, uses local port-forwards, and exercises the protected workflow before/after workload restarts and a same-version Helm upgrade. `CARACAL_VERIFY_NAMESPACE` selects another disposable namespace, including one installed by OpenTofu. The script intentionally modifies that test release; do not bypass its disposable-context guard.
+
+## Configuration and CI Checks
+
+```bash
+node scripts/validateWorkflows.mjs
+bash scripts/testCi.sh --infra
+bash scripts/testCi.sh --deployment
+```
+
+Infrastructure validation requires Helm, OpenTofu, Docker Compose, and installed workspace dependencies. It checks committed provider locks, renders cloud adapters, and tests invalid configuration without contacting a cloud API. `testCi.sh --all` runs language checks and documentation; `--deployment` separately opts into disposable containers.
+
+Pull requests always emit `Test status`, including docs-only changes. Merge-queue events run the full suite. Every workflow test job—including workflow validation and Helm installation—is included in the aggregate gate. Repository TypeScript tests run once with the coverage ratchet and produce the lcov artifact used by Codecov. The native launcher is built/smoke-tested in that job; full events retain all five cross-platform compile checks without a second workspace build job. Configure `Test status` as required in the repository ruleset: workflow YAML alone cannot enforce merging policy.
+
+Release builds normalize image timestamps from the source commit. Before promotion to a release tag, source-SHA images must pass HIGH/CRITICAL vulnerability scanning, including unfixed findings. A failed scan intentionally blocks promotion; do not suppress vendor findings just to make a release green. Publishing/deployment remain separate, permission-scoped workflows; local verification does not replace registry, provenance, or approval checks. Pinned release digests reproduce deployments, but mutable OS package repositories and attestation timestamps mean arbitrary cold rebuilds are not guaranteed byte-identical.
+
+## Backup and Restore
+
+```bash
+# Select the intended project explicitly; use caracal-dev for source CLI installs.
+CARACAL_COMPOSE_PROJECT=caracal CARACAL_BACKUP_DIR=/secure/backups sh infra/scripts/backup.sh
+CARACAL_COMPOSE_PROJECT=caracal CARACAL_RESTORE_CONFIRM=yes sh infra/scripts/restore.sh /secure/backups/caracalBackup-TIMESTAMP-PID.tar.gz
+sh infra/scripts/smokeTest.sh
+```
+
+Backups exclude secret files, but PostgreSQL globals contain credential hashes: keep bundles private and encrypted off-host. Retention must be a positive integer without leading zeros. Bundles publish atomically only after a successful Redis AOF rewrite and completed dumps.
+
+Restore executes trusted SQL, replaces databases and persistent state, and stops application services. Use only trusted backups and matching, separately recovered secrets. Recovery helpers use the running Redis container's immutable local image ID, no network, and only the named persistent volume being repaired—not inherited tmpfs/secret mounts. Shell-less replay workloads retain their numeric ownership.
+
+Online database dumps and Redis/replay copies are **not** one globally atomic cross-service snapshot. Quiesce writers if your recovery objectives require that property. Test restore into a disposable stack before relying on a bundle. A successful Helm rollback does not reverse database migrations; verify schema compatibility before changing binaries.

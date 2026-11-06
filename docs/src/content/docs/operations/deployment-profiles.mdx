@@ -56,6 +56,8 @@ Two consequences worth planning for. A wildcard certificate covers one label, so
 
 Confirm assets render, secrets resolve, migrations finish, and `/ready` passes. Run a canary token exchange and Gateway request, then locate its audit evidence.
 
+See [Verify Deployment and Recovery](/operations/deployment-verification/) for isolated verification commands and acceptance checks. For the OpenTofu dev root, `values` and `setValues` allow cluster-specific overrides after the shared dev profile, including locally loaded image registry/tags. The VM bootstrap resolves its installer from the selected release tag; hardened VM images should preinstall Docker and provide `gh` when requiring provenance.
+
 ## Rollback or Recovery
 
 Keep the prior release and values. Restore data only from a tested backup and restore secrets separately. Helm rollback never reverses database migrations.

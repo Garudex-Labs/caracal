@@ -32,6 +32,10 @@ The required versions are defined in [`toolchain.json`](toolchain.json). Run `pn
 
 ## Setup
 
+Use the latest security patch on the supported Node 24 and Go 1.26 lines, not
+just the minimum major/minor above. Container builders pin Go 1.26.10 and Node
+24 images by digest; development machines need their own toolchain updates.
+
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git && cd caracal
 pnpm run setup                       # Install workspace and language dependencies
@@ -99,6 +103,30 @@ scripts/testCi.sh --smoke        # workspace build and Go vet
 ```
 
 The script also accepts `--all`, `--style`, `--ts`, `--go`, `--py`, and `--docs`.
+
+### Dependency maintenance
+
+- Run `pnpm update -r --no-save` for range-compatible npm updates. Keep Vitest
+  and its coverage provider on the same version. Review security overrides in
+  `pnpm-workspace.yaml` rather than allowing old pins to block patches.
+- Regenerate Python locks with Python 3.14 and `pip-tools==7.6.2` in a disposable
+  maintenance virtualenv: `python -m piptools compile --generate-hashes
+  --allow-unsafe --strip-extras --output-file=scripts/<name>Requirements.lock
+  scripts/<name>Requirements.in`. Use `--upgrade-package <name>` for targeted
+  fixes, and update exact pins in the input first. Never edit lock hashes by hand.
+- After installing the locks, run `python scripts/checkPythonDependencies.py`
+  and `python -m pip check`. Editable installs and release builds use the locked
+  Hatchling backend without downloading an unpinned isolated build environment.
+- Run `node scripts/runGoAudit.mjs --verify-only` for module integrity, or install
+  `golang.org/x/vuln/cmd/govulncheck@v1.8.0` and run the script without that flag
+  for imported-code vulnerability checks. Module-wide OSV scans can additionally
+  report unused vulnerable packages; those findings are not silently suppressed.
+- OpenTofu validation uses existing provider locks read-only. For deliberate
+  provider updates, run `tofu init -upgrade` and `tofu providers lock` for all
+  supported platforms in each affected root, then review the generated hashes.
+- The existing container scan reports unfixed high/critical issues and uploads
+  SARIF even on failure. New image exceptions require scoped evidence and an
+  expiry; do not renew expired exceptions just to get a green check.
 
 ### Testing Policy
 
