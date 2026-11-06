@@ -3,6 +3,8 @@
 //
 // Tests for run verb bodies: credential env building and safe spawning.
 
+import { spawn } from 'node:child_process'
+
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const fetchRunCredentialMock = vi.hoisted(() => vi.fn())
@@ -22,7 +24,7 @@ vi.mock('../../../../packages/engine/src/runClient.js', () => ({
   fetchRunManifest: fetchRunManifestMock,
 }))
 
-import { killTree } from '../../../../packages/engine/src/processTree.js'
+import { forwardSignal, killTree, stopTree } from '../../../../packages/engine/src/processTree.js'
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { ApprovalRequiredError } from '@caracalai/oauth'
@@ -230,8 +232,7 @@ describe('runExec', () => {
       forwardSignals,
       killGraceMs,
     })
-    // Dispose's escalation timer is unref'd and can die with the worker, so a failed test
-    // force-kills the tree itself to leave nothing running.
+    // A test that fails before dispose force-kills the tree itself to leave nothing running.
     onTestFinished(() => killTree(handle.child, 'SIGKILL'))
     return { handle, pids }
   }
@@ -249,10 +250,141 @@ describe('runExec', () => {
     await vi.waitFor(() => expect(pids).toHaveLength(1))
     // Give the grandchild time to install its SIGTERM handler before dispose.
     await new Promise((r) => setTimeout(r, 200))
-    handle.dispose()
+    void handle.dispose()
     await handle.exitCode
-    expect(() => process.kill(pids[0]!, 0)).not.toThrow()
     await vi.waitFor(() => expect(() => process.kill(pids[0]!, 0)).toThrow(), { timeout: 2000 })
+  })
+
+  it.skipIf(process.platform === 'win32')('resolves dispose only after the tree is gone', async () => {
+    const { handle, pids } = spawnWithGrandchild("process.on('SIGTERM', () => {}); setInterval(() => {}, 1e6)", 500)
+    await vi.waitFor(() => expect(pids).toHaveLength(1))
+    await new Promise((r) => setTimeout(r, 200))
+    await handle.dispose()
+    expect(() => process.kill(pids[0]!, 0)).toThrow()
+  })
+
+  // A workload that leads no group, as on a terminal, with a grandchild that keeps the default handlers.
+  async function spawnOutsideGroup() {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' })",
+      "process.stdout.write(c.pid + '\\n')",
+      'setInterval(() => {}, 1e6)',
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', parent], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const pid = await new Promise<number>((resolve) => child.stdout.once('data', (d: Buffer) => resolve(Number(d))))
+    onTestFinished(() => {
+      for (const target of [pid, child.pid!]) {
+        try {
+          process.kill(target, 'SIGKILL')
+        } catch {
+          /* already gone */
+        }
+      }
+    })
+    return { child, pid }
+  }
+
+  it.skipIf(process.platform === 'win32')('forwards SIGTERM and SIGHUP to a tree that leads no process group', async () => {
+    for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
+      const { child, pid } = await spawnOutsideGroup()
+      forwardSignal(child, signal, false)
+      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
+      await vi.waitFor(() => expect(() => process.kill(child.pid!, 0)).toThrow())
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('leaves terminal keystrokes to reach only the child of a tree that leads no group', async () => {
+    const { child, pid } = await spawnOutsideGroup()
+    forwardSignal(child, 'SIGINT', false)
+    await vi.waitFor(() => expect(() => process.kill(child.pid!, 0)).toThrow())
+    expect(() => process.kill(pid, 0)).not.toThrow()
+  })
+
+  const gone = (pid: number) => {
+    try {
+      process.kill(pid, 0)
+      return false
+    } catch {
+      return true
+    }
+  }
+  const killAfterTest = (...pids: number[]) =>
+    onTestFinished(() => {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          /* already gone */
+        }
+      }
+    })
+
+  it.skipIf(process.platform === 'win32')('stops what a terminal child left behind after it exited', async () => {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' })",
+      "process.stdout.write(c.pid + '\\n', () => process.exit(0))",
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', parent], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const pid = await new Promise<number>((resolve) => child.stdout.once('data', (d: Buffer) => resolve(Number(d))))
+    killAfterTest(pid)
+    await new Promise((resolve) => child.once('exit', resolve))
+    await new Promise((r) => setTimeout(r, 100))
+    expect(gone(pid)).toBe(false)
+    await stopTree(child, 500, false)
+    expect(gone(pid)).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('stops what a terminal child starts during the stop', async () => {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "process.on('SIGTERM', () => { const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' }); process.stdout.write(c.pid + '\\n', () => setTimeout(() => process.exit(0), 50)) })",
+      "process.stdout.write('ready\\n')",
+      'setInterval(() => {}, 1e6)',
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', parent], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const lines: string[] = []
+    child.stdout.on('data', (d: Buffer) => lines.push(...String(d).trim().split('\n')))
+    await vi.waitFor(() => expect(lines).toContain('ready'))
+    await stopTree(child, 800, false)
+    const late = Number(lines.find((line) => line !== 'ready'))
+    killAfterTest(late)
+    expect(late).toBeGreaterThan(0)
+    await vi.waitFor(() => expect(gone(late)).toBe(true), { timeout: 2000 })
+  })
+
+  it.skipIf(process.platform === 'win32')('leaves processes the launcher itself started alone', async () => {
+    const own = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' })
+    killAfterTest(own.pid!)
+    const { child } = await spawnOutsideGroup()
+    await stopTree(child, 500, false)
+    expect(gone(child.pid!)).toBe(true)
+    expect(gone(own.pid!)).toBe(false)
+  })
+
+  it.skipIf(process.platform === 'win32')('stops a tree that leads no process group, as on a terminal', async () => {
+    const parent = [
+      "const { spawn } = require('node:child_process')",
+      "const c = spawn(process.execPath, ['-e', \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1e6)\"], { stdio: 'ignore' })",
+      "process.stdout.write(c.pid + '\\n')",
+      'setInterval(() => {}, 1e6)',
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', parent], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const pid = await new Promise<number>((resolve) => child.stdout.once('data', (d: Buffer) => resolve(Number(d))))
+    onTestFinished(() => {
+      for (const target of [pid, child.pid!]) {
+        try {
+          process.kill(target, 'SIGKILL')
+        } catch {
+          /* already gone */
+        }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    await stopTree(child, 500, false)
+    expect(() => process.kill(child.pid!, 0)).toThrow()
+    expect(() => process.kill(pid, 0)).toThrow()
   })
 
   it.skipIf(process.platform === 'win32')('forwards signals to descendants', async () => {

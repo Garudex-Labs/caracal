@@ -201,6 +201,7 @@ export default defineConfig({
                 { label: 'Test Caracal Integrations', link: '/guides/testing/' },
                 { label: 'Govern Agent Frameworks', link: '/guides/frameworks/' },
                 { label: 'Run an Agent with caracal run', link: '/guides/runtime-run/' },
+                { label: 'Launch a Coding Agent with caracal launch', link: '/guides/runtime-launch/' },
               ],
             },
             {

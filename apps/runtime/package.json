@@ -32,7 +32,7 @@
     "compile:all": "bun run build:shell:linux-x64 && bun run build:shell:linux-arm64 && bun run build:shell:darwin-x64 && bun run build:shell:darwin-arm64 && bun run build:shell:windows-x64",
     "prebuild": "node scripts/stampVersion.mjs",
     "build": "bun run compile:all",
-    "build:release": "node scripts/stampVersion.mjs && pnpm --filter @caracalai/engine build && node scripts/buildLocalImages.mjs && bun run compile:all",
+    "build:release": "node scripts/stampVersion.mjs && pnpm --filter @caracalai/engine... build && node scripts/buildLocalImages.mjs && bun run compile:all",
     "dev": "node bin/caracal.mjs",
     "pretypecheck": "node scripts/stampVersion.mjs",
     "typecheck": "tsc --noEmit",

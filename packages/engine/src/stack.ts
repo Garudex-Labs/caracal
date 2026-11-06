@@ -73,7 +73,7 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
     await rm.exitCode
     return code
   })
-  return { dispose: handle.dispose, exitCode }
+  return { dispose: () => void handle.dispose(), exitCode }
 }
 
 function ensureDevNetwork(opts: StackComposeOpts): number {
@@ -101,7 +101,7 @@ export function stackDown(opts: StackComposeOpts): StackComposeHandle {
     cwd: opts.paths.cwd,
     onLine: opts.onLine,
   })
-  return { dispose: handle.dispose, exitCode: handle.exitCode }
+  return { dispose: () => void handle.dispose(), exitCode: handle.exitCode }
 }
 
 export interface ServiceProbe {
@@ -204,7 +204,7 @@ export function composeRun(opts: ComposeRunOpts): StackComposeHandle {
     cwd: opts.paths.cwd,
     onLine: opts.onLine,
   })
-  return { dispose: handle.dispose, exitCode: handle.exitCode }
+  return { dispose: () => void handle.dispose(), exitCode: handle.exitCode }
 }
 
 export type ControlLifecycleAction = 'enable' | 'disable'

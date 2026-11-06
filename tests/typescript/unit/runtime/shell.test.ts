@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   dispatch: vi.fn(),
   installCrashHandlers: vi.fn(),
   runCommand: vi.fn(),
+  launchCommand: vi.fn(),
   upCommand: vi.fn(),
   downCommand: vi.fn(),
   statusCommand: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('@caracalai/engine/commands', () => ({
     { name: 'purge', summary: 'purge', group: 'runtime' },
     { name: 'allowlist', summary: 'allowlist', group: 'stack', requiresArgs: true },
     { name: 'run', summary: 'run', group: 'runtime', requiresArgs: true, requiresConfig: true },
+    { name: 'launch', summary: 'launch', group: 'runtime', requiresArgs: true },
     { name: 'web', summary: 'web', group: 'runtime' },
   ],
 }))
@@ -41,6 +43,7 @@ vi.mock('../../../../apps/runtime/src/runtime/version.gen.ts', () => ({
   CARACAL_VERSION: '0.0.0-test',
 }))
 vi.mock('../../../../apps/runtime/src/commands/run.ts', () => ({ runCommand: state.runCommand }))
+vi.mock('../../../../apps/runtime/src/commands/launch.ts', () => ({ launchCommand: state.launchCommand }))
 vi.mock('../../../../apps/runtime/src/commands/stack.ts', () => ({
   upCommand: state.upCommand,
   downCommand: state.downCommand,
@@ -110,15 +113,17 @@ describe('runtime shell entrypoint', () => {
     expect(state.runCommand).toHaveBeenCalledWith(['--', 'node', 'tool.js'], cfg)
   })
 
-  it('routes run and web straight to their executors', async () => {
+  it('routes run, launch, and web straight to their executors', async () => {
     const opts = await importShell()
 
     await opts.registry.byName.get('run')!.run([], undefined)
     await opts.registry.byName.get('run')!.run(['python', 'tool.py'], undefined)
+    await opts.registry.byName.get('launch')!.run(['claude-code', '--profile', 'anton.json', '--', '-p', 'fix the failing test'])
     await opts.registry.byName.get('web')!.run(['--allow-offline'])
 
     expect(state.runCommand).toHaveBeenCalledWith([], undefined)
     expect(state.runCommand).toHaveBeenCalledWith(['python', 'tool.py'], undefined)
+    expect(state.launchCommand).toHaveBeenCalledWith(['claude-code', '--profile', 'anton.json', '--', '-p', 'fix the failing test'])
     expect(state.webCommand).toHaveBeenCalledWith(['--allow-offline'])
   })
 })

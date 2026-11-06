@@ -3,7 +3,9 @@
 //
 // Unit tests for the web console launcher's stack-readiness preflight.
 
-import { dirname, resolve } from 'node:path'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
@@ -26,6 +28,9 @@ import { CARACAL_VERSION } from '../../../../apps/runtime/src/runtime/version.ge
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
 
 const ORIG_ENV = { ...process.env }
+// resolvePnpm checks that its entry exists; the spawn itself is mocked.
+const PNPM_ENTRY_FILE = join(mkdtempSync(join(tmpdir(), 'caracal-web-test-')), 'pnpm.cjs')
+writeFileSync(PNPM_ENTRY_FILE, '')
 
 describe('webCommand stack preflight', () => {
   let stdout: ReturnType<typeof vi.spyOn>
@@ -39,7 +44,7 @@ describe('webCommand stack preflight', () => {
     // repo so apps/web and apps/auth resolve. Pinning npm_execpath keeps pnpm
     // resolution on the portable Node + pnpm CLI module branch, so the preflight
     // never depends on the host PATH or platform shim layout.
-    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT, npm_execpath: 'pnpm.cjs' }
+    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT, npm_execpath: PNPM_ENTRY_FILE }
     stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
@@ -250,7 +255,7 @@ describe('webCommand log aggregation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT, npm_execpath: 'pnpm.cjs' }
+    process.env = { ...ORIG_ENV, CARACAL_REPO_ROOT: REPO_ROOT, npm_execpath: PNPM_ENTRY_FILE }
     stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {

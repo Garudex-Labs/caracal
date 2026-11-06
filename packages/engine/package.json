@@ -56,7 +56,8 @@
     "@caracalai/admin": "workspace:*",
     "@caracalai/core": "workspace:*",
     "@caracalai/server-core": "workspace:*",
-    "@caracalai/oauth": "workspace:*"
+    "@caracalai/oauth": "workspace:*",
+    "@caracalai/sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
