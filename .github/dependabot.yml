@@ -41,6 +41,7 @@ updates:
   - package-ecosystem: gomod
     directories:
       - /infra/healthcheck
+      - /infra/postgres/gosu
       - /packages/**/go
       - /services/*
       - /tests/go
@@ -69,10 +70,24 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: terraform
+    directories:
+      - /infra/tofu/envs/*
+      - /infra/tofu/modules/*
+      - /infra/tofu/providers/*/*
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      terraform:
+        patterns:
+          - "*"
+
   - package-ecosystem: docker
     directories:
-      - /apps/api
-      - /apps/coordinator
       - /apps/runtime
       - /infra/docker
       - /infra/postgres

@@ -3,5 +3,6 @@
 #
 # No vulnerability suppressions. GO-2026-5932 concerns the unmaintained
 # x/crypto/openpgp package, which Caracal does not import, but it has no patched
-# module release and remains visible in module-wide lockfile scans. Keep that
+# stable module release (the advisory now points to an untagged OpenPGP split)
+# and remains visible in module-wide lockfile scans. Keep that
 # finding visible rather than hiding an unfixed advisory from supply-chain scans.

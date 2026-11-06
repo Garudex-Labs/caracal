@@ -131,6 +131,20 @@ export function checkPullRequestTarget(name, workflow) {
 
 export function validateWorkflow(name, workflow, workflows) {
   const findings = []
+  if (name === 'test.yml' && workflow.name === 'test') {
+    const needs = new Set(workflow.jobs?.status?.needs ?? [])
+    const results = workflow.jobs?.status?.steps?.[0]?.env?.JOB_RESULTS ?? ''
+    for (const job of Object.keys(workflow.jobs ?? {})) {
+      if (job === 'status') continue
+      if (!needs.has(job) || !results.includes(`needs.${job}.result`)) {
+        findings.push(`${name}: Test status must depend on and inspect job '${job}'`)
+      }
+    }
+    if (workflow.on?.pull_request?.paths || workflow.on?.pull_request?.['paths-ignore']) {
+      findings.push(`${name}: required PR status must not be filtered at the workflow trigger`)
+    }
+    if (!triggerNames(workflow.on).includes('merge_group')) findings.push(`${name}: required checks must handle merge_group`)
+  }
   const isReleaseWorkflow = releaseWorkflows.includes(name)
   const expectedRunName = runNameContracts[name]
   if (expectedRunName && workflow['run-name'] !== expectedRunName) {
@@ -185,6 +199,9 @@ export function validateWorkflow(name, workflow, workflows) {
         if (typeof step.uses !== 'string' || step.uses.startsWith('./')) continue
         if (!/@[0-9a-f]{40}$/.test(step.uses.split(' ')[0])) {
           findings.push(`${context}: action '${step.uses}' must be pinned to a full commit SHA`)
+        }
+        if (step.uses.startsWith('actions/checkout@') && step.with?.['persist-credentials'] !== false) {
+          findings.push(`${context}: checkout must set persist-credentials: false`)
         }
       }
     }

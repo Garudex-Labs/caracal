@@ -115,6 +115,24 @@ describe('workflow invariants', () => {
     expect(findings.some((finding) => finding.includes('pinned'))).toBe(true)
   })
 
+  it('rejects checkouts that retain the workflow token', () => {
+    const workflow = {
+      permissions: { contents: 'read' },
+      jobs: {
+        build: {
+          'timeout-minutes': 5,
+          steps: [{ uses: 'actions/checkout@' + 'a'.repeat(40) }],
+        },
+      },
+    }
+    expect(validateWorkflow('test.yml', workflow, {}).some((finding) => finding.includes('persist-credentials'))).toBe(true)
+    workflow.jobs.build.steps[0] = {
+      ...workflow.jobs.build.steps[0],
+      with: { 'persist-credentials': false },
+    } as (typeof workflow.jobs.build.steps)[0]
+    expect(validateWorkflow('test.yml', workflow, {})).toEqual([])
+  })
+
   it('rejects a checkout in a pull_request_target workflow', () => {
     const workflow = {
       on: ['pull_request_target', 'issues'],
