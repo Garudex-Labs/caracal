@@ -58,6 +58,7 @@ type delegationProof struct {
 	path        []string
 	chain       []ChainHop
 	graphEpoch  int64
+	issuance    DelegationIssuanceProof
 }
 
 type delegationConstraints struct {
@@ -843,6 +844,27 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			mergeAuditMeta(appMeta, map[string]any{"challenge_id": req.ApprovalID, "reissued": true, "authority_record_id": reissueRecordID})); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
+	case delegation != nil:
+		var consume *ConsumeApprovalParams
+		if approval != nil {
+			consume = &ConsumeApprovalParams{ID: approval.ID, ZoneID: zoneID, PrincipalID: principalID,
+				ResourceSetHash: hashApprovalBinding(req.Resources, scopes, approvalBinding), Now: now}
+		}
+		if err := s.db.InsertDelegatedAuthorityRecord(ctx, record, delegation.issuance, consume); err != nil {
+			if errors.Is(err, ErrDelegationChanged) {
+				return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "delegation changed during issuance")
+			}
+			if errors.Is(err, ErrApprovalInvalid) {
+				return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid")
+			}
+			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
+		}
+		if approval != nil {
+			if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+				mergeAuditMeta(appMeta, map[string]any{"challenge_id": approval.ID, "authority_record_id": sessID})); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+		}
 	case approval != nil:
 		// Consume and create the authority record as one atomic statement, the
 		// final fallible step of the mint: every deny above leaves the approval
@@ -1513,12 +1535,8 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 }
 
 func (s *Server) validateSubjectTokenUse(ctx context.Context, tokenStr, zoneID, expectedUse string) (map[string]any, error) {
-	zoneKeys, err := s.keys.getPublicKeysByZone(ctx, zoneID)
-	if err != nil {
-		return nil, fmt.Errorf("get zone keys: %w", err)
-	}
 	mc := jwt.MapClaims{}
-	_, err = jwt.NewParser(
+	_, err := jwt.NewParser(
 		jwt.WithValidMethods([]string{"ES256"}),
 		jwt.WithIssuer(s.cfg.IssuerURL),
 		jwt.WithAudience(s.cfg.IssuerURL),
@@ -1529,6 +1547,10 @@ func (s *Server) validateSubjectTokenUse(ctx context.Context, tokenStr, zoneID, 
 		kid, ok := token.Header["kid"].(string)
 		if !ok || kid == "" {
 			return nil, errors.New("token missing kid header")
+		}
+		zoneKeys, err := s.keys.getPublicKeysByZone(ctx, zoneID)
+		if err != nil {
+			return nil, fmt.Errorf("get zone keys: %w", err)
 		}
 		pub, found := zoneKeys[kid]
 		if !found {
@@ -1544,6 +1566,9 @@ func (s *Server) validateSubjectTokenUse(ctx context.Context, tokenStr, zoneID, 
 	}
 	if claimString(mc, "use") != expectedUse {
 		return nil, fmt.Errorf("subject_token must be a %s mandate", expectedUse)
+	}
+	if expectedUse == UseGateway && claimString(mc, "jti") == "" {
+		return nil, errors.New("gateway mandate missing jti")
 	}
 	return mc, nil
 }
@@ -1967,6 +1992,11 @@ func (s *Server) validateSessionOwnership(ctx context.Context, zoneID, appID, se
 // application's ownership of the asserted Session ID is verified directly,
 // preventing peer-app forgery through either path.
 func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool, bindSubjectAuthority bool) (*delegationProof, *Session, *sharederr.CaracalError) {
+	// No reference means no graph/authority check. The exchange already loaded
+	// trusted time; avoid a second network round trip on bootstrap issuance.
+	if req.AuthorityRecordID == "" && req.SessionID == "" && req.DelegationEdgeID == "" {
+		return nil, nil, nil
+	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
@@ -2045,7 +2075,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 		s.metrics.GraphTraversals.Add(1)
 	}
 	path, err := s.db.GetDelegationLineage(ctx, zoneID, edge.ID, constraints.MaxHops)
-	if err != nil || len(path) == 0 || len(path) > constraints.MaxHops || !containsString(path, edge.ID) {
+	if err != nil || len(path) == 0 || len(path) > constraints.MaxHops || path[len(path)-1] != edge.ID {
 		if s.metrics != nil {
 			s.metrics.GraphTraversalErrors.Add(1)
 		}
@@ -2055,22 +2085,26 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation graph epoch unavailable")
 	}
-	chain, chainErr := s.buildDelegationChain(ctx, path, edge, source, target, now)
+	chain, lineage, chainErr := s.buildDelegationChain(ctx, path, edge, source, target, now)
 	if chainErr != nil {
 		return nil, nil, chainErr
 	}
-	return &delegationProof{edge: edge, constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch}, target, nil
+	return &delegationProof{edge: edge, constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch,
+		issuance: DelegationIssuanceProof{Lineage: lineage, SourceSessionID: source.ID, TargetSessionID: target.ID,
+			SourceApplicationID: source.ApplicationID, TargetApplicationID: target.ApplicationID,
+			TargetAuthorityRecord: target.SubjectAuthorityRecordID, GraphEpoch: graphEpoch}}, target, nil
 }
 
 // buildDelegationChain resolves each edge id along the path to a chain hop the
 // resource side can audit and authorize against. The chain walks from the
 // originating issuer to the immediate receiver in order.
-func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, []DelegationIssuanceEdge, *sharederr.CaracalError) {
 	if len(path) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	hops := make([]ChainHop, 0, len(path)+1)
-	var prevReceiverApp string
+	lineage := make([]DelegationIssuanceEdge, 0, len(path))
+	var prevReceiverApp, prevTargetSession string
 	for _, edgeID := range path {
 		var hopEdge *DelegationEdge
 		if edgeID == edge.ID {
@@ -2078,7 +2112,7 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		} else {
 			fetched, err := s.db.GetDelegationEdge(ctx, edgeID)
 			if err != nil || fetched == nil {
-				return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
 			}
 			hopEdge = fetched
 		}
@@ -2086,26 +2120,32 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		// filters in SQL, but a revoke racing the path computation could
 		// otherwise let a stale-but-attested chain hop ship in the JWT.
 		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
 		}
-		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
+		if prevReceiverApp != "" && (hopEdge.IssuerAppID != prevReceiverApp || hopEdge.SourceSessionID != prevTargetSession) {
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
 		}
+		lineage = append(lineage, DelegationIssuanceEdge{ID: hopEdge.ID, ParentEdgeID: hopEdge.ParentEdgeID,
+			EdgeVersion: hopEdge.EdgeVersion, SourceSessionID: hopEdge.SourceSessionID, TargetSessionID: hopEdge.TargetSessionID,
+			IssuerApplicationID: hopEdge.IssuerAppID, ReceiverApplicationID: hopEdge.ReceiverAppID, ExpiresAt: hopEdge.ExpiresAt})
 		hops = append(hops, ChainHop{
 			AppID:            hopEdge.IssuerAppID,
 			SessionID:        hopEdge.SourceSessionID,
 			DelegationEdgeID: hopEdge.ID,
 		})
 		prevReceiverApp = hopEdge.ReceiverAppID
+		prevTargetSession = hopEdge.TargetSessionID
 	}
 	hops = append(hops, ChainHop{
 		AppID:     edge.ReceiverAppID,
 		SessionID: target.ID,
 	})
-	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
-		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
+	// source is the IMMEDIATE issuer, not the root issuer of a multi-hop path.
+	if hops[len(hops)-2].AppID != source.ApplicationID || hops[len(hops)-2].SessionID != source.ID ||
+		hops[len(hops)-1].AppID != target.ApplicationID || prevTargetSession != target.ID {
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
 	}
-	return hops, nil
+	return hops, lineage, nil
 }
 
 func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, error) {

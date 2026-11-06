@@ -2232,19 +2232,19 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		ExpiresAt:       now.Add(time.Minute),
 		ConstraintsJSON: []byte(`{"max_hops":3}`),
 	}
-	// Build a valid 3-edge chain: app1→app1 (edge0), app1→app2 (edge1), app2→app2 (edge2).
+	// Build a real root-to-leaf 3-edge chain; the requested edge is last.
 	// Continuity: each edge's IssuerAppID must equal the previous edge's ReceiverAppID.
 	db := &stubDB{
 		sessions:   []*Session{source, target},
-		path:       []string{"edge0", "edge1", "edge2"},
+		path:       []string{"edge0", "edge2", "edge1"},
 		graphEpoch: 12,
 		edge:       mainEdge,
 		edgesMap: map[string]*DelegationEdge{
 			"edge0": {
 				ID:              "edge0",
 				ZoneID:          "zone1",
-				SourceSessionID: source.ID,
-				TargetSessionID: source.ID,
+				SourceSessionID: "root-session",
+				TargetSessionID: "middle-session",
 				IssuerAppID:     "app1",
 				ReceiverAppID:   "app1",
 				Status:          "active",
@@ -2254,10 +2254,10 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 			"edge2": {
 				ID:              "edge2",
 				ZoneID:          "zone1",
-				SourceSessionID: target.ID,
-				TargetSessionID: target.ID,
-				IssuerAppID:     "app2",
-				ReceiverAppID:   "app2",
+				SourceSessionID: "middle-session",
+				TargetSessionID: source.ID,
+				IssuerAppID:     "app1",
+				ReceiverAppID:   "app1",
 				Status:          "active",
 				ExpiresAt:       now.Add(time.Minute),
 			},
