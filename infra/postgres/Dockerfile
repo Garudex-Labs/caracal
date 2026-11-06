@@ -6,7 +6,7 @@
 # compose to remain environment-aware.
 
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.10-alpine@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS gosu-builder
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS gosu-builder
 WORKDIR /build
 # Rebuild the same upstream gosu 1.19 release on a patched Go toolchain rather
 # than shipping the base image's Go 1.24.6 executable. The module and dependency
