@@ -85,7 +85,7 @@ func (c *verifiedSecretCache) acquireSlot(ctx context.Context) (chan struct{}, b
 // it can never change an outcome. The stored form at rest stays Argon2id; only a
 // SHA-256 digest of an already-verified secret is held in process memory.
 func (c *verifiedSecretCache) verify(ctx context.Context, stored, presented string) bool {
-	if stored == "" || presented == "" {
+	if ctx.Err() != nil || stored == "" || presented == "" {
 		return false
 	}
 	if !strings.HasPrefix(stored, argon2Prefix) {
@@ -103,8 +103,24 @@ func (c *verifiedSecretCache) verify(ctx context.Context, stored, presented stri
 	if !ok {
 		return false
 	}
+	// A peer may have verified this exact credential while we waited for a
+	// memory-hard slot. Recheck AFTER acquiring it to collapse cold bursts
+	// to at most the configured concurrency budget, without sharing failures.
+	defer func() { <-slots }()
+	if ctx.Err() != nil {
+		return false
+	}
+	c.mu.Lock()
+	entry, cached := c.entries[stored]
+	c.mu.Unlock()
+	if cached && time.Now().Before(entry.expiresAt) && subtle.ConstantTimeCompare(digest[:], entry.digest[:]) == 1 {
+		return true
+	}
 	verified := verifyArgon2id(stored, presented)
-	<-slots
+	if ctx.Err() != nil {
+		return false
+	}
+	now = time.Now()
 	if !verified {
 		return false
 	}
@@ -163,7 +179,7 @@ func verifyArgon2id(stored, presented string) bool {
 	if parsed {
 		s, errSalt := base64.RawStdEncoding.DecodeString(parts[0])
 		w, errHash := base64.RawStdEncoding.DecodeString(parts[1])
-		if errSalt == nil && errHash == nil && len(s) > 0 && len(w) > 0 {
+		if errSalt == nil && errHash == nil && len(s) == argon2SaltLen && len(w) == int(argon2KeyLen) {
 			salt, want = s, w
 		} else {
 			parsed = false
