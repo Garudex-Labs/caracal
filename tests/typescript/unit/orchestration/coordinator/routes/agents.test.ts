@@ -560,9 +560,8 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const query = vi.fn()
     query.mockResolvedValueOnce({ rows: [] })
     query.mockResolvedValueOnce({ rows: [] })
-    query.mockResolvedValueOnce({ rows: [], rowCount: 0 })
     query.mockResolvedValueOnce({
-      rows: [{ request_digest: digest, response_status: 201, response_json: response, resource_id: 'agent-replay' }],
+      rows: [{ live: true, request_digest: digest, response_status: 201, response_json: response, resource_id: 'agent-replay' }],
     })
     query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     query.mockResolvedValueOnce({ rows: [] })
@@ -587,9 +586,8 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       .fn()
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({
-        rows: [{ request_digest: Buffer.alloc(32, 7), response_status: 201, response_json: {}, resource_id: 'agent-1' }],
+        rows: [{ live: true, request_digest: Buffer.alloc(32, 7), response_status: 201, response_json: {}, resource_id: 'agent-1' }],
       })
       .mockResolvedValueOnce({ rows: [] })
     db.connect.mockResolvedValueOnce({ query, release: vi.fn() })
@@ -622,10 +620,10 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       .fn()
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({
         rows: [
           {
+            live: true,
             request_digest: requestDigest(request),
             response_status: 201,
             response_json: { agent_session_id: 'agent-finished' },

@@ -164,10 +164,10 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
         .mockResolvedValueOnce({
           rows: [
             {
+              live: true,
               request_digest: requestDigest({
                 principal: { client_id: 'issuer-1', subject: 'test' },
                 source_session_id: 'src-1',

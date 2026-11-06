@@ -12,6 +12,7 @@ import {
   parseIdempotencyKey,
   requestDigest,
   startIdempotency,
+  idempotencyStats,
 } from '../../../../../apps/coordinator/src/idempotency.js'
 
 describe('idempotency key validation', () => {
@@ -114,5 +115,72 @@ describe('rotation serialization', () => {
       })
     }
     expect(new Set(locks).size).toBe(2)
+  })
+})
+
+describe('skip unnecessary expiry deletes', () => {
+  const input = {
+    operation: 'session.start.v2',
+    zoneId: 'z1',
+    scopeId: 'app1',
+    key: 'operation-1',
+    request: {},
+    hmacKeys: [Buffer.alloc(32, 1)],
+    maxReceiptsPerScope: 10,
+  }
+
+  it('reads after a separate lock and does not delete or count for a live replay', async () => {
+    const queries: string[] = []
+    const db = {
+      query: async (sql: string) => {
+        queries.push(sql)
+        if (sql.includes('SELECT request_digest'))
+          return {
+            rows: [
+              { live: true, request_digest: requestDigest({}), response_status: 201, response_json: { id: 'one' }, resource_id: 'one' },
+            ],
+          }
+        return { rows: [], rowCount: 0 }
+      },
+    }
+    expect(await startIdempotency(db, input)).toMatchObject({ outcome: 'replayed', response: { id: 'one' } })
+    expect(queries).toHaveLength(2)
+    expect(queries[0]).toContain('pg_advisory_xact_lock')
+    expect(queries[1]).not.toContain('pg_advisory_xact_lock')
+    expect(queries[1]).toContain('expires_at > now() AS live')
+  })
+
+  it('does not issue an expiry DELETE for a new key', async () => {
+    const queries: string[] = []
+    const db = {
+      query: async (sql: string) => {
+        queries.push(sql)
+        return { rows: sql.includes('SELECT COUNT') ? [{ n: '0' }] : [], rowCount: 0 }
+      },
+    }
+    expect(await startIdempotency(db, input)).toMatchObject({ outcome: 'new' })
+    expect(queries).toHaveLength(3)
+    expect(queries.some((sql) => sql.includes('DELETE'))).toBe(false)
+  })
+
+  it('cleans expired rows, rereads after cleanup, and retains the live-receipt limit', async () => {
+    const queries: string[] = []
+    let reads = 0
+    const db = {
+      query: async (sql: string) => {
+        queries.push(sql)
+        if (sql.includes('SELECT request_digest'))
+          return { rows: reads++ === 0 ? [{ live: false, request_digest: requestDigest({}) }] : [] }
+        if (sql.includes('DELETE')) return { rows: [], rowCount: 1 }
+        if (sql.includes('SELECT COUNT')) return { rows: [{ n: '10' }] }
+        return { rows: [], rowCount: 0 }
+      },
+    }
+    const expiredBefore = idempotencyStats.expired
+    expect(await startIdempotency(db, input)).toEqual({ outcome: 'limit' })
+    expect(idempotencyStats.expired).toBe(expiredBefore + 1)
+    expect(queries).toHaveLength(5)
+    expect(queries[2]).toContain('expires_at <= now()')
+    expect(queries[3]).toContain('SELECT request_digest')
   })
 })

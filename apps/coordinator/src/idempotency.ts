@@ -19,6 +19,7 @@ export const idempotencyStats = {
 
 interface ReceiptRow {
   request_digest: Buffer
+  live: boolean
   response_status: number
   response_json: unknown
   resource_id: string | null
@@ -93,21 +94,30 @@ export async function startIdempotency(
   const bodyHash = requestDigest(input.request)
   const lockName = `${input.operation}:${input.zoneId}:${input.scopeId}:${lockDigest(input.key)}`
   await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockName])
-  const expired = await db.query(
-    `DELETE FROM coordinator_idempotency_receipts
-     WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)
-       AND expires_at <= now()`,
-    [input.operation, input.zoneId, input.scopeId, keyHash, previousKeyHash],
-  )
-  idempotencyStats.expired += expired.rowCount ?? 0
-  const { rows } = await db.query<ReceiptRow>(
-    `SELECT request_digest, response_status, response_json, resource_id
-     FROM coordinator_idempotency_receipts
-     WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)
-       AND expires_at > now()`,
-    [input.operation, input.zoneId, input.scopeId, keyHash, previousKeyHash],
-  )
-  if (!rows[0]) {
+  // Most keys are either new or have a live receipt. Read once after the lock
+  // rather than executing a no-op DELETE on every request. Expiry is evaluated
+  // by Postgres using the transaction clock, not the Coordinator's wall clock.
+  const receiptSql = `SELECT request_digest, response_status,
+                             CASE WHEN expires_at > now() THEN response_json END AS response_json, resource_id,
+                             expires_at > now() AS live
+                      FROM coordinator_idempotency_receipts
+                      WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)`
+  const params = [input.operation, input.zoneId, input.scopeId, keyHash, previousKeyHash]
+  let { rows } = await db.query<ReceiptRow>(receiptSql, params)
+  if (rows.some((row) => !row.live)) {
+    const expired = await db.query(
+      `DELETE FROM coordinator_idempotency_receipts
+       WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)
+         AND expires_at <= now()`,
+      params,
+    )
+    idempotencyStats.expired += expired.rowCount ?? 0
+    // Preserve the original post-cleanup read when expiry/retention is racing.
+    // In particular an expired rotated-key row must not hide a live old-key row.
+    rows = (await db.query<ReceiptRow>(receiptSql, params)).rows
+  }
+  const receipt = rows.find((row) => row.live)
+  if (!receipt) {
     const { rows: counts } = await db.query<{ n: string }>(
       `SELECT COUNT(*) AS n
        FROM coordinator_idempotency_receipts
@@ -117,16 +127,16 @@ export async function startIdempotency(
     if (Number(counts[0]?.n ?? 0) >= input.maxReceiptsPerScope) return { outcome: 'limit' }
     return { outcome: 'new', keyDigest: keyHash, requestDigest: bodyHash }
   }
-  if (!rows[0].request_digest.equals(bodyHash)) {
+  if (!receipt.request_digest.equals(bodyHash)) {
     idempotencyStats.conflicts += 1
     return { outcome: 'conflict' }
   }
   idempotencyStats.replayed += 1
   return {
     outcome: 'replayed',
-    status: rows[0].response_status,
-    response: rows[0].response_json,
-    resourceId: rows[0].resource_id,
+    status: receipt.response_status,
+    response: receipt.response_json,
+    resourceId: receipt.resource_id,
   }
 }
 

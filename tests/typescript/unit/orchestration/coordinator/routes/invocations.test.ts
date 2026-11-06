@@ -142,7 +142,9 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM agent_services')) return { rows: [{ application_id: 'app-1' }] }
         if (sql.includes('SELECT request_digest')) {
-          return { rows: [{ request_digest: digest, response_status: 201, response_json: existing, resource_id: 'inv-existing' }] }
+          return {
+            rows: [{ live: true, request_digest: digest, response_status: 201, response_json: existing, resource_id: 'inv-existing' }],
+          }
         }
         return { rows: [], rowCount: 0 }
       }),
@@ -172,7 +174,9 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM agent_services')) return { rows: [{ application_id: 'app-1' }] }
         if (sql.includes('SELECT request_digest')) {
-          return { rows: [{ request_digest: Buffer.alloc(32, 3), response_status: 201, response_json: {}, resource_id: 'inv-1' }] }
+          return {
+            rows: [{ live: true, request_digest: Buffer.alloc(32, 3), response_status: 201, response_json: {}, resource_id: 'inv-1' }],
+          }
         }
         return { rows: [], rowCount: 0 }
       }),
