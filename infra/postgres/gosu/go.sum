@@ -1,0 +1,6 @@
+github.com/moby/sys/user v0.5.0 h1:5+S4lyoavGyX1DGs68NW8xpx48T9+a7ogSUc0KjZg8Y=
+github.com/moby/sys/user v0.5.0/go.mod h1:4mQzP5aTmaLjDLp/dc870oNkik6E9vjRtWYwI05gvow=
+github.com/tianon/gosu v0.0.0-20250923190938-6456aaa0f3c8 h1:HIpXk5mGBQGfOqcaBbRT4Vnss8NPICnMGlD5xTlPBdQ=
+github.com/tianon/gosu v0.0.0-20250923190938-6456aaa0f3c8/go.mod h1:SwhRwWsO6iqXZN9CpIaU9CnOrUqpWDINW16KaaSqnrU=
+golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+golang.org/x/sys v0.49.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=

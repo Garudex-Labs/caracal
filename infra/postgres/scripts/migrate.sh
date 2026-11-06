@@ -60,7 +60,8 @@ until psql_cmd -c "SELECT 1;" >/dev/null 2>&1; do
     sleep "${MIGRATION_CONNECT_SLEEP_SECONDS:-1}"
 done
 
-psql_cmd -c "
+psql_cmd --single-transaction -c "
+  SELECT pg_advisory_xact_lock(${lock_key});
   CREATE TABLE IF NOT EXISTS public.schema_migrations (
     version    TEXT PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
