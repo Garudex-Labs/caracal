@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.23.1",
     "eslint": "^10.8.1",

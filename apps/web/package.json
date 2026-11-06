@@ -36,7 +36,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/router-generator": "^1.167.28",
     "@tanstack/router-plugin": "^1.168.30",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
