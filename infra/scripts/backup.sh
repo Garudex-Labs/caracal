@@ -17,11 +17,15 @@
 #   POSTGRES_USER            Postgres superuser (default: caracal)
 
 set -eu
+umask 077
 
 project="${CARACAL_COMPOSE_PROJECT:-caracal}"
 outDir="${CARACAL_BACKUP_DIR:-./backups}"
 retain="${CARACAL_BACKUP_RETAIN:-7}"
 pgUser="${POSTGRES_USER:-caracal}"
+case "${retain}" in
+    ''|*[!0-9]*|0*) echo "error: CARACAL_BACKUP_RETAIN must be a positive integer without leading zeros" >&2; exit 1 ;;
+esac
 
 command -v docker >/dev/null 2>&1 || { echo "error: docker is required" >&2; exit 1; }
 
@@ -40,7 +44,7 @@ requireContainer() {
 }
 
 redisCli() {
-    docker exec "${redisCtr}" sh -c "REDISCLI_AUTH=\"\$(cat /run/secrets/redisPassword)\" redis-cli --no-auth-warning $*"
+    docker exec "${redisCtr}" sh -c 'export REDISCLI_AUTH="$(cat /run/secrets/redisPassword)"; exec redis-cli --no-auth-warning "$@"' sh "$@"
 }
 
 postgresCtr="$(requireContainer postgres)"
@@ -49,9 +53,10 @@ stsCtr="$(resolveContainer sts)"
 gatewayCtr="$(resolveContainer gateway)"
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-bundleName="caracalBackup-${stamp}"
+bundleName="caracalBackup-${stamp}-$$"
 workDir="$(mktemp -d)"
-trap 'rm -rf "${workDir}"' EXIT
+tmpArchive=''
+trap 'rm -rf "${workDir}"; [ -z "${tmpArchive}" ] || rm -f "${tmpArchive}"' EXIT
 bundleDir="${workDir}/${bundleName}"
 mkdir -p "${bundleDir}/postgres" "${bundleDir}/redis" "${bundleDir}/replay"
 
@@ -61,15 +66,20 @@ docker exec "${postgresCtr}" pg_dumpall -U "${pgUser}" --globals-only >"${bundle
 echo "==> Postgres: dumping databases"
 databases="$(docker exec "${postgresCtr}" psql -U "${pgUser}" -d postgres -At \
     -c "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres'")"
-for db in ${databases}; do
+printf '%s\n' "${databases}" | while IFS= read -r db; do
+    [ -n "${db}" ] || continue
     echo "    pg_dump ${db}"
     docker exec "${postgresCtr}" pg_dump -U "${pgUser}" --format=custom "${db}" >"${bundleDir}/postgres/${db}.dump"
 done
 
 echo "==> Redis: rewriting AOF for a compact consistent copy"
-redisCli BGREWRITEAOF >/dev/null
+rewriteReply="$(redisCli BGREWRITEAOF)"
+case "${rewriteReply}" in
+    'Background append only file rewriting started'|'Background append only file rewriting scheduled') ;;
+    *) echo "error: Redis refused the AOF rewrite; refusing an unusable backup" >&2; exit 1 ;;
+esac
 elapsed=0
-while [ "$(redisCli INFO persistence | tr -d '\r' | sed -n 's/^aof_rewrite_in_progress://p')" = "1" ]; do
+while [ "$(redisCli INFO persistence | tr -d '\r' | awk -F: '/^aof_rewrite_(in_progress|scheduled):/ { pending += $2 } END { print pending + 0 }')" != "0" ]; do
     if [ "${elapsed}" -ge 300 ]; then
         echo "error: Redis AOF rewrite did not finish within 300s" >&2
         exit 1
@@ -77,6 +87,10 @@ while [ "$(redisCli INFO persistence | tr -d '\r' | sed -n 's/^aof_rewrite_in_pr
     sleep 1
     elapsed=$((elapsed + 1))
 done
+[ "$(redisCli INFO persistence | tr -d '\r' | sed -n 's/^aof_last_bgrewrite_status://p')" = "ok" ] || {
+    echo "error: Redis AOF rewrite failed; refusing an unusable backup" >&2
+    exit 1
+}
 docker cp -q "${redisCtr}:/data/appendonlydir" "${bundleDir}/redis/appendonlydir"
 
 # Replay-protection state is small and self-rebuilding, but restoring it keeps
@@ -100,7 +114,9 @@ fi
 
 mkdir -p "${outDir}"
 bundlePath="${outDir}/${bundleName}.tar.gz"
-tar -C "${workDir}" -czf "${bundlePath}" "${bundleName}"
+tmpArchive="${bundlePath}.tmp"
+tar -C "${workDir}" -czf "${tmpArchive}" "${bundleName}"
+mv "${tmpArchive}" "${bundlePath}"
 
 # Bundle stamps are UTC and lexicographically ordered, so the ascending glob
 # walks oldest-first and pruning the leading excess keeps the newest bundles.
