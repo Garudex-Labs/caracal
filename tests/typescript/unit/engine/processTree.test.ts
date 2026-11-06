@@ -53,6 +53,16 @@ afterEach(() => {
 })
 
 describe('findExecutable', () => {
+  it('resolves quoted Windows PATH directories with spaces', async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const dir = mkdtempSync(join(tmpdir(), 'caracal quoted path '))
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
+    writeFileSync(join(dir, 'pnpm.exe'), '')
+    const mod = await loadFor('win32')
+    expect(mod.findExecutable(['pnpm.exe'], `"missing directory";"${dir}"`)).toBe(join(dir, 'pnpm.exe'))
+  })
   it.skipIf(ORIG_PLATFORM === 'win32')('skips a file the process cannot execute', async () => {
     const { mkdtempSync, writeFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs')
     const { join, delimiter } = await import('node:path')

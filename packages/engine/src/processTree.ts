@@ -21,13 +21,16 @@ function shellFor(command: string): boolean {
 
 // First executable file named one of `names` in a PATH-style directory list, found without a shell.
 export function findExecutable(names: string[], searchPath: string | undefined): string | undefined {
-  for (const dir of (searchPath ?? '').split(delimiter)) {
+  for (const entry of (searchPath ?? '').split(isWindows ? ';' : delimiter)) {
+    // Windows PATH entries may quote directories containing spaces; quotes are
+    // syntax, not part of the directory name. POSIX quotes can be real filenames.
+    const dir = isWindows ? entry.replace(/^"(.*)"$/, '$1') : entry
     if (!dir) continue
     for (const name of names) {
       const candidate = resolve(dir, name)
       try {
         if (existsSync(candidate) && statSync(candidate).isFile()) {
-          accessSync(candidate, constants.X_OK)
+          accessSync(candidate, isWindows ? constants.F_OK : constants.X_OK)
           return candidate
         }
       } catch {
