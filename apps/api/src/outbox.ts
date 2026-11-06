@@ -165,6 +165,8 @@ export class OutboxDispatcher {
 
   private async dispatch(row: OutboxRow): Promise<void> {
     const signed: OutboxPayload = { outbox_id: row.id, ...row.payload_json }
+    // The envelope id is authoritative even when a producer supplies this field.
+    signed.outbox_id = row.id
     if (this.streamHmacKey) {
       signed[STREAM_SIG_FIELD] = signStream(this.streamHmacKey, row.stream_name, signed)
     }
@@ -176,12 +178,18 @@ export class OutboxDispatcher {
       } else {
         await this.opts.redis.xadd(row.stream_name, '*', ...fields)
       }
-      await this.opts.db.query(
+      // attempts is a claim generation, fencing even two processes configured
+      // with the same workerId. A Redis publish may finish after lease reclamation.
+      const marked = await this.opts.db.query(
         `UPDATE event_outbox
          SET dispatched_at = now(), locked_until = NULL, last_error = NULL
-         WHERE id = $1`,
-        [row.id],
+         WHERE id = $1 AND locked_by = $2 AND attempts = $3 AND dispatched_at IS NULL`,
+        [row.id, this.opts.workerId, row.attempts],
       )
+      if (marked.rowCount === 0) {
+        this.opts.log('warn', 'outbox claim superseded before acknowledgement', { id: row.id, attempts: row.attempts })
+        return
+      }
       this.opts.log('info', 'outbox event dispatched', {
         id: row.id,
         stream: row.stream_name,
@@ -191,31 +199,33 @@ export class OutboxDispatcher {
       const message = (err as Error).message ?? String(err)
       const maxAttempts = this.opts.maxAttempts ?? 100
       if (row.attempts >= maxAttempts) {
+        const abandoned = await this.opts.db.query(
+          `UPDATE event_outbox
+           SET locked_until = NULL,
+               available_at = 'infinity'::timestamptz,
+               last_error   = $2
+           WHERE id = $1 AND locked_by = $3 AND attempts = $4 AND dispatched_at IS NULL`,
+          [row.id, message, this.opts.workerId, row.attempts],
+        )
+        if (abandoned.rowCount === 0) return
         this.opts.log('error', 'outbox event abandoned after max attempts', {
           id: row.id,
           stream: row.stream_name,
           attempts: row.attempts,
           err: message,
         })
-        await this.opts.db.query(
-          `UPDATE event_outbox
-           SET locked_until = NULL,
-               available_at = 'infinity'::timestamptz,
-               last_error   = $2
-           WHERE id = $1`,
-          [row.id, message],
-        )
         return
       }
       const delay = backoffSeconds(row.attempts)
-      await this.opts.db.query(
+      const rescheduled = await this.opts.db.query(
         `UPDATE event_outbox
          SET locked_until = NULL,
              available_at = now() + ($2 || ' seconds')::interval,
              last_error   = $3
-         WHERE id = $1`,
-        [row.id, String(delay), message],
+         WHERE id = $1 AND locked_by = $4 AND attempts = $5 AND dispatched_at IS NULL`,
+        [row.id, String(delay), message, this.opts.workerId, row.attempts],
       )
+      if (rescheduled.rowCount === 0) return
       this.opts.log('warn', 'outbox event dispatch failed; will retry', {
         id: row.id,
         stream: row.stream_name,

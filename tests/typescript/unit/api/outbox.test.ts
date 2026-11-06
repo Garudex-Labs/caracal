@@ -67,6 +67,13 @@ describe('OutboxDispatcher', () => {
     expect(dbCalls.some((c) => c.sql.includes('SET dispatched_at = now()'))).toBe(true)
   })
 
+  it('does not let a payload replace the authoritative outbox id', async () => {
+    const { db, redis } = makeDeps([{ id: 'r1', stream_name: 'stream.x', payload_json: { outbox_id: 'spoofed' }, attempts: 1 }])
+    redis.xadd.mockResolvedValue('0-1')
+    await new OutboxDispatcher({ db: db as unknown as DB, redis: redis as unknown as RedisClient, workerId: 'w', log: makeLogger() }).tick()
+    expect(redis.xadd).toHaveBeenCalledWith('stream.x', '*', 'outbox_id', 'r1')
+  })
+
   it('uses approximate stream trimming and skips null payload fields', async () => {
     const { db, redis } = makeDeps([{ id: 'r1', stream_name: 'stream.x', payload_json: { a: '1', empty: null }, attempts: 1 }])
     redis.xadd.mockResolvedValue('0-1')
