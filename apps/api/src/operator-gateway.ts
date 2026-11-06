@@ -772,7 +772,10 @@ async function runWithFailover<T>(
       // corrupting the visible output, so this failure ends the turn instead of failing over.
       if (err instanceof GatewayStreamInterruptedError) throw err
       const apiError = apiCallError(err)
-      if (apiError && !apiError.isRetryable) {
+      // The SDK also wraps invalid responses and pre-output stream failures in an
+      // APICallError with HTTP 200 and isRetryable=false. That is a provider failure,
+      // not a terminal request rejection; failover is safe before any delta escapes.
+      if (apiError && !apiError.isRetryable && apiError.statusCode !== undefined && apiError.statusCode >= 400) {
         throw new GatewayProviderError(provider.id, apiError.statusCode, failureReason(apiError))
       }
       attempts.push({ provider: provider.id, reason: failureReason(err) })
