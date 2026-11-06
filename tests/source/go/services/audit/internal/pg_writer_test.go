@@ -190,7 +190,7 @@ func TestInsertContinuesExistingChain(t *testing.T) {
 
 func TestInsertClassifiesDuplicates(t *testing.T) {
 	tx := &insertTx{
-		rows: []pgx.Row{scanFuncRow{}, chainHeadRow("", 0, pgx.ErrNoRows), scanFuncRow{fn: func(...any) error { return errors.New("probe failed") }}},
+		rows: []pgx.Row{scanFuncRow{}, chainHeadRow("", 0, pgx.ErrNoRows), scanFuncRow{}},
 	}
 	w := &PGWriter{db: &writerPool{tx: tx}}
 	res, err := w.Insert(context.Background(), insertEvent(), "")
@@ -213,6 +213,18 @@ func TestInsertClassifiesDuplicates(t *testing.T) {
 	}
 	if !tx.committed {
 		t.Fatal("tamper detection must commit the alert")
+	}
+}
+
+func TestInsertDuplicateProbeFailureDoesNotAcknowledge(t *testing.T) {
+	probeErr := errors.New("probe failed")
+	tx := &insertTx{rows: []pgx.Row{scanFuncRow{}, chainHeadRow("", 0, pgx.ErrNoRows), scanFuncRow{fn: func(...any) error { return probeErr }}}}
+	w := &PGWriter{db: &writerPool{tx: tx}}
+	if _, err := w.Insert(context.Background(), insertEvent(), ""); !errors.Is(err, probeErr) {
+		t.Fatalf("duplicate probe: %v", err)
+	}
+	if tx.committed {
+		t.Fatal("unverified duplicate must not commit")
 	}
 }
 

@@ -96,11 +96,6 @@ func (w *PGWriter) Insert(ctx context.Context, ev AuditEvent, ingestSig string) 
 		return InsertResult{}, err
 	}
 
-	// Per-zone advisory lock serialises chain head reads/writes.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ev.ZoneID); err != nil {
-		return InsertResult{}, err
-	}
-
 	// Canonicalise the event to its stored representation before hashing:
 	// timestamptz keeps microseconds and jsonb normalises JSON text, so the
 	// tamper sweep recomputes the hash over exactly these bytes when it reads
@@ -116,6 +111,12 @@ func (w *PGWriter) Insert(ctx context.Context, ev AuditEvent, ingestSig string) 
 		jsonText(&ev.DiagnosticsJSON),
 		jsonText(&ev.MetadataJSON),
 	); err != nil {
+		return InsertResult{}, err
+	}
+
+	// Canonicalization does not depend on the chain. Do it before taking the
+	// per-zone lock so an extra database round trip does not serialize ingest.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ev.ZoneID); err != nil {
 		return InsertResult{}, err
 	}
 
@@ -161,15 +162,20 @@ func (w *PGWriter) Insert(ctx context.Context, ev AuditEvent, ingestSig string) 
 	if tag.RowsAffected() == 0 {
 		// Conflict: compare stored hash for tamper-on-replay detection.
 		var existing string
-		if qerr := tx.QueryRow(ctx,
+		if err := tx.QueryRow(ctx,
 			`SELECT COALESCE(content_sha256,'') FROM audit_events
 			 WHERE id = $1 AND occurred_at = $2`,
-			ev.ID, ev.OccurredAt).Scan(&existing); qerr == nil && existing != "" && existing != contentSHA {
-			_, _ = tx.Exec(ctx,
+			ev.ID, ev.OccurredAt).Scan(&existing); err != nil {
+			return InsertResult{}, err
+		}
+		if existing != "" && existing != contentSHA {
+			if _, err := tx.Exec(ctx,
 				`INSERT INTO audit_ingest_alerts (event_id, zone_id, kind, detail)
 				 VALUES ($1,$2,'content_mismatch_on_replay',$3)`,
 				ev.ID, ev.ZoneID,
-				fmt.Sprintf("stored=%s incoming=%s", existing, contentSHA))
+				fmt.Sprintf("stored=%s incoming=%s", existing, contentSHA)); err != nil {
+				return InsertResult{}, err
+			}
 			if cerr := tx.Commit(ctx); cerr != nil {
 				return InsertResult{}, cerr
 			}
@@ -384,6 +390,14 @@ func (l *pgAdvisoryLease) Ping(ctx context.Context) error {
 func (l *pgAdvisoryLease) Release(ctx context.Context) error {
 	defer l.conn.Release()
 	_, err := l.conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, l.key)
+	if err != nil {
+		// A canceled context can fail BEFORE sending the unlock without breaking
+		// the session. pgxpool cannot detect a session advisory lock on release.
+		// Close it so a still-held lock never leaks onto a reused connection.
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = l.conn.Conn().Close(closeCtx)
+	}
 	return err
 }
 
