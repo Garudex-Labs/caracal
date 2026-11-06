@@ -221,12 +221,13 @@ async function awaitAudit(requestId) {
 async function activate(content) {
   const version = await admin.policies.addVersion(created.zone.id, created.policy.id, content)
   const setVersion = await admin.policySets.addVersion(created.zone.id, created.policySet.id, [{ policy_version_id: version.version_id }])
-  await admin.policySets.activate(created.zone.id, created.policySet.id, setVersion.version_id)
+  await activatePolicySetVersion(setVersion.version_id)
+}
+async function activatePolicySetVersion(versionId) {
+  await admin.policySets.activate(created.zone.id, created.policySet.id, versionId)
   await waitFor(
     'policy activation',
-    async () =>
-      (await admin.policySets.activationStatus(created.zone.id, created.policySet.id, setVersion.version_id)).propagation_status ===
-      'loaded',
+    async () => (await admin.policySets.activationStatus(created.zone.id, created.policySet.id, versionId)).propagation_status === 'loaded',
   )
 }
 const grants = () =>
@@ -276,12 +277,8 @@ async function setup() {
   const version = await admin.policySets.addVersion(created.zone.id, created.policySet.id, [
     { policy_version_id: created.policy.version_id },
   ])
-  await admin.policySets.activate(created.zone.id, created.policySet.id, version.version_id)
-  await waitFor(
-    'initial policy activation',
-    async () =>
-      (await admin.policySets.activationStatus(created.zone.id, created.policySet.id, version.version_id)).propagation_status === 'loaded',
-  )
+  created.initialPolicySetVersion = version.version_id
+  await activatePolicySetVersion(created.initialPolicySetVersion)
   results.fixture = {
     zoneId: created.zone.id,
     identities,
@@ -575,10 +572,10 @@ async function correctness() {
     session(async (client, resource, ctx) => {
       const mandate = await mint(client, resource, ctx)
       try {
-        await activate(authorGrantsDocument([]))
+        await activate(authorGrantsDocument(grants().filter((grant) => grant.resourceIdentifier !== resource.identifier)))
         return await deny(await raw(mandate.token, resource))
       } finally {
-        await activate(authorGrantsDocument(grants()))
+        await activatePolicySetVersion(created.initialPolicySetVersion)
       }
     }),
   )
@@ -586,6 +583,12 @@ async function correctness() {
     const transports = clients
       .slice(0, Math.min(identities, 8))
       .map((client, index) => client.applicationTransport(resources[index].identifier, { scopes: [readScope], timeoutMs }))
+    // Provision each application's Session and Delegation before sending concurrent requests.
+    for (const transport of transports) {
+      const response = await transport(`${gatewayUrl}/ok`)
+      assert.equal(response.status, 200)
+      await response.arrayBuffer()
+    }
     const responses = await Promise.all(
       transports.map((transport, index) =>
         transport(`${gatewayUrl}/ok`, { headers: { 'X-Caracal-Resource': resources[index].identifier } }),
