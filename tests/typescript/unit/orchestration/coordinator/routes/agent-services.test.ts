@@ -282,6 +282,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     expect(res.statusCode).toBe(200)
     const updateCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE sessions'))
     expect(updateCall?.[0]).not.toContain('subject_authority_record_id')
+    expect(updateCall?.[0]).toContain('updated_at = GREATEST(updated_at, now())')
     expect(updateCall?.[1]).toEqual(['agent-1', 'z1', expect.any(Number), 1])
   })
 })
@@ -451,6 +452,8 @@ describe('POST /v1/zones/:zoneId/agents/:id/lease: generation fencing', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json()).toMatchObject({ status: 'active', lease_generation: 2 })
+    const updateCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE sessions'))
+    expect(updateCall?.[0]).toContain('updated_at = GREATEST(updated_at, now())')
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 

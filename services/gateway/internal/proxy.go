@@ -268,15 +268,6 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	out := p.sts.Exchange(stsCtx, bearer, zoneID, clientID, resource, r.Method, r.URL.Path, requestID)
 	cancel()
-	if out.Result != nil && revocationAnchors.SessionID != "" {
-		if observedAt := out.Result.SessionUpdatedAt; observedAt == nil || observedAt.IsZero() {
-			out.Status = http.StatusBadGateway
-			out.ClientErr = sharederr.New(sharederr.STSUnavailable, "sts response invalid")
-			out.InternalErr = errors.New("sts returned no session timestamp for a session-bound mandate")
-		} else {
-			revocationAnchors.SessionObservedAt = *observedAt
-		}
-	}
 	p.metrics.STSExchangeLatencyMs.Store(uint64(out.Latency / time.Millisecond))
 	if out.ClientErr != nil {
 		p.recordSTSFailure(out)
@@ -292,6 +283,16 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p.recordSTSSuccess()
 	res := out.Result
+	if revocationAnchors.SessionID != "" {
+		if res.SessionUpdatedAt == nil || res.SessionUpdatedAt.IsZero() {
+			p.metrics.RequestsDenied.Add(1)
+			p.metrics.STSExchangeErrors.Add(1)
+			logger.Warn().Msg("sts returned no session timestamp for a session-bound mandate")
+			writeErr(w, requestID, http.StatusBadGateway, sharederr.STSUnavailable, "sts response invalid")
+			return
+		}
+		revocationAnchors.SessionObservedAt = *res.SessionUpdatedAt
+	}
 	if p.revocations.WasSessionSuspended(revocationAnchors.SessionID, revocationAnchors.SessionObservedAt) {
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsRevoked.Add(1)
@@ -759,27 +760,22 @@ func copyResponseWithTimeout(w http.ResponseWriter, resp *http.Response, revocat
 		}
 	}
 	flusher, _ := w.(http.Flusher)
-	if flusher == nil {
-		if writeTimeout > 0 {
-			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(writeTimeout))
-		}
-		w.WriteHeader(resp.StatusCode)
-		n, err := io.Copy(w, resp.Body)
-		return responseCopyResult{Bytes: n, Err: err}
+	if flusher != nil {
+		w.Header().Add("Trailer", "X-Caracal-Revoked")
 	}
-	w.Header().Add("Trailer", "X-Caracal-Revoked")
 	controller := http.NewResponseController(w)
-	streaming := streamResponse(resp)
+	streaming := flusher != nil && streamResponse(resp)
 	if streaming {
 		_ = controller.SetWriteDeadline(time.Now().Add(streamIdle))
 	} else if writeTimeout > 0 {
 		_ = controller.SetWriteDeadline(time.Now().Add(writeTimeout))
 	}
 	w.WriteHeader(resp.StatusCode)
-	flusher.Flush()
-	// A quiet stream can block in Read and never reach the chunk boundary.
-	// Cancel its upstream context if any anchor is revoked while it waits.
-	if streaming && cancelUpstream != nil {
+	if flusher != nil {
+		flusher.Flush()
+	}
+	// A blocked read needs upstream cancellation to reach the next revocation check.
+	if cancelUpstream != nil {
 		done := make(chan struct{})
 		defer close(done)
 		go func() {
@@ -799,7 +795,7 @@ func copyResponseWithTimeout(w http.ResponseWriter, resp *http.Response, revocat
 		}()
 	}
 	n, revoked, err := streamCopyWithDeadline(w, resp.Body, flusher, revocations, ids, controller, streaming, streamIdle)
-	if revoked {
+	if revoked && flusher != nil {
 		w.Header().Set("X-Caracal-Revoked", "true")
 	}
 	return responseCopyResult{Bytes: n, Revoked: revoked, Err: err}
@@ -823,7 +819,7 @@ func streamCopyWithDeadline(w io.Writer, src io.ReadCloser, flusher http.Flusher
 			return total, true, nil
 		}
 		n, rerr := src.Read(buf)
-		if streaming && ids.revoked(revocations) {
+		if ids.revoked(revocations) {
 			_ = src.Close()
 			return total, true, nil
 		}
@@ -835,7 +831,9 @@ func streamCopyWithDeadline(w io.Writer, src io.ReadCloser, flusher http.Flusher
 				return total, false, werr
 			}
 			total += int64(n)
-			flusher.Flush()
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {

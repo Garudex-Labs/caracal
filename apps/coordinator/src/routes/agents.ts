@@ -581,7 +581,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
                 WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
                 ELSE heartbeat_deadline_at
               END,
-              updated_at = clock_timestamp()
+              updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
           WHERE id IN (SELECT id FROM tree) AND zone_id = $2
           RETURNING id, parent_id, updated_at`,
         [id, zoneId, cfg.serviceSessionLeaseSeconds],
@@ -696,7 +696,7 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
      ),
      suspended AS (
        UPDATE sessions
-       SET status = 'suspended', updated_at = clock_timestamp()
+       SET status = 'suspended', updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
        WHERE id IN (SELECT id FROM tree) AND zone_id = $2
        RETURNING id, subject_authority_record_id, parent_id, updated_at
      )
@@ -773,7 +773,7 @@ export async function terminateSubtree(
      ),
      adjusted AS (
        UPDATE sessions s
-       SET child_count = GREATEST(s.child_count - p.dec, 0), updated_at = now()
+       SET child_count = GREATEST(s.child_count - p.dec, 0), updated_at = GREATEST(s.updated_at, now())
        FROM parent_decrements p
        WHERE s.id = p.parent_id AND s.zone_id = $2
        RETURNING s.id

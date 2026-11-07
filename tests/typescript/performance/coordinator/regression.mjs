@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { fixture, call, db, admin, invocationBody, delegationBody, coordinatorUrl } from './workload.mjs'
 import { startIdempotency, completeIdempotency, keyDigest, requestDigest } from '../../../../apps/coordinator/dist/idempotency.js'
 import { cfg } from '../../../../apps/coordinator/dist/config.js'
+import { sessionLockKey } from '../../../../apps/coordinator/dist/routes/agents.js'
 import { insertAdminAuditRecord } from '../../../../packages/adminAudit/ts/dist/index.js'
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
@@ -142,6 +143,44 @@ try {
     await call(`${f.prefix}/agents/${id}/suspend`, f.token, 'PATCH')
     await call(`${f.prefix}/agents/${id}/resume`, f.token, 'PATCH')
     await call(`${f.prefix}/agents/${id}`, f.token, 'DELETE', { lease_generation: lease.lease_generation }, undefined, 204)
+  })
+  await check('a heartbeat started before suspension preserves the resumed Session timestamp', async () => {
+    const body = { application_id: f.app.id, lifecycle: 'service' }
+    const { result: service } = await call(`${f.prefix}/agents`, f.token, 'POST', body, 'delayed-heartbeat', 201)
+    const path = `${f.prefix}/agents/${service.agent_session_id}`
+    const heartbeatBody = { lease_generation: service.lease_generation }
+    const blocker = await db.connect()
+    let heartbeat
+    try {
+      await blocker.query('BEGIN')
+      await blocker.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(f.zone.id)])
+      heartbeat = call(`${path}/heartbeat`, f.token, 'POST', heartbeatBody)
+      void heartbeat.catch(() => {})
+      await until(async () => {
+        const { rows } = await db.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event = 'advisory' AND $1 = ANY(pg_blocking_pids(pid))",
+          [blocker.processID],
+        )
+        return rows.length > 0
+      }, 'heartbeat did not wait on the Session advisory lock', 5000)
+
+      await call(`${path}/suspend`, f.token, 'PATCH')
+      await call(`${path}/resume`, f.token, 'PATCH')
+      const { rows: [resumed] } = await db.query('SELECT updated_at::text FROM sessions WHERE id = $1', [service.agent_session_id])
+      await blocker.query('COMMIT')
+      await heartbeat
+      const { rows: [after] } = await db.query(
+        'SELECT status, updated_at >= $2::timestamptz AS preserves_resume FROM sessions WHERE id = $1',
+        [service.agent_session_id, resumed.updated_at],
+      )
+      assert.equal(after.status, 'active')
+      assert.equal(after.preserves_resume, true)
+    } finally {
+      await blocker.query('ROLLBACK')
+      blocker.release()
+      await heartbeat?.catch(() => {})
+    }
+    await call(path, f.token, 'DELETE', heartbeatBody, undefined, 204)
   })
   await check('JWT tampering and cross-zone access remain denied', async () => {
     const pieces = f.token.split('.')

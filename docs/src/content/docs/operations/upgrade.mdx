@@ -22,6 +22,17 @@ It refreshes assets, preserves env/non-empty secrets, stages, migrates, rolls, a
 
 Render/diff exact values, run pinned Helm upgrade with wait/atomic behavior, and inspect migration Jobs/rollout. Use a diff plugin only if installed.
 
+When upgrading from a release whose STS omits the Session timestamp, roll out the target STS image first. Apply any target schema migrations before changing the image. Keep the current Gateway running until every STS replica serves the target version. A readiness response from the STS service alone can come from either version during the rollout.
+
+Use the current release's STS workload name and the exact Go image from the rendered target chart. The STS workload can be a StatefulSet or a Deployment.
+
+```bash
+kubectl -n "$namespace" set image "$sts_workload" "sts=$target_go_image"
+kubectl -n "$namespace" rollout status "$sts_workload" --timeout=5m
+```
+
+Send a governed Session request through the current Gateway after STS finishes rolling. Continue with the Helm upgrade only after it succeeds, then repeat the request on the new Gateway. For rollbacks across this boundary, roll back Gateway before STS.
+
 ## Verify
 
 Confirm migrations, readiness, queues/replay, exchange, protected request, revocation denial, and audit evidence.

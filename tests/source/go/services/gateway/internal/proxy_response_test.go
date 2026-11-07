@@ -210,7 +210,23 @@ func (b quietResponseBody) Read([]byte) (int, error) {
 
 func (quietResponseBody) Close() error { return nil }
 
-func TestCopyResponseSuspensionClosesQuietStream(t *testing.T) {
+func TestCopyResponseSuspensionCancelsBlockedRead(t *testing.T) {
+	for _, response := range []struct {
+		name          string
+		contentType   string
+		contentLength int64
+	}{
+		{name: "event stream", contentType: "text/event-stream", contentLength: -1},
+		{name: "fixed length", contentType: "application/json", contentLength: 16},
+	} {
+		t.Run(response.name, func(t *testing.T) {
+			testSuspensionCancelsBlockedRead(t, response.contentType, response.contentLength)
+		})
+	}
+}
+
+func testSuspensionCancelsBlockedRead(t *testing.T, contentType string, contentLength int64) {
+	t.Helper()
 	const sessionID = "quiet-session"
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
@@ -218,9 +234,10 @@ func TestCopyResponseSuspensionClosesQuietStream(t *testing.T) {
 	anchors := tokenRevocationAnchors{SessionID: sessionID, SessionObservedAt: time.Now()}
 	body := quietResponseBody{ctx: ctx, reading: make(chan struct{})}
 	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": {"text/event-stream"}},
-		Body:       body,
+		StatusCode:    http.StatusOK,
+		Header:        http.Header{"Content-Type": {contentType}},
+		ContentLength: contentLength,
+		Body:          body,
 	}
 	rec := httptest.NewRecorder()
 	finished := make(chan responseCopyResult, 1)

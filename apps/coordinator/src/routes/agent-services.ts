@@ -213,7 +213,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
              last_active_at = now(),
              last_heartbeat_at = now(),
              heartbeat_deadline_at = now() + ($3::int * interval '1 second'),
-             updated_at = now()
+             updated_at = GREATEST(updated_at, now())
          WHERE id = $1 AND zone_id = $2
          RETURNING status, heartbeat_deadline_at, lease_generation`,
         [id, zoneId, cfg.serviceSessionLeaseSeconds],
@@ -317,7 +317,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
          SET last_active_at = now(),
              last_heartbeat_at = now(),
              heartbeat_deadline_at = now() + ($3::int * interval '1 second'),
-             updated_at = now()
+             updated_at = GREATEST(updated_at, now())
          WHERE id = $1 AND zone_id = $2 AND lease_generation = $4
           RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at, lease_generation`,
         [id, zoneId, cfg.serviceSessionLeaseSeconds, body.lease_generation],

@@ -96,7 +96,7 @@ func (r *revokingChunkReader) Read(p []byte) (int, error) {
 	}
 	n := copy(p, r.chunks[r.index])
 	r.index++
-	if r.index == 1 {
+	if r.index == 2 {
 		r.revoked.Store(true)
 	}
 	return n, nil
@@ -1371,7 +1371,7 @@ func TestProxySSEStreamsAndFlushes(t *testing.T) {
 	}
 }
 
-func TestProxyRejectsSessionExchangeWithoutTimestamp(t *testing.T) {
+func TestProxyRejectsSessionExchangeWithoutTimestampWithoutOpeningCircuit(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		upstreamCalls.Add(1)
@@ -1380,13 +1380,24 @@ func TestProxyRejectsSessionExchangeWithoutTimestamp(t *testing.T) {
 	defer upstream.Close()
 	sts := newFakeSTS(t, upstream.URL, nil)
 	defer sts.Close()
-	resp := doProxiedRequest(t, newProxyForTest(t, sts), "GET", "/x", nil, http.Header{
-		"Authorization":      {"Bearer " + makeSessionJWT(t, "session-1")},
+	p := newProxyForTest(t, sts)
+	for range stsCircuitFailureLimit {
+		resp := doProxiedRequest(t, p, "GET", "/x", nil, http.Header{
+			"Authorization":      {"Bearer " + makeSessionJWT(t, "session-1")},
+			"X-Caracal-Resource": {"r1"},
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadGateway || upstreamCalls.Load() != 0 {
+			t.Fatalf("expected bad gateway without upstream traffic, got %d and %d calls", resp.StatusCode, upstreamCalls.Load())
+		}
+	}
+	resp := doProxiedRequest(t, p, "GET", "/x", nil, http.Header{
+		"Authorization":      {"Bearer " + makeJWT(t, time.Hour)},
 		"X-Caracal-Resource": {"r1"},
 	})
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway || upstreamCalls.Load() != 0 {
-		t.Fatalf("expected bad gateway without upstream traffic, got %d and %d calls", resp.StatusCode, upstreamCalls.Load())
+	if resp.StatusCode != http.StatusOK || upstreamCalls.Load() != 1 {
+		t.Fatalf("expected the unbound request to reach upstream, got %d and %d calls", resp.StatusCode, upstreamCalls.Load())
 	}
 }
 
