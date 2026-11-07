@@ -249,8 +249,8 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		writeReadyFailure(w, "sts_unavailable")
 		return
 	}
-	if err := s.sts.Health(ctx); err != nil {
-		s.log.Warn().Err(err).Msg("ready: sts unreachable")
+	if err := s.sts.Ready(ctx); err != nil {
+		s.log.Warn().Err(err).Msg("ready: sts unavailable")
 		writeReadyFailure(w, "sts_unreachable")
 		return
 	}

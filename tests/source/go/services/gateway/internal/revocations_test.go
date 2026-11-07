@@ -109,6 +109,25 @@ func TestProcessRevocationMessageMarksSignedAgent(t *testing.T) {
 	}
 }
 
+func TestSuspensionOnlyCutsOffRequestsThatStartedBeforeIt(t *testing.T) {
+	log := zerolog.New(io.Discard)
+	store := newRevocationStore(log)
+	rdb := &fakeRevocationRedis{verify: true}
+	at := time.Now().UTC().Truncate(time.Millisecond)
+	for _, occurred := range []time.Time{at, at.Add(-2 * time.Second)} {
+		processRevocationMessage(context.Background(), rdb, store, groupRevoke, redisMessage("1-0", map[string]any{
+			"agent_session_id": "agent1",
+			"suspended_at":     occurred.Format(time.RFC3339Nano),
+		}), nil, log)
+	}
+	if !store.WasSessionSuspended("agent1", at.Add(-time.Second)) || !store.WasSessionSuspended("agent1", at.Add(-time.Microsecond)) {
+		t.Fatal("suspension must cut off requests in flight at the latest suspension")
+	}
+	if store.WasSessionSuspended("agent1", at.Add(time.Millisecond)) || store.WasSessionSuspended("agent2", at) || store.IsSessionRevoked("agent1") {
+		t.Fatal("a suspension must not permanently revoke a Session or affect another Session")
+	}
+}
+
 func TestProcessRevocationMessageMarksSignedDelegation(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	redis := &fakeRevocationRedis{verify: true}

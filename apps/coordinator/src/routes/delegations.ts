@@ -602,28 +602,26 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         affected_edges: revoked.length,
         epoch,
       })
-      const sessionItems: OutboxItem[] = []
-      const seenAuthorityRecordIds = new Set<string>()
-      for (const row of targets) {
-        if (seenAuthorityRecordIds.has(row.subject_authority_record_id)) continue
-        seenAuthorityRecordIds.add(row.subject_authority_record_id)
-        sessionItems.push({
+      // terminateSubtree publishes Session revocations and protects shared
+      // authority records. Publish the revoked edges without revoking that
+      // authority a second time.
+      await enqueueMany(
+        client,
+        revoked.map((row): OutboxItem => ({
           topic: Topics.SessionsRevoke,
-          dedupeKey: `delegation:${id}:subject:${row.subject_authority_record_id}`,
+          dedupeKey: `delegation_revoke:${row.id}`,
           payload: {
             zone_id: zoneId,
-            session_id: row.subject_authority_record_id,
-            agent_session_id: row.id,
-            delegation_edge_id: id,
+            agent_session_id: row.target_session_id,
+            delegation_edge_id: row.id,
             reason: 'delegation_revoked',
           },
-        })
-      }
-      await enqueueMany(client, sessionItems)
+        })),
+      )
       await client.query('COMMIT')
       return {
         revoked_edges: revoked.length,
-        affected_sessions: seenAuthorityRecordIds.size,
+        affected_sessions: new Set(targets.map((row) => row.subject_authority_record_id)).size,
         terminated_sessions: terminated,
       }
     } catch (err) {

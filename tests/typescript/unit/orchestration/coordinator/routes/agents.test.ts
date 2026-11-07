@@ -872,8 +872,13 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
     const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
     const params = (outboxCalls[0]?.[1] ?? []) as unknown[]
     const dedupeKeys = params.filter((_, i) => i % 4 === 2)
-    expect(dedupeKeys).toEqual(expect.arrayContaining(['terminate:agent-root', 'terminate:agent-child', 'agent_terminate:agent-child']))
-    expect(dedupeKeys).not.toContain('agent_terminate:agent-root')
+    const rootEvent = dedupeKeys.indexOf('agent_terminate:agent-root')
+    const childEvent = dedupeKeys.indexOf('agent_terminate:agent-child')
+    expect(rootEvent).toBeGreaterThanOrEqual(0)
+    expect(childEvent).toBeGreaterThanOrEqual(0)
+    expect(params[rootEvent * 4 + 3]).toMatchObject({ agent_session_id: 'agent-root' })
+    expect(params[rootEvent * 4 + 3]).not.toHaveProperty('session_id')
+    expect(params[childEvent * 4 + 3]).toMatchObject({ agent_session_id: 'agent-child', session_id: 'sid-own' })
   })
 
   it('revokes delegation edges touching the terminated subtree and invalidates them', async () => {

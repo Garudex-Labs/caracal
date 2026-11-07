@@ -348,6 +348,7 @@ type Session struct {
 	Labels                          []string
 	Status                          string
 	StartedAt                       time.Time
+	UpdatedAt                       time.Time
 	TTLSeconds                      int
 	HeartbeatDeadlineAt             *time.Time
 	ParentID                        *string
@@ -400,7 +401,7 @@ func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
 	err := d.pool.QueryRow(ctx,
 		`SELECT session.id, session.zone_id, session.application_id, session.subject_authority_record_id,
 		        authority.session_type, COALESCE(authority.subject_id, ''), authority.status, authority.expires_at,
-		        session.lifecycle, session.labels, session.status, session.started_at,
+		        session.lifecycle, session.labels, session.status, session.started_at, session.updated_at,
 		        COALESCE(session.ttl_seconds, 0), session.heartbeat_deadline_at, session.parent_id, session.depth
 		 FROM sessions session
 		 JOIN authority_records authority ON authority.id = session.subject_authority_record_id
@@ -408,7 +409,7 @@ func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
 	).Scan(
 		&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectAuthorityRecordID,
 		&s.SubjectAuthorityRecordType, &s.SubjectAuthorityRecordSubject, &s.SubjectAuthorityRecordStatus, &s.SubjectAuthorityRecordExpiresAt,
-		&s.Lifecycle, &s.Labels, &s.Status, &s.StartedAt, &s.TTLSeconds,
+		&s.Lifecycle, &s.Labels, &s.Status, &s.StartedAt, &s.UpdatedAt, &s.TTLSeconds,
 		&s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth,
 	)
 	if err != nil {

@@ -581,7 +581,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
                 WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
                 ELSE heartbeat_deadline_at
               END,
-              updated_at = now()
+              updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
           WHERE id IN (SELECT id FROM tree) AND zone_id = $2
           RETURNING id, parent_id, updated_at`,
         [id, zoneId, cfg.serviceSessionLeaseSeconds],
@@ -678,7 +678,7 @@ interface SuspendedRow {
   id: string
   subject_authority_record_id: string
   parent_id: string | null
-  updated_at: Date | string
+  updated_at: string
 }
 
 export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds: string[], reason: string): Promise<number> {
@@ -696,18 +696,20 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
      ),
      suspended AS (
        UPDATE sessions
-       SET status = 'suspended', updated_at = now()
+       SET status = 'suspended', updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
        WHERE id IN (SELECT id FROM tree) AND zone_id = $2
        RETURNING id, subject_authority_record_id, parent_id, updated_at
      )
-     SELECT id, subject_authority_record_id, parent_id, updated_at FROM suspended`,
+     SELECT id, subject_authority_record_id, parent_id,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
+     FROM suspended`,
     [rootIds, zoneId],
   )
   if (rows.length === 0) return 0
   const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
   for (const row of rows) {
-    const occurrence = occurrenceOf(row.updated_at)
+    const occurrence = row.updated_at
     items.push({
       topic: Topics.AgentsLifecycle,
       dedupeKey: `suspend:${row.id}:${occurrence}`,
@@ -719,14 +721,14 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
         reason,
       },
     })
-    if (exemptSessions.has(row.subject_authority_record_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_suspend:${row.id}:${occurrence}`,
       payload: {
         zone_id: zoneId,
-        session_id: row.subject_authority_record_id,
+        ...(exemptSessions.has(row.subject_authority_record_id) ? {} : { session_id: row.subject_authority_record_id }),
         agent_session_id: row.id,
+        suspended_at: occurrence,
         reason,
       },
     })
@@ -771,7 +773,7 @@ export async function terminateSubtree(
      ),
      adjusted AS (
        UPDATE sessions s
-       SET child_count = GREATEST(s.child_count - p.dec, 0), updated_at = now()
+       SET child_count = GREATEST(s.child_count - p.dec, 0), updated_at = GREATEST(s.updated_at, now())
        FROM parent_decrements p
        WHERE s.id = p.parent_id AND s.zone_id = $2
        RETURNING s.id
@@ -816,11 +818,15 @@ export async function terminateSubtree(
         reason,
       },
     })
-    if (exemptSessions.has(row.subject_authority_record_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_terminate:${row.id}`,
-      payload: { zone_id: zoneId, session_id: row.subject_authority_record_id, agent_session_id: row.id, reason },
+      payload: {
+        zone_id: zoneId,
+        ...(exemptSessions.has(row.subject_authority_record_id) ? {} : { session_id: row.subject_authority_record_id }),
+        agent_session_id: row.id,
+        reason,
+      },
     })
   }
   await enqueueMany(client as Queryable, items)
