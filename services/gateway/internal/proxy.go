@@ -265,10 +265,18 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Warn().Int("status", http.StatusServiceUnavailable).Msg("sts circuit open")
 		return
 	}
-	exchangeStartedAt := time.Now()
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	out := p.sts.Exchange(stsCtx, bearer, zoneID, clientID, resource, r.Method, r.URL.Path, requestID)
 	cancel()
+	if out.Result != nil && revocationAnchors.SessionID != "" {
+		if observedAt := out.Result.SessionUpdatedAt; observedAt == nil || observedAt.IsZero() {
+			out.Status = http.StatusBadGateway
+			out.ClientErr = sharederr.New(sharederr.STSUnavailable, "sts response invalid")
+			out.InternalErr = errors.New("sts returned no session timestamp for a session-bound mandate")
+		} else {
+			revocationAnchors.SessionObservedAt = *observedAt
+		}
+	}
 	p.metrics.STSExchangeLatencyMs.Store(uint64(out.Latency / time.Millisecond))
 	if out.ClientErr != nil {
 		p.recordSTSFailure(out)
@@ -284,12 +292,6 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p.recordSTSSuccess()
 	res := out.Result
-	// Compare transitions against the row STS actually authorized, rather than
-	// the Gateway clock. Fall back to exchange start for older STS deployments.
-	revocationAnchors.SessionObservedAt = exchangeStartedAt
-	if res.SessionUpdatedAt != nil {
-		revocationAnchors.SessionObservedAt = *res.SessionUpdatedAt
-	}
 	if p.revocations.WasSessionSuspended(revocationAnchors.SessionID, revocationAnchors.SessionObservedAt) {
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsRevoked.Add(1)

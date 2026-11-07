@@ -1,5 +1,7 @@
-// Copyright (C) 2026 Garudex Labs. All Rights Reserved.
-// Statistics for live governed-request measurements. No synthetic request results.
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Statistics for live governed request measurements.
 
 export function percentile(values, percent) {
   if (!values.length) return null

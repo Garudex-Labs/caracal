@@ -1,5 +1,7 @@
-// Copyright (C) 2026 Garudex Labs. All Rights Reserved.
-// Controlled upstream for real-stack Gateway validation. Never returns credentials.
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Controlled upstream for Gateway validation.
 import { createServer } from 'node:http'
 
 const counts = new Map()

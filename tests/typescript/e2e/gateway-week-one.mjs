@@ -1,5 +1,7 @@
-// Copyright (C) 2026 Garudex Labs. All Rights Reserved.
-// Executes real SDK -> STS -> Gateway -> controlled upstream flows and records evidence.
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// End-to-end harness for governed Gateway requests and audit evidence.
 import assert from 'node:assert/strict'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from 'node:child_process'

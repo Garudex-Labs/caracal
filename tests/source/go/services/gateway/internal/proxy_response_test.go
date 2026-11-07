@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -193,5 +194,51 @@ func TestCopyResponseEmitsRevocationTrailer(t *testing.T) {
 	}
 	if got := rec.Header().Get("X-Caracal-Revoked"); got != "true" {
 		t.Fatalf("expected X-Caracal-Revoked trailer, got %q", got)
+	}
+}
+
+type quietResponseBody struct {
+	ctx     context.Context
+	reading chan struct{}
+}
+
+func (b quietResponseBody) Read([]byte) (int, error) {
+	close(b.reading)
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (quietResponseBody) Close() error { return nil }
+
+func TestCopyResponseSuspensionClosesQuietStream(t *testing.T) {
+	const sessionID = "quiet-session"
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	store := newRevocationStore(zerolog.Nop())
+	anchors := tokenRevocationAnchors{SessionID: sessionID, SessionObservedAt: time.Now()}
+	body := quietResponseBody{ctx: ctx, reading: make(chan struct{})}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		Body:       body,
+	}
+	rec := httptest.NewRecorder()
+	finished := make(chan responseCopyResult, 1)
+	go func() {
+		finished <- copyResponseWithTimeout(rec, resp, store, anchors, defaultWriteTimeout, defaultWriteTimeout, cancel)
+	}()
+	select {
+	case <-body.reading:
+	case <-ctx.Done():
+		t.Fatal("stream did not reach the upstream read")
+	}
+
+	store.recordSuspension(sessionID, time.Now())
+	result := <-finished
+	if ctx.Err() != context.Canceled || !result.Revoked || result.Err != nil {
+		t.Fatalf("expected suspension to cancel the blocked read, got context error %v and result %#v", ctx.Err(), result)
+	}
+	if got := rec.Header().Get("X-Caracal-Revoked"); got != "true" {
+		t.Fatalf("expected revocation trailer, got %q", got)
 	}
 }

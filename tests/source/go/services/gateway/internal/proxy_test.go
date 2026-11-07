@@ -182,6 +182,18 @@ func makeJWTWithRoot(t *testing.T, offset time.Duration, rootAuthorityRecordID s
 	return header + "." + body + ".sig"
 }
 
+func makeSessionJWT(t *testing.T, sessionID string) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, _ := json.Marshal(struct {
+		Exp       int64  `json:"exp"`
+		ZoneID    string `json:"zone_id"`
+		ClientID  string `json:"client_id"`
+		SessionID string `json:"agent_session_id"`
+	}{Exp: time.Now().Add(time.Hour).Unix(), ZoneID: "z", ClientID: "a", SessionID: sessionID})
+	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+}
+
 type stsResponseFixture struct {
 	AccessToken string                               `json:"access_token"`
 	ExpiresIn   int                                  `json:"expires_in"`
@@ -1356,6 +1368,25 @@ func TestProxySSEStreamsAndFlushes(t *testing.T) {
 	case <-gotChunk:
 	case <-time.After(2 * time.Second):
 		t.Fatal("first SSE chunk not received within 2s: flushing broken")
+	}
+}
+
+func TestProxyRejectsSessionExchangeWithoutTimestamp(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	sts := newFakeSTS(t, upstream.URL, nil)
+	defer sts.Close()
+	resp := doProxiedRequest(t, newProxyForTest(t, sts), "GET", "/x", nil, http.Header{
+		"Authorization":      {"Bearer " + makeSessionJWT(t, "session-1")},
+		"X-Caracal-Resource": {"r1"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway || upstreamCalls.Load() != 0 {
+		t.Fatalf("expected bad gateway without upstream traffic, got %d and %d calls", resp.StatusCode, upstreamCalls.Load())
 	}
 }
 
