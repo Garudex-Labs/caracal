@@ -47,7 +47,7 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
-    "bun": "1.4.4",
+    "bun": "1.4.5",
     "typescript": "^6.0.3",
     "vitest": "^4.1.12"
   }
